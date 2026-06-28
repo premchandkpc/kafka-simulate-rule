@@ -31,8 +31,16 @@ impl Optimizer {
                 ASTNode::Timeout(ms) => {
                     pending_timeout = Some(*ms);
                 }
-                ASTNode::Retry { count, strategy, fixed_ms } => {
-                    pending_retry = Some(ASTNode::Retry { count: *count, strategy: strategy.clone(), fixed_ms: *fixed_ms });
+                ASTNode::Retry {
+                    count,
+                    strategy,
+                    fixed_ms,
+                } => {
+                    pending_retry = Some(ASTNode::Retry {
+                        count: *count,
+                        strategy: strategy.clone(),
+                        fixed_ms: *fixed_ms,
+                    });
                 }
                 ASTNode::Next(_) | ASTNode::Async(_) => {
                     if let Some(ms) = pending_timeout.take() {
@@ -149,7 +157,8 @@ impl Optimizer {
     }
 
     fn remove_nops(&self, nodes: &[ASTNode]) -> Vec<ASTNode> {
-        nodes.iter()
+        nodes
+            .iter()
             .filter(|n| !matches!(n, ASTNode::Pipe))
             .cloned()
             .collect()
@@ -187,7 +196,10 @@ mod tests {
     fn test_merge_adjacent_emits() {
         let opt = optimize_str("e:a e:b e:c");
         assert_eq!(opt.nodes.len(), 1);
-        assert_eq!(opt.nodes[0], ASTNode::Emit(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert_eq!(
+            opt.nodes[0],
+            ASTNode::Emit(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+        );
     }
 
     #[test]
