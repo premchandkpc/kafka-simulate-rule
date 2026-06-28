@@ -1,26 +1,14 @@
 use bumpalo::Bump;
-use super::slab::SlabPool;
 
 pub struct Arena {
     bump: Bump,
-    slab_pool: *mut SlabPool,
 }
 
 unsafe impl Send for Arena {}
 
 impl Arena {
     pub fn new() -> Self {
-        Arena {
-            bump: Bump::new(),
-            slab_pool: std::ptr::null_mut(),
-        }
-    }
-
-    pub fn with_slab_pool(pool: &SlabPool) -> Self {
-        Arena {
-            bump: Bump::new(),
-            slab_pool: pool as *const SlabPool as *mut SlabPool,
-        }
+        Arena { bump: Bump::new() }
     }
 
     pub fn alloc(&self, n: usize) -> &mut [u8] {
@@ -39,15 +27,6 @@ impl Arena {
 
     pub fn reset(&mut self) {
         self.bump.reset();
-    }
-
-    pub fn release(mut self) {
-        self.bump.reset();
-        if !self.slab_pool.is_null() {
-            unsafe {
-                (*self.slab_pool).put(self);
-            }
-        }
     }
 
     pub fn allocated_bytes(&self) -> usize {

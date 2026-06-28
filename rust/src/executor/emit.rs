@@ -12,7 +12,11 @@ pub fn exec_emit(
 
     for offset in 0..count as usize {
         let svc_idx = first_svc + offset;
-        caller(plan.services.entries()[svc_idx as usize].id, body, 0)?;
+        caller(
+            plan.services.entries()[svc_idx as usize].id,
+            body,
+            0,
+        )?;
     }
     Ok(())
 }

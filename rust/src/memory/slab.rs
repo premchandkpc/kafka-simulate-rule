@@ -1,14 +1,13 @@
 use crossbeam_queue::SegQueue;
+
 use super::arena::Arena;
 
 const SMALL_SIZE: usize = 2048;
 const MEDIUM_SIZE: usize = 8192;
-const LARGE_SIZE: usize = 65536;
-
 pub struct SlabPool {
-    pub small: SegQueue<Arena>,
-    pub medium: SegQueue<Arena>,
-    pub large: SegQueue<Arena>,
+    small: SegQueue<Arena>,
+    medium: SegQueue<Arena>,
+    large: SegQueue<Arena>,
 }
 
 impl SlabPool {
@@ -22,13 +21,13 @@ impl SlabPool {
 
     pub fn prefill(&self, small: usize, medium: usize, large: usize) {
         for _ in 0..small {
-            self.small.push(Arena::with_slab_pool(self));
+            self.small.push(Arena::new());
         }
         for _ in 0..medium {
-            self.medium.push(Arena::with_slab_pool(self));
+            self.medium.push(Arena::new());
         }
         for _ in 0..large {
-            self.large.push(Arena::with_slab_pool(self));
+            self.large.push(Arena::new());
         }
     }
 

@@ -23,13 +23,14 @@ pub fn exec_dag<'a>(
 
         for (svc_id, result) in results {
             match result {
-                Ok(resp) => { layer_results.insert(svc_id, resp); }
+                Ok(resp) => {
+                    layer_results.insert(svc_id, resp);
+                }
                 Err(e) => return Err(format!("dag layer service {}: {}", svc_id, e)),
             }
         }
     }
 
-    // Merge terminal node responses into JSON object keyed by service name
     let merged = merge_dag_results(&dag.terminal_nodes, &layer_results, plan, arena);
     Ok(merged)
 }

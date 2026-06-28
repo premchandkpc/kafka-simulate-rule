@@ -30,12 +30,12 @@ pub fn exec_parallel<'a>(
     Ok(helpers::merge_json_array(&part_refs, arena))
 }
 
+#[allow(dead_code)]
 pub fn exec_collect<'a>(
     parallel_result: &[u8],
     _instr: &Instruction,
     _plan: &ExecutionPlan,
     arena: &'a crate::memory::arena::Arena,
 ) -> Result<&'a mut [u8], String> {
-    // parallel result is already a JSON array from exec_parallel
     Ok(arena.alloc_copy(parallel_result))
 }

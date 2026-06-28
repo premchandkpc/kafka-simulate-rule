@@ -1,4 +1,7 @@
-pub fn merge_json_array<'a>(parts: &[&[u8]], arena: &'a crate::memory::arena::Arena) -> &'a mut [u8] {
+pub fn merge_json_array<'a>(
+    parts: &[&[u8]],
+    arena: &'a crate::memory::arena::Arena,
+) -> &'a mut [u8] {
     let total: usize = parts.iter().map(|p| p.len()).sum::<usize>() + parts.len() + 1;
     let buf = arena.alloc(total);
     let mut pos = 0;
@@ -19,7 +22,11 @@ pub fn merge_json_array<'a>(parts: &[&[u8]], arena: &'a crate::memory::arena::Ar
     &mut buf[..pos + 1]
 }
 
-pub fn extract_json_field<'a>(body: &[u8], field_path: &str, arena: &'a crate::memory::arena::Arena) -> Option<&'a mut [u8]> {
+pub fn extract_json_field<'a>(
+    body: &[u8],
+    field_path: &str,
+    arena: &'a crate::memory::arena::Arena,
+) -> Option<&'a mut [u8]> {
     let body_str = std::str::from_utf8(body).ok()?;
     let parts: Vec<&str> = field_path.split('.').collect();
 

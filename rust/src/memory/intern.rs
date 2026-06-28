@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use std::sync::{RwLock, atomic::{AtomicU16, Ordering}};
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::RwLock;
+
 use boxcar::Vec as BoxcarVec;
 
 pub struct InternTable {

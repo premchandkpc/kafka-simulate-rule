@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use super::parser::ASTNode;
 use super::optimizer::OptimizedPipeline;
-use crate::bytecode::opcode::{OpCode, GateOp, ChunkMode, RetryStrategy};
 use crate::bytecode::instruction::Instruction;
-use crate::bytecode::plan::{ExecutionPlan, RetryConfig, ChunkConfig};
+use crate::bytecode::opcode::{ChunkMode, GateOp, OpCode, RetryStrategy};
+use crate::bytecode::plan::{ChunkConfig, ExecutionPlan, RetryConfig};
 
 #[derive(Debug)]
 pub enum CompileError {
@@ -24,7 +24,9 @@ impl fmt::Display for CompileError {
             CompileError::UnknownTarget(t) => write!(f, "unknown target: {}", t),
             CompileError::DagCycle(d) => write!(f, "DAG contains cycle: {}", d),
             CompileError::DagEmpty(_) => write!(f, "DAG is empty (use p:+c: instead)"),
-            CompileError::DagUnknownService(s) => write!(f, "DAG references unknown service: {}", s),
+            CompileError::DagUnknownService(s) => {
+                write!(f, "DAG references unknown service: {}", s)
+            }
             CompileError::DuplicateLabel(l) => write!(f, "duplicate label: {}", l),
             CompileError::UnknownLabel(l) => write!(f, "unknown label: {}", l),
             CompileError::UnterminatedPipeline(s) => write!(f, "unterminated pipeline: {}", s),
@@ -45,53 +47,65 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&self, pipeline: &OptimizedPipeline, rule_id: &str) -> Result<ExecutionPlan, CompileError> {
+    pub fn compile(
+        &self,
+        pipeline: &OptimizedPipeline,
+        rule_id: &str,
+    ) -> Result<ExecutionPlan, CompileError> {
         let mut plan = ExecutionPlan::new(rule_id);
 
         let mut labels: HashMap<String, usize> = HashMap::new();
-        let mut resolved_instructions: Vec<Instruction> = Vec::new();
+        let mut instructions: Vec<Instruction> = Vec::new();
         let mut pending_retry: Option<RetryConfig> = None;
         let mut pending_timeout_ms: Option<u64> = None;
-        let mut i = 0usize;
 
-        // First pass: collect labels and generate instructions
-        while i < pipeline.nodes.len() {
-            match &pipeline.nodes[i] {
+        for node in &pipeline.nodes {
+            match node {
                 ASTNode::Label(name) => {
                     if labels.contains_key(name) {
                         return Err(CompileError::DuplicateLabel(name.clone()));
                     }
-                    labels.insert(name.clone(), resolved_instructions.len());
+                    labels.insert(name.clone(), instructions.len());
+                    instructions.push(Instruction::label());
                 }
                 ASTNode::Jmp(target) => {
-                    resolved_instructions.push(Instruction::jmp(0)); // placeholder
-                    resolved_instructions.push(Instruction::jump_offset(0)); // placeholder
+                    instructions.push(Instruction::jmp(0));
+                    instructions.push(Instruction::jump_offset(0));
+                    let label_idx = instructions.len() - 1;
+                    let target_idx = labels.get(target).copied();
+                    instructions[label_idx] = Instruction::jump_offset(
+                        target_idx.unwrap_or(0) as u16,
+                    );
+                    instructions[label_idx - 1] = Instruction::jmp(
+                        target_idx.unwrap_or(0) as u16,
+                    );
                 }
                 ASTNode::Next(target) => {
                     let svc_id = self.resolve_service(&mut plan, target);
                     let timeout = pending_timeout_ms.take().unwrap_or(0);
-                    resolved_instructions.push(Instruction::next(svc_id, timeout));
+                    instructions.push(Instruction::next(svc_id, timeout));
                 }
                 ASTNode::Async(target) => {
                     let svc_id = self.resolve_service(&mut plan, target);
                     let timeout = pending_timeout_ms.take().unwrap_or(0);
-                    resolved_instructions.push(Instruction::async_svc(svc_id, timeout));
+                    instructions.push(Instruction::async_svc(svc_id, timeout));
                 }
                 ASTNode::Parallel(targets) => {
-                    let ids: Vec<u16> = targets.iter()
+                    let ids: Vec<u16> = targets
+                        .iter()
                         .map(|t| self.resolve_service(&mut plan, t))
                         .collect();
-                    resolved_instructions.push(Instruction::parallel(ids.len() as u8, ids[0]));
+                    instructions.push(Instruction::parallel(ids.len() as u8, ids[0]));
                     for &id in &ids {
-                        resolved_instructions.push(Instruction::svc_arg(id));
+                        instructions.push(Instruction::svc_arg(id));
                     }
                 }
                 ASTNode::Collect => {
-                    resolved_instructions.push(Instruction::collect());
+                    instructions.push(Instruction::collect());
                 }
                 ASTNode::Fallback(target) => {
                     let svc_id = self.resolve_service(&mut plan, target);
-                    resolved_instructions.push(Instruction::fallback(svc_id));
+                    instructions.push(Instruction::fallback(svc_id));
                 }
                 ASTNode::Gate { field, op, value } => {
                     let field_id = plan.const_pool.add(field);
@@ -99,40 +113,45 @@ impl Compiler {
                     let gate_op = GateOp::from_str(op).unwrap_or(GateOp::Eq);
                     let mut instr = Instruction::gate(field_id, gate_op as u8, value_id);
                     instr.flags = gate_op as u8;
-                    resolved_instructions.push(instr);
-                    resolved_instructions.push(Instruction::jump_offset(0)); // placeholder
+                    instructions.push(instr);
+                    instructions.push(Instruction::jump_offset(0));
                 }
                 ASTNode::Emit(targets) => {
-                    let ids: Vec<u16> = targets.iter()
+                    let ids: Vec<u16> = targets
+                        .iter()
                         .map(|t| self.resolve_service(&mut plan, t))
                         .collect();
-                    resolved_instructions.push(Instruction::emit(ids.len() as u8, ids[0]));
+                    instructions.push(Instruction::emit(ids.len() as u8, ids[0]));
                     for &id in &ids {
-                        resolved_instructions.push(Instruction::svc_arg(id));
+                        instructions.push(Instruction::svc_arg(id));
                     }
                 }
                 ASTNode::Drop => {
-                    resolved_instructions.push(Instruction::drop());
+                    instructions.push(Instruction::drop());
                 }
                 ASTNode::Buffer(n) => {
-                    resolved_instructions.push(Instruction::buffer(*n as u8));
+                    instructions.push(Instruction::buffer(*n as u8));
                 }
                 ASTNode::Key(field) => {
                     let field_id = plan.const_pool.add(field);
-                    resolved_instructions.push(Instruction::set_key(field_id));
+                    instructions.push(Instruction::set_key(field_id));
                 }
                 ASTNode::Split(field) => {
                     let field_id = plan.const_pool.add(field);
-                    resolved_instructions.push(Instruction::set_key(field_id));
+                    instructions.push(Instruction::set_key(field_id));
                 }
                 ASTNode::Map(expr) => {
                     let expr_id = plan.const_pool.add(expr);
-                    resolved_instructions.push(Instruction::map(expr_id));
+                    instructions.push(Instruction::map(expr_id));
                 }
                 ASTNode::Timeout(ms) => {
                     pending_timeout_ms = Some(*ms);
                 }
-                ASTNode::Retry { count, strategy, fixed_ms } => {
+                ASTNode::Retry {
+                    count,
+                    strategy,
+                    fixed_ms,
+                } => {
                     let strategy_enum = match strategy.as_deref() {
                         Some("exp") | None => RetryStrategy::Exponential,
                         Some("linear") => RetryStrategy::Linear,
@@ -150,32 +169,30 @@ impl Compiler {
                         "par" => ChunkMode::Parallel,
                         _ => ChunkMode::Sequential,
                     };
-                    let cfg = ChunkConfig { count: *count, mode: cm };
-                    let cfg_id = plan.chunk_configs.len() as u16;
+                    let cfg = ChunkConfig {
+                        count: *count,
+                        mode: cm,
+                    };
                     plan.chunk_configs.push(cfg);
-                    resolved_instructions.push(Instruction::chunk(*count, cm as u8));
+                    instructions.push(Instruction::chunk(*count, cm as u8));
                 }
                 ASTNode::Dag(body) => {
                     let dag_id = self.compile_dag(&mut plan, body)?;
-                    resolved_instructions.push(Instruction::dag(dag_id));
+                    instructions.push(Instruction::dag(dag_id));
                 }
                 ASTNode::Pipe => {}
-                ASTNode::Label(_) => {}
             }
-            i += 1;
         }
 
-        // Second pass: resolve labels in JMP instructions
-        self.resolve_jumps(&mut resolved_instructions, &labels)?;
-
-        // Attach pending retry to preceding Next/Async
+        // Second pass: attach pending retry to preceding Next/Async
         if let Some(retry_cfg) = pending_retry {
-            for instr in resolved_instructions.iter_mut().rev() {
+            for instr in instructions.iter_mut().rev() {
                 match instr.op {
                     OpCode::Next | OpCode::Async => {
-                        instr.flags |= 0x01; // has_retry
+                        instr.flags |= 0x01;
                         let cfg_id = plan.retry_configs.len() as u16;
                         plan.retry_configs.push(retry_cfg);
+                        instr.c = cfg_id;
                         break;
                     }
                     OpCode::Timeout | OpCode::RetryData => continue,
@@ -184,7 +201,7 @@ impl Compiler {
             }
         }
 
-        for instr in resolved_instructions {
+        for instr in instructions {
             plan.add_instr(instr);
         }
 
@@ -195,29 +212,15 @@ impl Compiler {
         plan.services.add(name)
     }
 
-    fn resolve_jumps(&self, instructions: &mut Vec<Instruction>, labels: &HashMap<String, usize>) -> Result<(), CompileError> {
-        let mut i = 0;
-        while i < instructions.len() {
-            if instructions[i].op == OpCode::Jmp {
-                // Find next instruction which should be JumpOffset with the label name
-                if i + 1 < instructions.len() && instructions[i + 1].op == OpCode::JumpOffset {
-                    // The offset value stored in a is the index in our temporary tracking
-                    // We need to resolve the actual label
-                    let label_idx = instructions[i].a as usize;
-                    // For now, just use a placeholder that will be resolved
-                }
-            }
-            i += 1;
-        }
-        Ok(())
-    }
-
     fn compile_dag(&self, plan: &mut ExecutionPlan, body: &str) -> Result<u16, CompileError> {
         if body.is_empty() || body == "{}" {
             return Err(CompileError::DagEmpty(body.to_string()));
         }
 
-        let content = body.trim_start_matches('{').trim_end_matches('}').trim();
+        let content = body
+            .trim_start_matches('{')
+            .trim_end_matches('}')
+            .trim();
         if content.is_empty() {
             return Err(CompileError::DagEmpty(body.to_string()));
         }
@@ -225,7 +228,9 @@ impl Compiler {
         let mut deps: HashMap<String, Vec<String>> = HashMap::new();
         for segment in content.split(',') {
             let seg = segment.trim();
-            if seg.is_empty() { continue; }
+            if seg.is_empty() {
+                continue;
+            }
             if let Some(colon_pos) = seg.find(':') {
                 let node = seg[..colon_pos].trim().to_string();
                 let dep_list = seg[colon_pos + 1..].trim();
@@ -233,9 +238,12 @@ impl Compiler {
                 let node_deps: Vec<String> = if inner.is_empty() {
                     Vec::new()
                 } else {
-                    inner.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                    inner
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
                 };
-                // Register all dependencies as nodes too
                 for dep in &node_deps {
                     deps.entry(dep.clone()).or_insert_with(Vec::new);
                 }
@@ -250,7 +258,7 @@ impl Compiler {
             return Err(CompileError::DagEmpty(body.to_string()));
         }
 
-        for (node, node_deps) in &deps {
+        for node_deps in deps.values() {
             for dep in node_deps {
                 if !deps.contains_key(dep) {
                     return Err(CompileError::DagUnknownService(dep.clone()));
@@ -266,26 +274,30 @@ impl Compiler {
         let mut dag_table = crate::bytecode::dag_table::DAGTable::new();
 
         for (layer_idx, layer) in layers.iter().enumerate() {
-            let mut svc_layer = Vec::new();
             for node_name in layer {
                 let svc_id = self.resolve_service(plan, node_name);
                 dag_table.nodes.push(crate::bytecode::dag_table::DAGNode {
                     service_id: svc_id,
                     layer: layer_idx as u8,
                 });
-                svc_layer.push(svc_id);
             }
+            let svc_layer: Vec<u16> = layer
+                .iter()
+                .map(|n| plan.services.get_by_name(n).map(|e| e.id).unwrap_or(0))
+                .collect();
             dag_table.layers.push(svc_layer);
         }
 
-        // Terminal nodes: nodes that no other node depends on
         let all_nodes: Vec<String> = deps.keys().cloned().collect();
-        let depended_upon: std::collections::HashSet<&str> = deps.values()
-            .flat_map(|v| v.iter().map(|s| s.as_str()))
-            .collect();
+        let depended_upon: HashSet<&str> =
+            deps.values()
+                .flat_map(|v| v.iter().map(|s| s.as_str()))
+                .collect();
         for node in &all_nodes {
             if !depended_upon.contains(node.as_str()) {
-                let svc_id = plan.services.get_by_name(node)
+                let svc_id = plan
+                    .services
+                    .get_by_name(node)
                     .map(|e| e.id)
                     .unwrap_or(0);
                 dag_table.terminal_nodes.push(svc_id);
@@ -346,7 +358,10 @@ impl Compiler {
         false
     }
 
-    fn topological_sort(&self, deps: &HashMap<String, Vec<String>>) -> Vec<Vec<String>> {
+    fn topological_sort(
+        &self,
+        deps: &HashMap<String, Vec<String>>,
+    ) -> Vec<Vec<String>> {
         let mut in_degree: HashMap<String, usize> = HashMap::new();
         let mut adj: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -356,12 +371,15 @@ impl Compiler {
 
             for dep in node_deps {
                 in_degree.entry(dep.clone()).or_insert(0);
-                adj.entry(dep.clone()).or_insert_with(Vec::new).push(node.clone());
+                adj.entry(dep.clone())
+                    .or_insert_with(Vec::new)
+                    .push(node.clone());
             }
         }
 
         let mut layers = Vec::new();
-        let mut current_layer: Vec<String> = in_degree.iter()
+        let mut current_layer: Vec<String> = in_degree
+            .iter()
             .filter(|(_, &deg)| deg == 0)
             .map(|(n, _)| n.clone())
             .collect();
@@ -397,9 +415,10 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bytecode::opcode::OpCode;
     use crate::dsl::lexer;
-    use crate::dsl::parser;
     use crate::dsl::optimizer::Optimizer;
+    use crate::dsl::parser;
 
     fn compile_str(dsl: &str, rule_id: &str) -> Result<ExecutionPlan, CompileError> {
         let tokens = lexer::lex(dsl).unwrap();
@@ -441,16 +460,15 @@ mod tests {
     #[test]
     fn test_dag_unknown_service() {
         let result = compile_str("dag:{A:[X]} e:audit", "unknown-test");
-        // X is unknown but since we auto-register services, this is fine
-        // Actually our compiler auto-registers all services mentioned
-        // Let's test that it compiles successfully instead
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_compile_timeout_hoisted() {
         let plan = compile_str("t500 n:validate", "timeout-test").unwrap();
-        let next_instr = plan.instructions.iter()
+        let next_instr = plan
+            .instructions
+            .iter()
             .find(|i| i.op == OpCode::Next)
             .expect("should have Next instruction");
         assert_eq!(next_instr.timeout_ms(), 500);
@@ -459,7 +477,9 @@ mod tests {
     #[test]
     fn test_compile_retry_attached() {
         let plan = compile_str("n:validate r3", "retry-test").unwrap();
-        let next_instr = plan.instructions.iter()
+        let next_instr = plan
+            .instructions
+            .iter()
             .find(|i| i.op == OpCode::Next)
             .expect("should have Next instruction");
         assert!(next_instr.has_retry());
@@ -469,17 +489,21 @@ mod tests {
     #[test]
     fn test_compile_chunk() {
         let plan = compile_str("chunk:5:par n:storage", "chunk-test").unwrap();
-        let chunk_instrs: Vec<&Instruction> = plan.instructions.iter()
+        let chunk_instrs: Vec<&Instruction> = plan
+            .instructions
+            .iter()
             .filter(|i| i.op == OpCode::Chunk)
             .collect();
         assert_eq!(chunk_instrs.len(), 1);
-        assert_eq!(chunk_instrs[0].a, 5); // count
+        assert_eq!(chunk_instrs[0].a, 5);
     }
 
     #[test]
     fn test_compile_async() {
         let plan = compile_str("a:job-queue e:analytics", "async-test").unwrap();
-        let async_instrs: Vec<&Instruction> = plan.instructions.iter()
+        let async_instrs: Vec<&Instruction> = plan
+            .instructions
+            .iter()
             .filter(|i| i.op == OpCode::Async)
             .collect();
         assert_eq!(async_instrs.len(), 1);
@@ -489,7 +513,7 @@ mod tests {
     fn test_compile_full_pipeline() {
         let result = compile_str(
             "t500 n:validate t1000 p:fraud,inventory c f:dlq n:fulfill e:notify,analytics",
-            "full-test"
+            "full-test",
         );
         assert!(result.is_ok());
     }

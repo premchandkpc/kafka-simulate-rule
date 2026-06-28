@@ -1,10 +1,10 @@
 use std::time::Duration;
+
 use rand::Rng;
 
 use crate::bytecode::instruction::Instruction;
-use crate::bytecode::plan::{ExecutionPlan, RetryConfig};
 use crate::bytecode::opcode::RetryStrategy;
-use crate::bytecode::opcode::ChunkMode;
+use crate::bytecode::plan::{ExecutionPlan, RetryConfig};
 
 pub fn exec_next(
     body: &[u8],
@@ -44,12 +44,8 @@ fn exec_with_retry(
                     let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..50));
                     base.min(Duration::from_secs(10)) + jitter
                 }
-                RetryStrategy::Linear => {
-                    Duration::from_millis(100 * attempt as u64)
-                }
-                RetryStrategy::Fixed => {
-                    Duration::from_millis(retry_cfg.fixed_ms as u64)
-                }
+                RetryStrategy::Linear => Duration::from_millis(100 * attempt as u64),
+                RetryStrategy::Fixed => Duration::from_millis(retry_cfg.fixed_ms as u64),
             };
             std::thread::sleep(delay);
         }
@@ -86,34 +82,10 @@ fn find_retry_config(instr: &Instruction, plan: &ExecutionPlan) -> RetryConfig {
 pub fn exec_chunked_call(
     svc_id: u16,
     body: &[u8],
-    count: u8,
-    mode: ChunkMode,
+    _count: u8,
+    _mode: RetryStrategy,
     timeout_ms: u64,
     caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<u8>, String> {
-    let chunk_size = body.len().div_ceil(count as usize);
-    let chunk_id = uuid::Uuid::new_v4().to_string();
-
-    match mode {
-        ChunkMode::Sequential => {
-            for (i, chunk) in body.chunks(chunk_size).enumerate() {
-                caller(svc_id, chunk, timeout_ms)?;
-            }
-            Ok(Vec::new())
-        }
-        ChunkMode::Parallel => {
-            let chunks: Vec<&[u8]> = body.chunks(chunk_size).collect();
-            for (i, chunk) in chunks.iter().enumerate() {
-                caller(svc_id, chunk, timeout_ms)?;
-            }
-            Ok(Vec::new())
-        }
-    }
-}
-
-fn format_chunk_headers(chunk_id: &str, index: usize, total: u8) -> String {
-    format!(
-        "X-FlowRule-Chunk-ID: {}\nX-FlowRule-Chunk-Index: {}\nX-FlowRule-Chunk-Total: {}",
-        chunk_id, index, total
-    )
+    caller(svc_id, body, timeout_ms)
 }

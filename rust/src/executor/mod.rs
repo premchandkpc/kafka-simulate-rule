@@ -1,18 +1,18 @@
-pub mod helpers;
-pub mod gate;
+pub mod chunk;
+pub mod dag;
 pub mod emit;
+pub mod expr;
+pub mod gate;
+pub mod helpers;
+pub mod map;
 pub mod next;
 pub mod parallel;
-pub mod dag;
-pub mod map;
-pub mod chunk;
-pub mod expr;
 
 use std::sync::Arc;
 
 use crate::bytecode::instruction::Instruction;
-use crate::bytecode::plan::ExecutionPlan;
 use crate::bytecode::opcode::OpCode;
+use crate::bytecode::plan::ExecutionPlan;
 
 pub struct VM<'a> {
     pub ip: usize,
@@ -58,156 +58,136 @@ impl<'a> VM<'a> {
     }
 
     fn dispatch(&mut self, instr: &Instruction) -> Result<(), String> {
-        let caller_ref: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String> = &*self.caller;
+        let caller = self.caller.clone();
         match instr.op {
-            OpCode::Next => {
-                match next::exec_next(&self.last_response, instr, self.plan, caller_ref, false) {
-                    Ok(resp) => {
-                        self.last_response = resp;
-                        self.hop_count += 1;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        self.failed = true;
-                        self.errors.push(e);
-                        Ok(())
-                    }
-                }
-            }
-            OpCode::Async => {
-                match next::exec_next(&self.last_response, instr, self.plan, caller_ref, true) {
-                    Ok(_) => {
-                        self.hop_count += 1;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        self.failed = true;
-                        self.errors.push(e);
-                        Ok(())
-                    }
-                }
-            }
-            OpCode::Parallel => {
-                let result = parallel::exec_parallel(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    caller_ref,
-                    &self.arena,
-                )?;
-                // Store parallel result; Collect will assign it
-                self.last_response = result.to_vec();
-                // Don't increment hop_count here; Collect will
-                Ok(())
-            }
-            OpCode::Collect => {
-                // parallel result already in last_response (merged JSON array)
+            OpCode::Next => self.op_next(instr, &*caller, false),
+            OpCode::Async => self.op_next(instr, &*caller, true),
+            OpCode::Parallel => self.op_parallel(instr, &*caller),
+            OpCode::Collect => self.op_collect(),
+            OpCode::Fallback => self.op_fallback(instr, &*caller),
+            OpCode::Gate => self.op_gate(instr),
+            OpCode::Emit => self.op_emit(instr, &*caller),
+            OpCode::Drop => self.op_drop(),
+            OpCode::Map => self.op_map(instr),
+            OpCode::Dag => self.op_dag(instr, &*caller),
+            OpCode::Jmp => self.op_jmp(instr),
+            OpCode::Key | OpCode::Split => Ok(()),
+            OpCode::Retry => Ok(()),
+            OpCode::Buffer => Err("Buffer must be handled at engine level".to_string()),
+            OpCode::Timeout => Ok(()),
+            OpCode::Chunk => Ok(()),
+            OpCode::Pipe => Ok(()),
+            OpCode::Label => Ok(()),
+            OpCode::SvcArg | OpCode::RetryData | OpCode::JumpOffset => Ok(()),
+        }
+    }
+
+    fn op_next(
+        &mut self,
+        instr: &Instruction,
+        caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
+        is_async: bool,
+    ) -> Result<(), String> {
+        match next::exec_next(&self.last_response, instr, self.plan, caller, is_async) {
+            Ok(resp) => {
+                self.last_response = resp;
                 self.hop_count += 1;
                 Ok(())
             }
-            OpCode::Fallback => {
-                if self.failed {
-                    self.failed = false;
-                    match next::exec_next(
-                        &self.last_response,
-                        instr,
-                        self.plan,
-                        caller_ref,
-                        false,
-                    ) {
-                        Ok(resp) => {
-                            self.last_response = resp;
-                            self.hop_count += 1;
-                        }
-                        Err(e) => {
-                            self.failed = true;
-                            self.errors.push(e);
-                        }
-                    }
-                }
-                Ok(())
-            }
-            OpCode::Gate => {
-                gate::exec_jmp_if_false(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    &self.arena,
-                    &mut 0,
-                );
-                Ok(())
-            }
-            OpCode::Emit => {
-                emit::exec_emit(&self.last_response, instr, self.plan, caller_ref)?;
-                Ok(())
-            }
-            OpCode::Drop => {
-                self.ip = self.plan.instructions.len();
-                Ok(())
-            }
-            OpCode::Map => {
-                let result = map::exec_map(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    &self.arena,
-                )?;
-                self.last_response = result.to_vec();
-                Ok(())
-            }
-            OpCode::Key | OpCode::Split => {
-                Ok(())
-            }
-            OpCode::Retry => {
-                Ok(())
-            }
-            OpCode::Buffer => {
-                Err("Buffer must be handled at engine level".to_string())
-            }
-            OpCode::Timeout => {
-                Ok(())
-            }
-            OpCode::Chunk => {
-                Ok(())
-            }
-            OpCode::Dag => {
-                let result = dag::exec_dag(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    caller_ref,
-                    &self.arena,
-                )?;
-                self.last_response = result.to_vec();
-                self.hop_count += 1;
-                Ok(())
-            }
-            OpCode::Jmp => {
-                self.ip = instr.a as usize;
-                Ok(())
-            }
-            OpCode::Pipe => {
-                Ok(())
-            }
-            OpCode::Label => {
-                Ok(())
-            }
-            OpCode::SvcArg | OpCode::RetryData | OpCode::JumpOffset => {
-                // Meta-instructions skipped at runtime
+            Err(e) => {
+                self.failed = true;
+                self.errors.push(e);
                 Ok(())
             }
         }
+    }
+
+    fn op_parallel(
+        &mut self,
+        instr: &Instruction,
+        caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
+    ) -> Result<(), String> {
+        let result =
+            parallel::exec_parallel(&self.last_response, instr, self.plan, caller, &self.arena)?;
+        self.last_response = result.to_vec();
+        Ok(())
+    }
+
+    fn op_collect(&mut self) -> Result<(), String> {
+        self.hop_count += 1;
+        Ok(())
+    }
+
+    fn op_fallback(
+        &mut self,
+        instr: &Instruction,
+        caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
+    ) -> Result<(), String> {
+        if self.failed {
+            self.failed = false;
+            match next::exec_next(&self.last_response, instr, self.plan, caller, false) {
+                Ok(resp) => {
+                    self.last_response = resp;
+                    self.hop_count += 1;
+                }
+                Err(e) => {
+                    self.failed = true;
+                    self.errors.push(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn op_gate(&mut self, instr: &Instruction) -> Result<(), String> {
+        let mut skip = 0usize;
+        gate::exec_jmp_if_false(&self.last_response, instr, self.plan, &self.arena, &mut skip);
+        Ok(())
+    }
+
+    fn op_emit(
+        &mut self,
+        instr: &Instruction,
+        caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
+    ) -> Result<(), String> {
+        emit::exec_emit(&self.last_response, instr, self.plan, caller)
+    }
+
+    fn op_drop(&mut self) -> Result<(), String> {
+        self.ip = self.plan.instructions.len();
+        Ok(())
+    }
+
+    fn op_map(&mut self, instr: &Instruction) -> Result<(), String> {
+        let result = map::exec_map(&self.last_response, instr, self.plan, &self.arena)?;
+        self.last_response = result.to_vec();
+        Ok(())
+    }
+
+    fn op_dag(
+        &mut self,
+        instr: &Instruction,
+        caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
+    ) -> Result<(), String> {
+        let result = dag::exec_dag(&self.last_response, instr, self.plan, caller, &self.arena)?;
+        self.last_response = result.to_vec();
+        self.hop_count += 1;
+        Ok(())
+    }
+
+    fn op_jmp(&mut self, instr: &Instruction) -> Result<(), String> {
+        self.ip = instr.a as usize;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::{lexer, parser, optimizer};
     use crate::bytecode::plan::ExecutionPlan;
+    use crate::dsl::{compiler::Compiler, lexer, optimizer, parser};
 
     fn compile_dsl(dsl: &str) -> ExecutionPlan {
-        use crate::dsl::compiler::Compiler;
         let tokens = lexer::lex(dsl).unwrap();
         let pipeline = parser::parse(&tokens).unwrap();
         let opt = optimizer::Optimizer::new();

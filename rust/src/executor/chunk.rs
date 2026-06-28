@@ -13,10 +13,8 @@ pub fn execute_chunked_seq(
     chunks: &[&[u8]],
     caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
     timeout_ms: u64,
-    chunk_id: &str,
 ) -> Result<Vec<u8>, String> {
-    for (i, chunk) in chunks.iter().enumerate() {
-        let _headers = format_chunk_headers(chunk_id, i, chunks.len() as u8);
+    for chunk in chunks {
         caller(svc_id, chunk, timeout_ms)?;
     }
     Ok(Vec::new())
@@ -27,18 +25,9 @@ pub fn execute_chunked_par(
     chunks: &[&[u8]],
     caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
     timeout_ms: u64,
-    chunk_id: &str,
 ) -> Result<Vec<u8>, String> {
-    for (i, chunk) in chunks.iter().enumerate() {
+    for chunk in chunks {
         caller(svc_id, chunk, timeout_ms)?;
     }
     Ok(Vec::new())
-}
-
-#[allow(dead_code)]
-fn format_chunk_headers(chunk_id: &str, index: usize, total: u8) -> String {
-    format!(
-        "X-FlowRule-Chunk-ID: {}\nX-FlowRule-Chunk-Index: {}\nX-FlowRule-Chunk-Total: {}",
-        chunk_id, index, total
-    )
 }
