@@ -70,6 +70,9 @@ func goServiceCaller(svcID C.uint16_t, bodyPtr *C.uchar, bodyLen C.size_t, respP
 }
 
 func Compile(dsl string, ruleID string) ([]byte, error) {
+	if len(dsl) == 0 {
+		return nil, fmt.Errorf("compile: empty dsl")
+	}
 	dslBytes := []byte(dsl)
 	ridBytes := []byte(ruleID)
 
@@ -91,6 +94,10 @@ func Compile(dsl string, ruleID string) ([]byte, error) {
 }
 
 func Execute(plan []byte, body []byte, caller ServiceCaller) ([]byte, error) {
+	if len(plan) == 0 {
+		return nil, fmt.Errorf("execute: empty plan")
+	}
+
 	callerMu.Lock()
 	activeCaller = caller
 	callerMu.Unlock()
@@ -106,10 +113,19 @@ func Execute(plan []byte, body []byte, caller ServiceCaller) ([]byte, error) {
 	errBuf := make([]byte, 4096)
 	var errLen C.size_t
 
+	var bodyPtr *C.uchar
+	if len(body) > 0 {
+		bodyPtr = (*C.uchar)(unsafe.Pointer(&body[0]))
+	}
+	var planPtr *C.uchar
+	if len(plan) > 0 {
+		planPtr = (*C.uchar)(unsafe.Pointer(&plan[0]))
+	}
+
 	cb := C.getCallerBridgePtr()
 	rc := C.flowrule_execute(
-		(*C.uchar)(unsafe.Pointer(&plan[0])), C.size_t(len(plan)),
-		(*C.uchar)(unsafe.Pointer(&body[0])), C.size_t(len(body)),
+		planPtr, C.size_t(len(plan)),
+		bodyPtr, C.size_t(len(body)),
 		cb,
 		(*C.uchar)(unsafe.Pointer(&outBuf[0])), C.size_t(cap(outBuf)), &outLen,
 		(*C.uchar)(unsafe.Pointer(&errBuf[0])), C.size_t(cap(errBuf)), &errLen,
@@ -129,6 +145,9 @@ func MsgRelease(ptr unsafe.Pointer) {
 }
 
 func Intern(s string) uint16 {
+	if len(s) == 0 {
+		return 0
+	}
 	b := []byte(s)
 	return uint16(C.flowrule_intern((*C.uchar)(unsafe.Pointer(&b[0])), C.size_t(len(b))))
 }
