@@ -3,44 +3,39 @@
 ## Prerequisites
 
 - Rust 1.70+ (edition 2021)
-- Go 1.21+ (when working on Go layer)
+- Go 1.22+
 - No other system dependencies
 
 ## Build
 
 ```bash
+# Full build (Rust cdylib + Go binary)
+make
+
+# Rust only
 cd rust
-
-# Debug build
-cargo build
-
-# Release build (LTO, optimized)
 cargo build --release
 
-# Shared library only
-cargo build --release --lib
+# Go only (requires prebuilt Rust cdylib)
+make go
 ```
+
+The Rust library is built as both `cdylib` and `rlib`. The `cdylib` (`libflowrule_core.dylib`/`.so`) is linked by the Go shell via cgo.
 
 ## Test
 
 ```bash
-cd rust
+# All tests (Rust 82 + Go 33)
+make test
 
-# Run all tests (82 unit tests)
-cargo test
+# Rust only
+cd rust && cargo test
 
-# Run specific test module
-cargo test executor::expr
-cargo test dsl::lexer
-cargo test dsl::parser
-cargo test dsl::compiler
-cargo test dsl::optimizer
+# Go only
+CGO_ENABLED=1 go test ./go/...
 
-# Run specific test
-cargo test test_vm_map
-
-# Run with output
-cargo test -- --nocapture
+# Go lint
+CGO_ENABLED=1 go vet ./go/...
 ```
 
 ## Project Layout
@@ -74,11 +69,26 @@ rust/src/
 │   ├── chunk.rs        # Chunk processing
 │   ├── helpers.rs      # JSON utilities
 │   └── expr.rs         # Expression engine
+├── ffi.rs              # extern "C" exports for Go bridge
 └── memory/             # Memory management
     ├── mod.rs
     ├── arena.rs        # Bump allocator
     ├── slab.rs         # Slab pool
     └── intern.rs       # String interning
+
+go/
+├── cmd/flowrule/           # Entry point (HTTP admin + consumer)
+└── internal/
+    ├── bridge/             # cgo bindings to Rust FFI
+    │   ├── bridge.go       # Go wrappers + //export callback
+    │   ├── caller_bridge.c # C helper for function pointer callback
+    │   └── bridge_test.go  # 11 integration tests
+    ├── engine/             # Rule lifecycle (Deploy, Remove, ExecuteAll)
+    ├── flow/               # Flow orchestrator with state machine
+    ├── transport/          # Kafka consumer/producer
+    ├── admin/              # HTTP admin API (POST/DELETE/GET rules)
+    ├── observability/      # Metrics counters
+    └── reliability/        # Circuit breaker
 ```
 
 ## Adding a New Opcode
@@ -103,25 +113,9 @@ rust/src/
 
 - **Naming:** snake_case for functions/vars, CamelCase for types
 - **Errors:** Use `thiserror` derive macros; return `Result<_, ExecError>` or `Result<_, CompileError>`
-- **Testing:** Unit tests inline in source files (`#[cfg(test)]`); integration tests in `test/integration/`
+- **Testing:** Rust unit tests inline in source files (`#[cfg(test)]`); Go test files alongside source
 - **FFI safety:** All `extern "C"` functions check null pointers; return error codes
-
-## Go Layer (Skeleton)
-
-The Go shell is planned but not yet implemented. Structure:
-
-```
-go/
-├── cmd/flowrule/           # Entry point
-└── internal/
-    ├── bridge/             # cgo bindings to Rust
-    ├── engine/             # Rule lifecycle management
-    ├── flow/               # Flow orchestration
-    ├── transport/          # Kafka I/O (reader/writer)
-    ├── admin/              # Admin API
-    ├── observability/      # Metrics, tracing
-    └── reliability/        # Circuit breakers, retry
-```
+- **Go cgo pattern:** Callbacks use `//export` + C helper file (`caller_bridge.c`) to pass Go functions as C function pointers
 
 ## Performance Considerations
 
