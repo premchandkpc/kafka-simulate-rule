@@ -1,0 +1,58 @@
+targets:
+  validate:       "http://validate-svc:8080/validate"
+  fraud:          "http://fraud-svc:8080/check"
+  inventory:      "http://inventory-svc:8080/reserve"
+  fulfill:        "http://fulfill-svc:8080/fulfill"
+  notify:         "http://notify-svc:8080/send"
+  analytics:      "http://analytics-svc:8080/event"
+  dlq:            "http://dlq-svc:8080/store"
+  manual-review:  "http://review-svc:8080/queue"
+  auto-approve:   "http://approve-svc:8080/approve"
+  review-queue:   "http://review-svc:8080/fallback"
+  default-handler: "http://default-svc:8080/handle"
+
+rules:
+  - id: "blocked-fast-path"
+    priority: 0
+    match:
+      field: "status"
+      op: "eq"
+      value: "blocked"
+    pipeline: "d"
+
+  - id: "order-pipeline"
+    priority: 1
+    match:
+      field: "type"
+      op: "eq"
+      value: "ORDER"
+    pipeline: "t500 n:validate t1000 p:fraud,inventory c f:dlq n:fulfill e:notify,analytics"
+    idempotency:
+      enabled: true
+      key_field: "order_id"
+      ttl_seconds: 300
+    ordering:
+      enabled: true
+      key_field: "order_id"
+
+  - id: "high-value"
+    priority: 2
+    match:
+      field: "amount"
+      op: "gt"
+      value: "10000"
+    pipeline: "g:amount>10000 n:manual-review | t500 n:auto-approve f:review-queue"
+
+  - id: "broadcast"
+    priority: 10
+    match:
+      field: "event"
+      op: "eq"
+      value: "USER_SIGNUP"
+    pipeline: "e:email,sms,analytics,crm"
+
+  - id: "default"
+    priority: 999
+    match:
+      field: "*"
+    pipeline: "n:default-handler f:dlq"
