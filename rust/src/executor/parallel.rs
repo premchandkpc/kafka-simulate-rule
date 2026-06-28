@@ -1,27 +1,22 @@
-use rayon::prelude::*;
-
 use crate::bytecode::instruction::Instruction;
 use crate::bytecode::plan::ExecutionPlan;
-use crate::bytecode::opcode::OpCode;
 use crate::executor::helpers;
 
-pub fn exec_parallel(
+pub fn exec_parallel<'a>(
     body: &[u8],
     instr: &Instruction,
     plan: &ExecutionPlan,
     caller: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
-    arena: &crate::memory::arena::Arena,
-) -> Result<&mut [u8], String> {
+    arena: &'a crate::memory::arena::Arena,
+) -> Result<&'a mut [u8], String> {
     let count = instr.a as u8;
     let first_svc = instr.b as usize;
 
-    let results: Vec<Result<Vec<u8>, String>> = (0..count as usize)
-        .into_par_iter()
-        .map(|offset| {
-            let svc_id = plan.services.entries()[first_svc + offset].id;
-            caller(svc_id, body, 0)
-        })
-        .collect();
+    let mut results = Vec::with_capacity(count as usize);
+    for offset in 0..count as usize {
+        let svc_id = plan.services.entries()[first_svc + offset].id;
+        results.push(caller(svc_id, body, 0));
+    }
 
     let mut parts = Vec::with_capacity(results.len());
     for result in results {
@@ -35,12 +30,12 @@ pub fn exec_parallel(
     Ok(helpers::merge_json_array(&part_refs, arena))
 }
 
-pub fn exec_collect(
+pub fn exec_collect<'a>(
     parallel_result: &[u8],
     _instr: &Instruction,
     _plan: &ExecutionPlan,
-    arena: &crate::memory::arena::Arena,
-) -> Result<&mut [u8], String> {
+    arena: &'a crate::memory::arena::Arena,
+) -> Result<&'a mut [u8], String> {
     // parallel result is already a JSON array from exec_parallel
     Ok(arena.alloc_copy(parallel_result))
 }

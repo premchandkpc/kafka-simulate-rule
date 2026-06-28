@@ -1,9 +1,9 @@
-use super::instruction::Instruction;
 use super::consts::ConstantPool;
-use super::services::ServiceTable;
 use super::dag_table::DAGTable;
+use super::instruction::Instruction;
 use super::mapexpr::MapExpr;
 use super::opcode::{ChunkMode, RetryStrategy};
+use super::services::ServiceTable;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RetryConfig {
@@ -20,7 +20,7 @@ pub struct ChunkConfig {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExecutionPlan {
-    pub rule_id: [u8; 64],
+    pub rule_id: String,
     pub version: u64,
     pub instr_count: u32,
     pub instructions: Vec<Instruction>,
@@ -34,13 +34,8 @@ pub struct ExecutionPlan {
 
 impl ExecutionPlan {
     pub fn new(rule_id: &str) -> Self {
-        let mut rid = [0u8; 64];
-        let bytes = rule_id.as_bytes();
-        let len = bytes.len().min(63);
-        rid[..len].copy_from_slice(&bytes[..len]);
-
         ExecutionPlan {
-            rule_id: rid,
+            rule_id: rule_id.to_string(),
             version: 1,
             instr_count: 0,
             instructions: Vec::new(),

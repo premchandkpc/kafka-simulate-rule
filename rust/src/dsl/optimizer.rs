@@ -91,12 +91,17 @@ impl Optimizer {
     fn remove_dead_code(&self, nodes: &[ASTNode]) -> Vec<ASTNode> {
         let mut result = Vec::with_capacity(nodes.len());
         let mut dead = false;
+        let mut pending_labels = Vec::new();
 
         for node in nodes {
             if dead {
                 match node {
                     ASTNode::Label(_) | ASTNode::Jmp(_) => {
+                        for lbl in pending_labels.drain(..) {
+                            result.push(lbl);
+                        }
                         result.push(node.clone());
+                        dead = false;
                     }
                     _ => {}
                 }
@@ -108,7 +113,11 @@ impl Optimizer {
                     result.push(node.clone());
                     dead = true;
                 }
+                ASTNode::Label(_) => {
+                    pending_labels.push(node.clone());
+                }
                 _ => {
+                    result.extend(pending_labels.drain(..));
                     result.push(node.clone());
                 }
             }
@@ -191,8 +200,10 @@ mod tests {
     #[test]
     fn test_labels_preserved_after_drop() {
         let opt = optimize_str("d end: n:svc");
-        assert_eq!(opt.nodes.len(), 2);
+        assert_eq!(opt.nodes.len(), 3);
         assert_eq!(opt.nodes[0], ASTNode::Drop);
+        assert_eq!(opt.nodes[1], ASTNode::Label("end".to_string()));
+        assert_eq!(opt.nodes[2], ASTNode::Next("svc".to_string()));
     }
 
     #[test]

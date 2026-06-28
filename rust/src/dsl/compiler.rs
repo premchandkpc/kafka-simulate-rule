@@ -51,6 +51,7 @@ impl Compiler {
         let mut labels: HashMap<String, usize> = HashMap::new();
         let mut resolved_instructions: Vec<Instruction> = Vec::new();
         let mut pending_retry: Option<RetryConfig> = None;
+        let mut pending_timeout_ms: Option<u64> = None;
         let mut i = 0usize;
 
         // First pass: collect labels and generate instructions
@@ -68,11 +69,13 @@ impl Compiler {
                 }
                 ASTNode::Next(target) => {
                     let svc_id = self.resolve_service(&mut plan, target);
-                    resolved_instructions.push(Instruction::next(svc_id, 0));
+                    let timeout = pending_timeout_ms.take().unwrap_or(0);
+                    resolved_instructions.push(Instruction::next(svc_id, timeout));
                 }
                 ASTNode::Async(target) => {
                     let svc_id = self.resolve_service(&mut plan, target);
-                    resolved_instructions.push(Instruction::async_svc(svc_id, 0));
+                    let timeout = pending_timeout_ms.take().unwrap_or(0);
+                    resolved_instructions.push(Instruction::async_svc(svc_id, timeout));
                 }
                 ASTNode::Parallel(targets) => {
                     let ids: Vec<u16> = targets.iter()
@@ -127,17 +130,7 @@ impl Compiler {
                     resolved_instructions.push(Instruction::map(expr_id));
                 }
                 ASTNode::Timeout(ms) => {
-                    if let Some(last) = resolved_instructions.last_mut() {
-                        match last.op {
-                            OpCode::Next | OpCode::Async => {
-                                let hi = (*ms >> 16) as u16;
-                                let lo = (*ms & 0xFFFF) as u16;
-                                last.b = hi;
-                                last.c = lo;
-                            }
-                            _ => {}
-                        }
-                    }
+                    pending_timeout_ms = Some(*ms);
                 }
                 ASTNode::Retry { count, strategy, fixed_ms } => {
                     let strategy_enum = match strategy.as_deref() {
@@ -242,6 +235,10 @@ impl Compiler {
                 } else {
                     inner.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
                 };
+                // Register all dependencies as nodes too
+                for dep in &node_deps {
+                    deps.entry(dep.clone()).or_insert_with(Vec::new);
+                }
                 deps.insert(node, node_deps);
             } else {
                 let node = seg.to_string();
@@ -305,12 +302,14 @@ impl Compiler {
         let mut in_stack: HashMap<&str, bool> = HashMap::new();
 
         for node in deps.keys() {
-            visited.insert(node, false);
-            in_stack.insert(node, false);
+            visited.insert(node.as_str(), false);
+            in_stack.insert(node.as_str(), false);
         }
 
         for node in deps.keys() {
-            if !visited[node] && self.dfs_cycle(node, deps, &mut visited, &mut in_stack) {
+            if !visited.get(node.as_str()).copied().unwrap_or(false)
+                && self.dfs_cycle(node, deps, &mut visited, &mut in_stack)
+            {
                 return true;
             }
         }
@@ -320,7 +319,7 @@ impl Compiler {
     fn dfs_cycle<'a>(
         &self,
         node: &'a str,
-        deps: &HashMap<String, Vec<String>>,
+        deps: &'a HashMap<String, Vec<String>>,
         visited: &mut HashMap<&'a str, bool>,
         in_stack: &mut HashMap<&'a str, bool>,
     ) -> bool {
@@ -348,31 +347,23 @@ impl Compiler {
     }
 
     fn topological_sort(&self, deps: &HashMap<String, Vec<String>>) -> Vec<Vec<String>> {
-        let mut in_degree: HashMap<&str, usize> = HashMap::new();
-        let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
 
         for (node, node_deps) in deps {
-            in_degree.entry(node.as_str()).or_insert(0);
-            adj.entry(node.as_str()).or_insert_with(Vec::new);
+            in_degree.entry(node.clone()).or_insert(0);
+            adj.entry(node.clone()).or_insert_with(Vec::new);
 
             for dep in node_deps {
-                in_degree.entry(dep.as_str()).or_insert(0);
-                adj.entry(dep.as_str()).or_insert_with(Vec::new).push(node.as_str());
-            }
-        }
-
-        // Also add any service that's only a dependency to the graph
-        for deps_list in deps.values() {
-            for dep in deps_list {
-                in_degree.entry(dep.as_str()).or_insert(0);
-                adj.entry(dep.as_str()).or_insert_with(Vec::new);
+                in_degree.entry(dep.clone()).or_insert(0);
+                adj.entry(dep.clone()).or_insert_with(Vec::new).push(node.clone());
             }
         }
 
         let mut layers = Vec::new();
         let mut current_layer: Vec<String> = in_degree.iter()
             .filter(|(_, &deg)| deg == 0)
-            .map(|(&n, _)| n.to_string())
+            .map(|(n, _)| n.clone())
             .collect();
         current_layer.sort();
 
@@ -381,19 +372,22 @@ impl Compiler {
 
             let mut next_layer = Vec::new();
             for node in &current_layer {
-                if let Some(children) = adj.get(node.as_str()) {
+                if let Some(children) = adj.get(node) {
                     for child in children {
                         if let Some(deg) = in_degree.get_mut(child) {
+                            if *deg == 0 {
+                                continue;
+                            }
                             *deg -= 1;
                             if *deg == 0 {
-                                next_layer.push(child.to_string());
+                                next_layer.push(child.clone());
                             }
                         }
                     }
                 }
             }
+            next_layer.sort();
             current_layer = next_layer;
-            current_layer.sort();
         }
 
         layers

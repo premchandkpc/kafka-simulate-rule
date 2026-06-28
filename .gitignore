@@ -1,0 +1,30 @@
+# Rust
+rust/target/
+rust/Cargo.lock
+
+# Go
+go/bin/
+go/vendor/
+go/go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Build
+*.o
+*.so
+*.dylib
+*.dll
+*.a

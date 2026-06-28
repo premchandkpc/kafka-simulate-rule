@@ -1,9 +1,9 @@
 use std::time::Duration;
 use rand::Rng;
-use rayon::prelude::*;
 
 use crate::bytecode::instruction::Instruction;
-use crate::bytecode::plan::{ExecutionPlan, RetryConfig, RetryStrategy};
+use crate::bytecode::plan::{ExecutionPlan, RetryConfig};
+use crate::bytecode::opcode::RetryStrategy;
 use crate::bytecode::opcode::ChunkMode;
 
 pub fn exec_next(
@@ -97,22 +97,15 @@ pub fn exec_chunked_call(
     match mode {
         ChunkMode::Sequential => {
             for (i, chunk) in body.chunks(chunk_size).enumerate() {
-                let _headers = format_chunk_headers(&chunk_id, i, count);
                 caller(svc_id, chunk, timeout_ms)?;
             }
             Ok(Vec::new())
         }
         ChunkMode::Parallel => {
             let chunks: Vec<&[u8]> = body.chunks(chunk_size).collect();
-            let results: Vec<Result<Vec<u8>, String>> = chunks
-                .par_iter()
-                .enumerate()
-                .map(|(i, chunk)| {
-                    let _headers = format_chunk_headers(&chunk_id, i, count);
-                    caller(svc_id, chunk, timeout_ms)
-                })
-                .collect();
-            results.into_iter().collect::<Result<Vec<_>, _>>()?;
+            for (i, chunk) in chunks.iter().enumerate() {
+                caller(svc_id, chunk, timeout_ms)?;
+            }
             Ok(Vec::new())
         }
     }

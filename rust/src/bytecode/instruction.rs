@@ -55,7 +55,7 @@ impl Instruction {
         let hi = (fixed_ms >> 16) as u16;
         let lo = (fixed_ms & 0xFFFF) as u16;
         let flags = (max_attempts as u16) | ((strategy as u16) << 8);
-        Instruction::new(OpCode::RetryData, 0, flags as u16, hi, lo)
+        Instruction::new(OpCode::RetryData, 0, flags, hi, lo)
     }
 
     pub fn jump_offset(offset: u16) -> Self {

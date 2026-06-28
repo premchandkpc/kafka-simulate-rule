@@ -20,15 +20,15 @@ impl SlabPool {
         }
     }
 
-    pub fn prefill(&mut self, small: usize, medium: usize, large: usize) {
+    pub fn prefill(&self, small: usize, medium: usize, large: usize) {
         for _ in 0..small {
-            self.small.push(Arena::with_slab_pool(self as *mut SlabPool));
+            self.small.push(Arena::with_slab_pool(self));
         }
         for _ in 0..medium {
-            self.medium.push(Arena::with_slab_pool(self as *mut SlabPool));
+            self.medium.push(Arena::with_slab_pool(self));
         }
         for _ in 0..large {
-            self.large.push(Arena::with_slab_pool(self as *mut SlabPool));
+            self.large.push(Arena::with_slab_pool(self));
         }
     }
 

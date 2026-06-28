@@ -1,7 +1,3 @@
-use rayon::prelude::*;
-
-use crate::bytecode::opcode::ChunkMode;
-
 pub fn split_chunks(body: &[u8], count: u8, threshold: usize) -> Option<Vec<&[u8]>> {
     if body.len() <= threshold {
         return None;
@@ -33,19 +29,13 @@ pub fn execute_chunked_par(
     timeout_ms: u64,
     chunk_id: &str,
 ) -> Result<Vec<u8>, String> {
-    let results: Vec<Result<Vec<u8>, String>> = chunks
-        .par_iter()
-        .enumerate()
-        .map(|(i, chunk)| {
-            let _headers = format_chunk_headers(chunk_id, i, chunks.len() as u8);
-            caller(svc_id, chunk, timeout_ms)
-        })
-        .collect();
-
-    results.into_iter().collect::<Result<Vec<_>, _>>()?;
+    for (i, chunk) in chunks.iter().enumerate() {
+        caller(svc_id, chunk, timeout_ms)?;
+    }
     Ok(Vec::new())
 }
 
+#[allow(dead_code)]
 fn format_chunk_headers(chunk_id: &str, index: usize, total: u8) -> String {
     format!(
         "X-FlowRule-Chunk-ID: {}\nX-FlowRule-Chunk-Index: {}\nX-FlowRule-Chunk-Total: {}",

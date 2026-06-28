@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ServiceEntry {
     pub id: u16,
@@ -16,14 +18,14 @@ impl ServiceEntry {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ServiceTable {
     entries: Vec<ServiceEntry>,
-    index: std::collections::HashMap<String, u16>,
+    index: HashMap<String, u16>,
 }
 
 impl ServiceTable {
     pub fn new() -> Self {
         ServiceTable {
             entries: Vec::new(),
-            index: std::collections::HashMap::new(),
+            index: HashMap::new(),
         }
     }
 

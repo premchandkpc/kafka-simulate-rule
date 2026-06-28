@@ -1,15 +1,15 @@
-pub mod opcode;
-pub mod instruction;
 pub mod consts;
-pub mod services;
 pub mod dag_table;
+pub mod instruction;
 pub mod mapexpr;
+pub mod opcode;
 pub mod plan;
+pub mod services;
 
-pub use opcode::*;
-pub use instruction::*;
 pub use consts::*;
-pub use services::*;
 pub use dag_table::*;
+pub use instruction::*;
 pub use mapexpr::*;
+pub use opcode::*;
 pub use plan::*;
+pub use services::*;

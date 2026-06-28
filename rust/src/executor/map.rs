@@ -1,16 +1,22 @@
 use crate::bytecode::instruction::Instruction;
 use crate::bytecode::plan::ExecutionPlan;
+use super::expr;
 
-pub fn exec_map(
+pub fn exec_map<'a>(
     body: &[u8],
     instr: &Instruction,
     plan: &ExecutionPlan,
-    arena: &crate::memory::arena::Arena,
-) -> Result<&mut [u8], String> {
+    arena: &'a crate::memory::arena::Arena,
+) -> Result<&'a mut [u8], String> {
     let expr = plan.const_pool.get(instr.a);
 
-    if expr == ".body" || expr.is_empty() {
+    if expr.is_empty() {
         return Ok(arena.alloc_copy(body));
+    }
+
+    if expr.contains('=') {
+        let result = expr::eval_map_expression(expr, body)?;
+        return Ok(arena.alloc_copy(&result));
     }
 
     if let Some(stripped) = expr.strip_prefix('.') {
@@ -21,7 +27,6 @@ pub fn exec_map(
 
         for part in &parts {
             if *part == "[]" {
-                // Array wildcard - return the array as-is or first element
                 match current {
                     serde_json::Value::Array(ref arr) => {
                         if let Some(first) = arr.first() {
@@ -33,7 +38,6 @@ pub fn exec_map(
                     _ => return Ok(arena.alloc_copy(b"null")),
                 }
             } else if *part == "*" {
-                // Wildcard selection: return all values concatenated
                 match current {
                     serde_json::Value::Object(ref map) => {
                         let vals: Vec<String> = map.values().map(|v| v.to_string()).collect();

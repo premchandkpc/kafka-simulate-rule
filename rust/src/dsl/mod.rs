@@ -1,9 +1,9 @@
-pub mod lexer;
-pub mod parser;
-pub mod optimizer;
 pub mod compiler;
+pub mod lexer;
+pub mod optimizer;
+pub mod parser;
 
-pub use lexer::*;
-pub use parser::*;
-pub use optimizer::*;
 pub use compiler::*;
+pub use lexer::*;
+pub use optimizer::*;
+pub use parser::*;

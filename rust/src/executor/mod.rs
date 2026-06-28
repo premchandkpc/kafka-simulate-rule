@@ -6,6 +6,9 @@ pub mod parallel;
 pub mod dag;
 pub mod map;
 pub mod chunk;
+pub mod expr;
+
+use std::sync::Arc;
 
 use crate::bytecode::instruction::Instruction;
 use crate::bytecode::plan::ExecutionPlan;
@@ -16,25 +19,28 @@ pub struct VM<'a> {
     pub plan: &'a ExecutionPlan,
     pub last_response: Vec<u8>,
     pub arena: crate::memory::arena::Arena,
-    pub caller: &'a dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
+    pub caller: Arc<dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String> + Send + Sync + 'a>,
     pub failed: bool,
     pub errors: Vec<String>,
     pub hop_count: u16,
 }
 
 impl<'a> VM<'a> {
-    pub fn new(
+    pub fn new<F>(
         plan: &'a ExecutionPlan,
         body: &[u8],
         arena: crate::memory::arena::Arena,
-        caller: &'a dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String>,
-    ) -> Self {
+        caller: F,
+    ) -> Self
+    where
+        F: Fn(u16, &[u8], u64) -> Result<Vec<u8>, String> + Send + Sync + 'a,
+    {
         VM {
             ip: 0,
             plan,
             last_response: body.to_vec(),
             arena,
-            caller,
+            caller: Arc::new(caller),
             failed: false,
             errors: Vec::new(),
             hop_count: 0,
@@ -52,37 +58,41 @@ impl<'a> VM<'a> {
     }
 
     fn dispatch(&mut self, instr: &Instruction) -> Result<(), String> {
+        let caller_ref: &dyn Fn(u16, &[u8], u64) -> Result<Vec<u8>, String> = &*self.caller;
         match instr.op {
             OpCode::Next => {
-                let resp = next::exec_next(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    self.caller,
-                    false,
-                )?;
-                self.last_response = resp;
-                self.hop_count += 1;
-                Ok(())
+                match next::exec_next(&self.last_response, instr, self.plan, caller_ref, false) {
+                    Ok(resp) => {
+                        self.last_response = resp;
+                        self.hop_count += 1;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        self.failed = true;
+                        self.errors.push(e);
+                        Ok(())
+                    }
+                }
             }
             OpCode::Async => {
-                let _resp = next::exec_next(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    self.caller,
-                    true,
-                )?;
-                // async: do NOT update last_response (body unchanged)
-                self.hop_count += 1;
-                Ok(())
+                match next::exec_next(&self.last_response, instr, self.plan, caller_ref, true) {
+                    Ok(_) => {
+                        self.hop_count += 1;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        self.failed = true;
+                        self.errors.push(e);
+                        Ok(())
+                    }
+                }
             }
             OpCode::Parallel => {
                 let result = parallel::exec_parallel(
                     &self.last_response,
                     instr,
                     self.plan,
-                    self.caller,
+                    caller_ref,
                     &self.arena,
                 )?;
                 // Store parallel result; Collect will assign it
@@ -98,15 +108,22 @@ impl<'a> VM<'a> {
             OpCode::Fallback => {
                 if self.failed {
                     self.failed = false;
-                    let resp = next::exec_next(
+                    match next::exec_next(
                         &self.last_response,
                         instr,
                         self.plan,
-                        self.caller,
+                        caller_ref,
                         false,
-                    )?;
-                    self.last_response = resp;
-                    self.hop_count += 1;
+                    ) {
+                        Ok(resp) => {
+                            self.last_response = resp;
+                            self.hop_count += 1;
+                        }
+                        Err(e) => {
+                            self.failed = true;
+                            self.errors.push(e);
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -121,12 +138,7 @@ impl<'a> VM<'a> {
                 Ok(())
             }
             OpCode::Emit => {
-                emit::exec_emit(
-                    &self.last_response,
-                    instr,
-                    self.plan,
-                    self.caller,
-                );
+                emit::exec_emit(&self.last_response, instr, self.plan, caller_ref)?;
                 Ok(())
             }
             OpCode::Drop => {
@@ -163,7 +175,7 @@ impl<'a> VM<'a> {
                     &self.last_response,
                     instr,
                     self.plan,
-                    self.caller,
+                    caller_ref,
                     &self.arena,
                 )?;
                 self.last_response = result.to_vec();
@@ -181,7 +193,8 @@ impl<'a> VM<'a> {
                 Ok(())
             }
             OpCode::SvcArg | OpCode::RetryData | OpCode::JumpOffset => {
-                Err(format!("bare argument opcode at ip={}", self.ip - 1))
+                // Meta-instructions skipped at runtime
+                Ok(())
             }
         }
     }
