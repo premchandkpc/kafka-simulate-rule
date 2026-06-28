@@ -3,7 +3,7 @@ package engine
 import (
 	"sync"
 
-	"github.com/premchandkpc/kafka-simulate-rule/go/internal/bridge"
+	"github.com/premchandkpc/flowrule/go/internal/bridge"
 )
 
 type Rule struct {
@@ -58,7 +58,7 @@ func (e *Engine) ExecuteAll(body []byte, caller bridge.ServiceCaller) ([][]byte,
 
 	var results [][]byte
 	for _, r := range e.rules {
-		res, err := bridge.Execute(r.Plan, body, caller)
+		res, err := bridge.Execute(r.Plan, body, caller, nil)
 		if err != nil {
 			return results, err
 		}

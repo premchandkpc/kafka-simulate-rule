@@ -1,4 +1,5 @@
 pub mod chunk;
+pub mod context;
 pub mod dag;
 pub mod emit;
 pub mod expr;
@@ -23,6 +24,7 @@ pub struct VM<'a> {
     pub failed: bool,
     pub errors: Vec<String>,
     pub hop_count: u16,
+    pub ctx: context::ExecutionContext,
 }
 
 impl<'a> VM<'a> {
@@ -44,6 +46,7 @@ impl<'a> VM<'a> {
             failed: false,
             errors: Vec::new(),
             hop_count: 0,
+            ctx: context::ExecutionContext::new(),
         }
     }
 

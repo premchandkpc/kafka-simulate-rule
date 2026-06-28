@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/premchandkpc/kafka-simulate-rule/go/internal/engine"
+	"github.com/premchandkpc/flowrule/go/internal/engine"
 )
 
 func TestHealth(t *testing.T) {

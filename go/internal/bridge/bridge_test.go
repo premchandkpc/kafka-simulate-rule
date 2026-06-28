@@ -38,7 +38,7 @@ func TestExecuteValidPlan(t *testing.T) {
 		return body, nil
 	}
 
-	result, err := Execute(plan, []byte(`{"test": true}`), caller)
+	result, err := Execute(plan, []byte(`{"test": true}`), caller, nil)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestExecuteEmptyBody(t *testing.T) {
 		return body, nil
 	}
 
-	_, err = Execute(plan, []byte{}, caller)
+	_, err = Execute(plan, []byte{}, caller, nil)
 	// May succeed or fail depending on Rust VM — just check no panic
 	_ = err
 }
@@ -66,7 +66,7 @@ func TestExecuteBadPlan(t *testing.T) {
 	caller := func(svcID uint16, body []byte) ([]byte, error) {
 		return body, nil
 	}
-	_, err := Execute([]byte{0, 1, 2, 3, 4, 5}, []byte(`{}`), caller)
+	_, err := Execute([]byte{0, 1, 2, 3, 4, 5}, []byte(`{}`), caller, nil)
 	if err == nil {
 		t.Fatal("expected error for bad plan bytes")
 	}
@@ -78,7 +78,7 @@ func TestExecuteNilCaller(t *testing.T) {
 		t.Fatalf("Compile failed: %v", err)
 	}
 	// nil caller should cause callback to return error
-	_, err = Execute(plan, []byte(`{}`), nil)
+	_, err = Execute(plan, []byte(`{}`), nil, nil)
 	if err == nil {
 		// Some DSL may not trigger callback; this is valid
 	}
@@ -122,4 +122,49 @@ func TestMsgAllocRelease(t *testing.T) {
 func TestMsgAllocZero(t *testing.T) {
 	ptr := MsgAlloc(0)
 	MsgRelease(ptr)
+}
+
+func TestExecuteWithContext(t *testing.T) {
+	plan, err := Compile("n:validate", "test-ctx")
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	caller := func(svcID uint16, body []byte) ([]byte, error) {
+		return body, nil
+	}
+
+	ctx := &ExecContext{
+		MessageID:     "msg-001",
+		CorrelationID: "corr-001",
+		TraceID:       "trace-001",
+		Partition:     3,
+		Offset:        1042,
+	}
+
+	_, err = Execute(plan, []byte(`{"x":1}`), caller, ctx)
+	if err != nil {
+		t.Fatalf("Execute with context failed: %v", err)
+	}
+}
+
+func TestExecuteWithPartialContext(t *testing.T) {
+	plan, err := Compile("n:validate", "test-partial")
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	caller := func(svcID uint16, body []byte) ([]byte, error) {
+		return body, nil
+	}
+
+	ctx := &ExecContext{
+		MessageID: "msg-002",
+		Partition: 5,
+	}
+
+	_, err = Execute(plan, []byte(`{"x":1}`), caller, ctx)
+	if err != nil {
+		t.Fatalf("Execute with partial context failed: %v", err)
+	}
 }

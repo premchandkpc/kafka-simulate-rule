@@ -19,7 +19,11 @@ int flowrule_execute(
     const unsigned char* body_ptr, size_t body_len,
     caller_cb_t caller_cb,
     unsigned char* out_ptr, size_t out_cap, size_t* out_len,
-    unsigned char* err_ptr, size_t err_cap, size_t* err_len
+    unsigned char* err_ptr, size_t err_cap, size_t* err_len,
+    const unsigned char* msg_id_ptr, size_t msg_id_len,
+    const unsigned char* corr_id_ptr, size_t corr_id_len,
+    const unsigned char* trace_id_ptr, size_t trace_id_len,
+    uint32_t partition, int64_t offset
 );
 
 unsigned char* flowrule_msg_alloc(size_t size);
@@ -38,6 +42,14 @@ import (
 )
 
 type ServiceCaller func(svcID uint16, body []byte) ([]byte, error)
+
+type ExecContext struct {
+	MessageID     string
+	CorrelationID string
+	TraceID       string
+	Partition     uint32
+	Offset        int64
+}
 
 var (
 	callerMu     sync.Mutex
@@ -93,7 +105,7 @@ func Compile(dsl string, ruleID string) ([]byte, error) {
 	return outBuf[:outLen], nil
 }
 
-func Execute(plan []byte, body []byte, caller ServiceCaller) ([]byte, error) {
+func Execute(plan []byte, body []byte, caller ServiceCaller, ctx *ExecContext) ([]byte, error) {
 	if len(plan) == 0 {
 		return nil, fmt.Errorf("execute: empty plan")
 	}
@@ -107,6 +119,35 @@ func Execute(plan []byte, body []byte, caller ServiceCaller) ([]byte, error) {
 		activeCaller = nil
 		callerMu.Unlock()
 	}()
+
+	var msgIdPtr *C.uchar
+	var msgIdLen C.size_t
+	var corrIdPtr *C.uchar
+	var corrIdLen C.size_t
+	var traceIdPtr *C.uchar
+	var traceIdLen C.size_t
+	var partition C.uint32_t
+	var offset C.int64_t
+
+	if ctx != nil {
+		if len(ctx.MessageID) > 0 {
+			b := []byte(ctx.MessageID)
+			msgIdPtr = (*C.uchar)(unsafe.Pointer(&b[0]))
+			msgIdLen = C.size_t(len(b))
+		}
+		if len(ctx.CorrelationID) > 0 {
+			b := []byte(ctx.CorrelationID)
+			corrIdPtr = (*C.uchar)(unsafe.Pointer(&b[0]))
+			corrIdLen = C.size_t(len(b))
+		}
+		if len(ctx.TraceID) > 0 {
+			b := []byte(ctx.TraceID)
+			traceIdPtr = (*C.uchar)(unsafe.Pointer(&b[0]))
+			traceIdLen = C.size_t(len(b))
+		}
+		partition = C.uint32_t(ctx.Partition)
+		offset = C.int64_t(ctx.Offset)
+	}
 
 	outBuf := make([]byte, 256*1024)
 	var outLen C.size_t
@@ -129,6 +170,10 @@ func Execute(plan []byte, body []byte, caller ServiceCaller) ([]byte, error) {
 		cb,
 		(*C.uchar)(unsafe.Pointer(&outBuf[0])), C.size_t(cap(outBuf)), &outLen,
 		(*C.uchar)(unsafe.Pointer(&errBuf[0])), C.size_t(cap(errBuf)), &errLen,
+		msgIdPtr, msgIdLen,
+		corrIdPtr, corrIdLen,
+		traceIdPtr, traceIdLen,
+		partition, offset,
 	)
 	if rc != 0 {
 		return nil, fmt.Errorf("execute failed: %s", string(errBuf[:errLen]))

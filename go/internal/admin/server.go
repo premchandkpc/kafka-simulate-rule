@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/premchandkpc/kafka-simulate-rule/go/internal/engine"
+	"github.com/premchandkpc/flowrule/go/internal/engine"
 )
 
 type Server struct {

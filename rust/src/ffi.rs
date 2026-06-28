@@ -143,6 +143,14 @@ pub extern "C" fn flowrule_execute(
     err_ptr: *mut u8,
     err_cap: usize,
     err_len: *mut usize,
+    msg_id_ptr: *const u8,
+    msg_id_len: usize,
+    corr_id_ptr: *const u8,
+    corr_id_len: usize,
+    trace_id_ptr: *const u8,
+    trace_id_len: usize,
+    partition: u32,
+    offset: i64,
 ) -> i32 {
     let plan_slice = match read_slice(plan_ptr, plan_len) {
         Some(s) => s,
@@ -184,6 +192,25 @@ pub extern "C" fn flowrule_execute(
     };
 
     let mut vm = VM::new(&plan, body, arena, &caller_wrapper);
+
+    if !msg_id_ptr.is_null() {
+        if let Some(s) = read_str(msg_id_ptr, msg_id_len) {
+            vm.ctx.message_id = s.to_string();
+        }
+    }
+    if !corr_id_ptr.is_null() {
+        if let Some(s) = read_str(corr_id_ptr, corr_id_len) {
+            vm.ctx.correlation_id = s.to_string();
+        }
+    }
+    if !trace_id_ptr.is_null() {
+        if let Some(s) = read_str(trace_id_ptr, trace_id_len) {
+            vm.ctx.trace_id = s.to_string();
+        }
+    }
+    vm.ctx.partition = partition;
+    vm.ctx.offset = offset;
+
     match vm.run() {
         Ok(()) => {
             let result = &vm.last_response;
