@@ -5,7 +5,7 @@ rust/Cargo.lock
 # Go
 go/bin/
 go/vendor/
-go/go.sum
+go.sum
 
 # IDE
 .idea/
@@ -23,6 +23,7 @@ Thumbs.db
 .env.local
 
 # Build
+flowrule
 *.o
 *.so
 *.dylib
