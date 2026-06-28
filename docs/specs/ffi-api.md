@@ -52,13 +52,26 @@ int flowrule_compile(
 // err_ptr   — error message buffer
 // err_cap   — error buffer capacity
 // err_len   — written error bytes
+// msg_id_ptr   — message ID (optional, null if absent)
+// msg_id_len   — message ID length
+// corr_id_ptr  — correlation ID (optional)
+// corr_id_len  — correlation ID length
+// trace_id_ptr — trace/distributed tracing ID (optional)
+// trace_id_len — trace ID length
+// partition    — Kafka partition (0 if unknown)
+// offset       — Kafka offset (0 if unknown)
+// All optional context params default to empty/zero when null pointers are passed.
 // Returns 0 on success, negative on error
 int flowrule_execute(
     const unsigned char* plan_ptr, size_t plan_len,
     const unsigned char* body_ptr, size_t body_len,
     int (*caller_cb)(uint16_t, const unsigned char*, size_t, unsigned char*, size_t*),
     unsigned char* out_ptr, size_t out_cap, size_t* out_len,
-    unsigned char* err_ptr, size_t err_cap, size_t* err_len
+    unsigned char* err_ptr, size_t err_cap, size_t* err_len,
+    const unsigned char* msg_id_ptr, size_t msg_id_len,
+    const unsigned char* corr_id_ptr, size_t corr_id_len,
+    const unsigned char* trace_id_ptr, size_t trace_id_len,
+    uint32_t partition, int64_t offset
 );
 ```
 
