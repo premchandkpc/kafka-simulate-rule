@@ -1,0 +1,103 @@
+# Low-level design
+
+## Project structure
+
+```text
+cmd/api/                  HTTP/gRPC composition root and admin/query endpoints
+cmd/worker/               broker fetch loop, shard ownership, graceful drain
+internal/domain/          entities, value objects, domain errors; no I/O imports
+internal/rules/           schema validation, compiler/index, pure evaluator
+internal/application/     use cases: Activate, AcceptEvent, Evaluate, Replay
+internal/ports/           narrow repository, broker, clock, and effect interfaces
+internal/adapters/sql/    Postgres implementation and migrations
+internal/adapters/nats/   JetStream producer/consumer implementation
+internal/adapters/kafka/  optional Kafka implementation
+internal/adapters/effects/ HTTP, gRPC, and event-publish delivery adapters
+internal/observability/   telemetry, health, configuration
+tests/contract/           adapter fixtures shared across implementations
+```
+
+Dependencies point inward: adapters depend on ports/application; application depends on domain/ports; domain depends on nothing outside the standard library. `cmd` is the only composition root. This is DDD/hexagonal architecture without turning every internal helper into an interface.
+
+## Core types
+
+```go
+type EventEnvelope struct {
+    ID, TenantID, Type, PartitionKey string
+    OccurredAt time.Time
+    Data json.RawMessage
+    Headers map[string]string
+}
+
+type RuleRevision struct {
+    RuleID string
+    Revision int64
+    ContentHash string
+    MatchMode FirstMatch | AllMatches
+    Compiled []CompiledRule
+}
+
+type Effect struct {
+    ID, ExecutionID, Destination, Name string
+    Payload json.RawMessage
+}
+
+type Decision struct { Matched []string; Effects []Effect; Hash string }
+```
+
+`Evaluate(revision, event, facts) -> Decision` must be deterministic. Clock, random values, credentials, HTTP clients, and database handles cannot enter it.
+
+## Ports
+
+```go
+type BrokerConsumer interface { Fetch(ctx context.Context, n int) ([]Delivery, error) }
+type Delivery interface { Event() EventEnvelope; Ack(context.Context) error; Retry(context.Context, Retry) error }
+type RuleRepository interface { Active(ctx context.Context, tenant, ruleSet string) (RuleRevision, error) }
+type ExecutionStore interface { Process(ctx context.Context, input ProcessInput) (ProcessResult, error) }
+type EffectSender interface { Send(ctx context.Context, effect Effect) error }
+```
+
+`ExecutionStore.Process` owns the transaction and is intentionally one coarse port: it atomically inserts the inbox row, pins the revision, writes the execution decision, applies owned state changes, and inserts effects. Splitting this into many repository calls invites accidental non-atomic workflows.
+
+## Relational model
+
+| Table | Primary / unique keys | Purpose |
+| --- | --- | --- |
+| `rule_revisions` | `(tenant_scope, rule_id, revision)` | Immutable source, compiled form, hash, validation result |
+| `rule_activations` | `(tenant_scope, rule_set)` | Active revision and monotonic activation version |
+| `inbox` | `unique(tenant_id, event_id)` | Final duplicate defense and processing status |
+| `executions` | `execution_id`, `unique(tenant_id,event_id,rule_id,revision)` | Pinned revision, decision hash, trace, routing epoch |
+| `outbox_effects` | `effect_id` | Durable effects and attempt/status metadata |
+| `shard_leases` | `virtual_shard` | Owner, fencing token, expiry, routing epoch |
+| `quarantine` | `quarantine_id` | Event, error category, attempts, replay audit |
+
+Use migrations, foreign keys where retention permits, check constraints for finite status values, and an index supporting the publisher query such as `(status, available_at, created_at)`. Store large payloads in object storage with immutable content references rather than bloating hot tables.
+
+## Transaction algorithm
+
+```text
+1. Begin transaction.
+2. Insert inbox(tenant_id,event_id,status='processing').
+   Unique conflict: load prior result, commit, return Duplicate.
+3. Read activation and revision; record revision on execution.
+4. Evaluate pure rules; validate generated effects against authorization policy.
+5. Insert execution with decision hash and outbox rows with deterministic IDs.
+6. Mark inbox committed and commit transaction.
+7. Ack broker delivery. On any pre-commit error, roll back and retry/quarantine.
+```
+
+Choose an isolation level after concurrency tests. Default `READ COMMITTED` is sufficient if unique constraints and row locks guard the named invariant; use serializable transactions only where an aggregate invariant needs it. Keep transactions short and never include network I/O.
+
+## Worker and publisher algorithms
+
+Worker: obtain/renew a shard lease with a fencing token, fetch a bounded batch, dispatch only deliveries matching owned shards, process, then ack after commit. On drain, stop fetching, finish bounded in-flight work, release leases, and terminate before the platform deadline.
+
+Publisher: claim outbox rows with `FOR UPDATE SKIP LOCKED`, send using `effect_id` as the idempotency key, then atomically mark delivered or schedule `available_at` with exponential backoff/jitter. Use a maximum attempts policy and move terminal failures to quarantine. A destination-level concurrency limiter and circuit breaker sit here.
+
+## Rule compilation
+
+Validate JSON/YAML against a versioned schema at deployment. Resolve event-schema paths, authorize destination/topic references, enforce resource limits, and compile predicates into an index keyed by event type and candidate fields. Persist source, compiler version, compiled artifact, and content hash. Activate only a validated immutable revision.
+
+## Observability and security
+
+Every record and log carries `tenant_id`, `event_id`, `execution_id`, `rule_id`, `revision`, `effect_id`, `virtual_shard`, and trace context. Redact payloads by field classification. RBAC checks occur in application use cases, not only HTTP middleware. Delivery adapters resolve secret references at send time; secrets never enter rule source, execution audit, or telemetry.

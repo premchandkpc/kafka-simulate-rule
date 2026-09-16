@@ -1,58 +1,45 @@
-# FlowRule — Kafka Message Routing VM
+# FlowRule: a smaller distributed rules engine
 
-A **two-layer rule engine**: Rust core (bytecode VM + DSL compiler) + Go I/O shell.
+The revised documents listed first are the authoritative target plan. The original documents remain below as design history and prototype migration context; where they differ, follow the revised set.
 
-## Project Map
+## Decision
 
-```
-flowrule
-├── rust/          # Core engine (DSL → bytecode → VM)
-│   ├── src/
-│   │   ├── bytecode/   # Instruction set, plan format, const pool
-│   │   ├── dsl/        # Lexer, parser, optimizer, compiler
-│   │   ├── executor/   # VM dispatch + op handlers
-│   │   └── memory/     # Arena, slab pool, string interning
-│   └── Cargo.toml
-├── go/            # Go I/O shell
-│   ├── cmd/flowrule/   # Entry point
-│   └── internal/
-│       ├── bridge/         # cgo bindings to Rust FFI
-│       ├── engine/         # Rule lifecycle management
-│       ├── flow/           # Flow orchestration
-│       ├── transport/      # Kafka I/O (consumer/producer)
-│       ├── admin/          # Admin HTTP API
-│       ├── observability/  # Metrics
-│       └── reliability/    # Circuit breaker
-├── docs/
-│   ├── specs/
-│   │   ├── dsl-syntax.md
-│   │   ├── bytecode-format.md
-│   │   ├── vm-architecture.md
-│   │   ├── ffi-api.md
-│   │   └── memory-management.md
-│   └── development.md
-```
+Build a **durable, keyed event processor with versioned rules**, not a new Kafka, workflow platform, RPC framework, scheduler, service mesh, and VM at once.
 
-## Quick Start
+FlowRule accepts an event, selects the active rule revision, evaluates bounded predicates and actions, and records the outcome durably. It preserves ordering for one business key and scales by assigning independent keys to partitions.
 
-```bash
-# Rust — compile shared lib + run tests
-cd rust && cargo build --release && cargo test
+Use **NATS JetStream** as the default transport. It offers durable streams, pull consumers, acknowledgements, backpressure, replay, and a low operational burden. Keep Kafka as an adapter where its existing estate, retention requirements, or ecosystem justify it. FlowRule is a rules execution layer, not a Kafka replacement.
 
-# Go — build binary + run tests
-cd .. && make test
+## Why
 
-# Full build
-make
-```
+The current prototype overlaps Kafka/gRPC/memory buses, Raft and gossip, a Go scheduler plus Rust VM, plan distribution, service registry, and a workflow DSL. That creates too many correctness boundaries before the core rule path is proven.
 
-## Key Design Decisions
+The baseline has only three durable facts:
 
-| Decision | Rationale |
-|----------|-----------|
-| Rust hot path, Go I/O | Performance-critical execution in Rust; Go for admin, observability, transport |
-| 8-byte packed instructions | Cache-friendly, easy to snapshot/serialize |
-| Slab pool for messages | Zero-alloc message lifecycle; `flowrule_msg_alloc` / `flowrule_msg_release` |
-| DSL → bytecode compiler | Compile once, execute many; no parse cost per message |
-| DAG as embedded sub-language | Complex routing expressed declaratively; validated at compile time |
-| Go service caller bridge | Rust VM calls back into Go via `//export` + C helper; enables service dispatch in Go |
+1. A rule revision was activated.
+2. An input event was accepted.
+3. An idempotent effect was committed or scheduled for retry.
+
+Everything else is derived, cached, or replaceable.
+
+## Documents
+
+- [Target plan and prototype simplification](target-plan.md)
+- [Transport alternatives](transport-alternatives.md)
+- [Data model and consistency](data-model-and-consistency.md)
+- [Rule runtime contract](rule-runtime.md)
+- [Project structure and standards](project-structure.md)
+- [Implementation roadmap](implementation-roadmap.md)
+- [Target architecture](architecture.md)
+- [Rule model and correctness contract](rule-model.md)
+- [Delivery plan](delivery-plan.md)
+- [High-level design](hld.md)
+- [Low-level design](lld.md)
+- [Engineering principles and standards](engineering-standards.md)
+
+## Non-goals for v1
+
+- Kafka-compatible broker protocol or broker storage engine.
+- General workflow/DAG language, arbitrary loops, or distributed VM.
+- Exactly-once delivery to arbitrary external systems.
+- In-process leader election, gossip, plan broadcast, or service registry.
