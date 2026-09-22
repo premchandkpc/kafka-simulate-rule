@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/sql"
-	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
+	svcrules "github.com/flowrule/flowrule/internal/services/rules"
 )
 
 func main() {
@@ -42,12 +42,15 @@ func main() {
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	clock := domain.SystemClock{}
+	pool := db.Pool()
 
-	activationRepo := sql.NewActivationRepository(db.Pool())
-	ruleRepo := sql.NewRuleRepository(db.Pool())
-	executionRepo := sql.NewExecutionRepository(db.Pool())
-
-	activateUC := application.NewActivateRuleUseCase(compiler, ruleRepo, activationRepo, clock)
+	rulesSvc := svcrules.NewService(
+		compiler,
+		sql.NewRuleRepository(pool),
+		sql.NewActivationRepository(pool),
+		sql.NewExecutionRepository(pool),
+		clock,
+	)
 
 	mux := http.NewServeMux()
 
@@ -59,7 +62,7 @@ func main() {
 			return
 		}
 
-		activation, err := activateUC.Execute(r.Context(), "default", ruleSet, body, "api")
+		activation, err := rulesSvc.Activate(r.Context(), "default", ruleSet, body, "api")
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
 			return
@@ -75,7 +78,7 @@ func main() {
 
 	mux.HandleFunc("GET /v1/executions/{executionID}", func(w http.ResponseWriter, r *http.Request) {
 		execID := r.PathValue("executionID")
-		exec, err := executionRepo.Get(r.Context(), execID)
+		exec, err := rulesSvc.GetExecution(r.Context(), execID)
 		if err != nil || exec == nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 			return

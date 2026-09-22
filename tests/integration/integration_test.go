@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flowrule/flowrule/internal/adapters/effects"
-	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	svcevents "github.com/flowrule/flowrule/internal/services/events"
+	svcrules "github.com/flowrule/flowrule/internal/services/rules"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -188,7 +188,7 @@ func (m *mockQuarantine) Replay(ctx context.Context, id string) error {
 	return nil
 }
 
-func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbox, *mockExecutionRepo, *mockOutbox) {
+func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecutionRepo, *mockOutbox) {
 	t.Helper()
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
@@ -199,7 +199,6 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 	ruleRepo := newMockRuleRepo()
 	executions := newMockExecutionRepo()
 	outbox := newMockOutbox()
-	effectSender := effects.NewFakeDestination()
 
 	beginTx := func(ctx context.Context) (ports.Tx, error) {
 		return &mockTx{
@@ -211,8 +210,8 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 		}, nil
 	}
 
-	newRepos := func(db interface{}) application.TxRepos {
-		return application.TxRepos{
+	newRepos := func(db interface{}) svcevents.TxRepos {
+		return svcevents.TxRepos{
 			Inbox:       inbox,
 			Activations: activations,
 			RuleRepo:    ruleRepo,
@@ -221,8 +220,8 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 		}
 	}
 
-	uc := application.NewProcessEventUseCase(
-		compiler, evaluator, effectSender, clock, beginTx, newRepos,
+	uc := svcevents.NewService(
+		compiler, evaluator, clock, beginTx, newRepos,
 	)
 
 	revision, err := compiler.Compile(json.RawMessage(`{
@@ -296,7 +295,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 1500, "id": "order-1"}`),
 	}
 
-	exec1, err := uc.Execute(context.Background(), env)
+	exec1, err := uc.Process(context.Background(), env)
 	if err != nil {
 		t.Fatalf("first process: %v", err)
 	}
@@ -304,7 +303,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 		t.Fatal("expected execution from first process")
 	}
 
-	exec2, err := uc.Execute(context.Background(), env)
+	exec2, err := uc.Process(context.Background(), env)
 	if err != nil {
 		t.Fatalf("second process: %v", err)
 	}
@@ -339,10 +338,10 @@ func TestDeterministicHashConsistency(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 2000, "id": "order-2"}`),
 	}
 
-	exec1, _ := uc.Execute(context.Background(), env)
+	exec1, _ := uc.Process(context.Background(), env)
 
 	// Process same event again - should get same execution and hash
-	exec2, _ := uc.Execute(context.Background(), env)
+	exec2, _ := uc.Process(context.Background(), env)
 
 	if exec1.DecisionHash == "" {
 		t.Error("expected non-empty decision hash")
@@ -376,9 +375,10 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	ruleRepo := newMockRuleRepo()
 	activations := newMockActivation()
-	uc := application.NewActivateRuleUseCase(compiler, ruleRepo, activations, domain.SystemClock{})
+	executions := newMockExecutionRepo()
+	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{})
 
-	_, err := uc.Execute(context.Background(), "tenant-a", "order.created", json.RawMessage(`{
+	_, err := svc.Activate(context.Background(), "tenant-a", "order.created", json.RawMessage(`{
 		"rule_set":"order.created", "revision":1, "mode":"first_match",
 		"rules":[{"id":"match", "priority":1,
 		"when":{"path":"$.total", "op":"gte", "value":1},
@@ -406,7 +406,7 @@ func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *te
 		Data:         json.RawMessage(`{"total": 1500, "id": "order-42"}`),
 	}
 
-	exec, err := uc.Execute(context.Background(), env)
+	exec, err := uc.Process(context.Background(), env)
 	if err != nil {
 		t.Fatalf("process event: %v", err)
 	}
