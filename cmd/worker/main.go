@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -83,7 +84,7 @@ func main() {
 
 	outboxRepo := sql.NewOutboxRepository(pool)
 	quarantineRepo := sql.NewQuarantineRepository(pool)
-	publishUC := application.NewPublishEffectsUseCase(outboxRepo, effectSender, nil, quarantineRepo, clock)
+	publishUC := application.NewPublishEffectsUseCase(outboxRepo, effectSender, quarantineRepo, clock)
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
@@ -101,10 +102,13 @@ func main() {
 	}()
 
 	log.Println("worker started, fetching events...")
+	var wg sync.WaitGroup
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("worker shutting down...")
+			log.Println("worker shutting down, waiting for in-flight events...")
+			wg.Wait()
+			log.Println("worker stopped")
 			return
 		default:
 		}
@@ -117,58 +121,62 @@ func main() {
 		}
 
 		for _, delivery := range deliveries {
-			env := delivery.Event()
-			if env == nil {
-				data, _ := json.Marshal(delivery.Raw())
-				log.Printf("invalid event: %s", string(data))
-				if err := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
-					ID:         domain.NewID(),
-					SourceType: "event",
-					SourceID:   domain.ComputeSourceHash(delivery.Raw()),
-					ErrorClass: string(domain.ErrorClassValidation),
-					PayloadRef: "jetstream:flowrule",
-					Error:      "invalid event envelope JSON",
-					CreatedAt:  clock.Now(),
-				}); err != nil {
-					log.Printf("quarantine invalid event: %v", err)
-					delivery.Retry(ctx, 5*time.Second)
-					continue
-				}
-				delivery.Ack(ctx)
-				continue
-			}
-
-			exec, err := processUC.Execute(ctx, env)
-			if err != nil {
-				log.Printf("process event %s: %v", env.ID, err)
-				if domain.IsPermanent(err) {
-					if qErr := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
+			wg.Add(1)
+			go func(d ports.Delivery) {
+				defer wg.Done()
+				env := d.Event()
+				if env == nil {
+					data, _ := json.Marshal(d.Raw())
+					log.Printf("invalid event: %s", string(data))
+					if err := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
 						ID:         domain.NewID(),
 						SourceType: "event",
-						SourceID:   env.ID,
-						EventID:    env.ID,
-						TenantID:   env.TenantID,
-						ErrorClass: string(domain.ClassifyError(err)),
+						SourceID:   domain.ComputeSourceHash(d.Raw()),
+						ErrorClass: string(domain.ErrorClassValidation),
 						PayloadRef: "jetstream:flowrule",
-						Error:      err.Error(),
+						Error:      "invalid event envelope JSON",
 						CreatedAt:  clock.Now(),
-					}); qErr != nil {
-						log.Printf("quarantine event %s: %v", env.ID, qErr)
-						delivery.Retry(ctx, 5*time.Second)
-						continue
+					}); err != nil {
+						log.Printf("quarantine invalid event: %v", err)
+						d.Retry(ctx, 5*time.Second)
+						return
 					}
-					delivery.Ack(ctx)
-				} else {
-					delivery.Retry(ctx, 5*time.Second)
+					d.Ack(ctx)
+					return
 				}
-				continue
-			}
 
-			if err := delivery.Ack(ctx); err != nil {
-				log.Printf("ack %s: %v", env.ID, err)
-			} else {
-				log.Printf("processed event %s -> execution %s", env.ID, exec.ID)
-			}
+				exec, err := processUC.Execute(ctx, env)
+				if err != nil {
+					log.Printf("process event %s: %v", env.ID, err)
+					if domain.IsPermanent(err) {
+						if qErr := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
+							ID:         domain.NewID(),
+							SourceType: "event",
+							SourceID:   env.ID,
+							EventID:    env.ID,
+							TenantID:   env.TenantID,
+							ErrorClass: string(domain.ClassifyError(err)),
+							PayloadRef: "jetstream:flowrule",
+							Error:      err.Error(),
+							CreatedAt:  clock.Now(),
+						}); qErr != nil {
+							log.Printf("quarantine event %s: %v", env.ID, qErr)
+							d.Retry(ctx, 5*time.Second)
+							return
+						}
+						d.Ack(ctx)
+					} else {
+						d.Retry(ctx, 5*time.Second)
+					}
+					return
+				}
+
+				if err := d.Ack(ctx); err != nil {
+					log.Printf("ack %s: %v", env.ID, err)
+				} else {
+					log.Printf("processed event %s -> execution %s", env.ID, exec.ID)
+				}
+			}(delivery)
 		}
 	}
 }

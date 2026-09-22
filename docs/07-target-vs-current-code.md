@@ -50,27 +50,27 @@ The practical truth is:
 
 That means the design is strong, but the broker + worker separation is still conceptual rather than enforced.
 
-## 5. The tenant-scope reliability issue
+## 5. The tenant-scope bug (FIXED)
 
 The rule repository now receives `tenant_scope` explicitly when saving an immutable revision; the stored identity is `(tenant_scope, rule_id, revision)`.
 
-However, `ActivateRuleUseCase.Execute` has a bug: it passes `revision.RuleID` as the `tenant_scope` argument to `RuleRepository.Save`, so non-default tenants silently write rules under the wrong scope. This is tracked as gap 3 in Story 05.
+`ActivateRuleUseCase.Execute` passes the caller-supplied `tenantScope` to `RuleRepository.Save`. The `RuleRevision` struct carries a `TenantScope` field that is populated on read from `GetActive`. This is now correct.
 
 The API still intentionally deploys only to scope `default`; adding a tenant-aware API is a separate control-plane feature.
 
-## 6. The outbox claim race
+## 6. The outbox claim race (FIXED)
 
-The outbox `ClaimPending` currently uses `SELECT ... FOR UPDATE SKIP LOCKED` without a durable status change. Row locks release when the query returns, so two publisher replicas can claim and send the same effect concurrently. This is tracked as gap 4 in Story 05.
+`ClaimPending` uses a CTE that atomically selects candidates with `FOR UPDATE SKIP LOCKED` and updates them to `status='claimed'` with an owner and expiry in the same SQL statement. Two publisher replicas cannot claim the same effect because the UPDATE persists the claim before the query returns.
 
-The correct pattern (not yet implemented) is:
+The pattern is:
 
 ```text
-claim in a short tx -> update status='claimed' and owner -> commit
-send outside the tx
-mark delivered or retry in a new short tx
+CTE: SELECT candidates ... FOR UPDATE SKIP LOCKED
+UPDATE: SET status='claimed', claimed_by=$2, claim_expires_at=NOW()+1min
+RETURNING ...
 ```
 
-This is the actual contract that makes the outbox safe.
+This is a single atomic statement — no separate transaction needed.
 
 ## 7. Deployment flow and runtime flow must remain separate
 
@@ -100,3 +100,17 @@ This is exactly the point at which a senior engineer should speak clearly: the s
 5. Then move to Phase 2 distributed-worker guarantees
 
 This order matters because scaling correctness is built on top of local correctness.
+
+## 10. Concrete examples
+
+See `docs/examples/` for worked examples:
+
+| Example | File | What it covers |
+|---------|------|----------------|
+| Event lifecycle | [01-event-lifecycle.md](examples/01-event-lifecycle.md) | Full trace from NATS to effect delivery |
+| Failure scenarios | [02-failure-scenarios.md](examples/02-failure-scenarios.md) | Crash before/after commit, destination down, duplicates |
+| Rule evaluation | [03-rule-evaluation.md](examples/03-rule-evaluation.md) | first_match, all_matches, otherwise, operators |
+| Partitioning | [04-partitioning.md](examples/04-partitioning.md) | Shard routing, hot keys, fencing tokens |
+| Revisions | [05-revisions.md](examples/05-revisions.md) | Immutable revisions, activation, retry pinning |
+| Database state | [06-database-state.md](examples/06-database-state.md) | Table contents, state machines, query patterns |
+| Interview scenarios | [07-interview-scenarios.md](examples/07-interview-scenarios.md) | "Why NATS?", "Why Postgres?", etc. |

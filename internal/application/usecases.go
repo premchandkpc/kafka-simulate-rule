@@ -184,7 +184,6 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 type PublishEffectsUseCase struct {
 	outbox       ports.OutboxRepository
 	effectSender ports.EffectSender
-	executions   ports.ExecutionRepository
 	quarantine   ports.QuarantineRepository
 	clock        ports.Clock
 }
@@ -192,14 +191,12 @@ type PublishEffectsUseCase struct {
 func NewPublishEffectsUseCase(
 	outbox ports.OutboxRepository,
 	effectSender ports.EffectSender,
-	executions ports.ExecutionRepository,
 	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
 ) *PublishEffectsUseCase {
 	return &PublishEffectsUseCase{
 		outbox:       outbox,
 		effectSender: effectSender,
-		executions:   executions,
 		quarantine:   quarantine,
 		clock:        clock,
 	}
