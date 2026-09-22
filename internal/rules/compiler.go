@@ -7,7 +7,10 @@ import (
 	"strings"
 
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
 )
+
+var _ ports.RuleCompiler = (*Compiler)(nil)
 
 const (
 	CompilerVersion = "1.0.0"
@@ -289,53 +292,6 @@ func countPredicates(p domain.Predicate) int {
 		count++
 	}
 	return count
-}
-
-func SourceHash(source json.RawMessage) string {
-	return string(domain.ComputeSourceHash(source))
-}
-
-func SortByPriority(rules []domain.CompiledRule) {
-	sort.Slice(rules, func(i, j int) bool {
-		return rules[i].Priority > rules[j].Priority
-	})
-}
-
-func RuleIDs(rules []domain.CompiledRule) []string {
-	ids := make([]string, len(rules))
-	for i, r := range rules {
-		ids[i] = r.ID
-	}
-	return ids
-}
-
-func DescribePredicate(p domain.Predicate) string {
-	if p.Path != "" {
-		return fmt.Sprintf("%s %s %v", p.Path, p.Op, p.Value)
-	}
-	parts := []string{}
-	if p.All != nil {
-		subParts := make([]string, 0, len(p.All))
-		for _, sub := range p.All {
-			if sub != nil {
-				subParts = append(subParts, DescribePredicate(*sub))
-			}
-		}
-		parts = append(parts, "all("+strings.Join(subParts, ", ")+")")
-	}
-	if p.Any != nil {
-		subParts := make([]string, 0, len(p.Any))
-		for _, sub := range p.Any {
-			if sub != nil {
-				subParts = append(subParts, DescribePredicate(*sub))
-			}
-		}
-		parts = append(parts, "any("+strings.Join(subParts, ", ")+")")
-	}
-	if p.Not != nil {
-		parts = append(parts, "not("+DescribePredicate(*p.Not)+")")
-	}
-	return strings.Join(parts, " ")
 }
 
 // ValidatePathsAgainstContract checks that all paths referenced in a compiled

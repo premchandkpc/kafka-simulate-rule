@@ -199,6 +199,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	ruleRepo := newMockRuleRepo()
 	executions := newMockExecutionRepo()
 	outbox := newMockOutbox()
+	quarantine := newMockQuarantine()
 
 	beginTx := func(ctx context.Context) (ports.Tx, error) {
 		return &mockTx{
@@ -221,7 +222,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	}
 
 	uc := svcevents.NewService(
-		compiler, evaluator, clock, beginTx, newRepos,
+		compiler, evaluator, quarantine, clock, beginTx, newRepos,
 	)
 
 	revision, err := compiler.Compile(json.RawMessage(`{

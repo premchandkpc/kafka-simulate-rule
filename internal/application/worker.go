@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"time"
 
@@ -10,40 +9,27 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
-// EventProcessor processes incoming events.
-type EventProcessor interface {
-	Process(ctx context.Context, envelope *domain.EventEnvelope) (*domain.Execution, error)
-}
-
-// EffectPublisher publishes pending effects.
-type EffectPublisher interface {
-	PublishBatch(ctx context.Context, batchSize int) error
-}
-
 // Worker owns the runtime loop for a broker-backed rules worker.
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
 type Worker struct {
-	consumer   ports.BrokerConsumer
-	events     EventProcessor
-	effects    EffectPublisher
-	quarantine ports.QuarantineRepository
-	clock      ports.Clock
+	consumer ports.BrokerConsumer
+	events   ports.EventProcessor
+	effects  ports.EffectPublisher
+	clock    ports.Clock
 }
 
 func NewWorker(
 	consumer ports.BrokerConsumer,
-	events EventProcessor,
-	effects EffectPublisher,
-	quarantine ports.QuarantineRepository,
+	events ports.EventProcessor,
+	effects ports.EffectPublisher,
 	clock ports.Clock,
 ) *Worker {
 	return &Worker{
-		consumer:   consumer,
-		events:     events,
-		effects:    effects,
-		quarantine: quarantine,
-		clock:      clock,
+		consumer: consumer,
+		events:   events,
+		effects:  effects,
+		clock:    clock,
 	}
 }
 
@@ -90,25 +76,12 @@ func (w *Worker) publishLoop(ctx context.Context) {
 func (w *Worker) processDelivery(ctx context.Context, delivery ports.Delivery) {
 	env, err := delivery.Event()
 	if err != nil || env == nil {
-		data, _ := json.Marshal(delivery.Raw())
-		log.Printf("invalid event: %s", string(data))
-		if err := w.quarantine.Save(ctx, &domain.QuarantineEntry{
-			ID:         domain.NewID(),
-			SourceType: "event",
-			SourceID:   domain.ComputeSourceHash(delivery.Raw()),
-			ErrorClass: string(domain.ErrorClassValidation),
-			PayloadRef: "jetstream:flowrule",
-			Error:      "invalid event envelope JSON",
-			CreatedAt:  w.clock.Now(),
-		}); err != nil {
-			log.Printf("quarantine invalid event: %v", err)
-			if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
-				log.Printf("retry invalid event: %v", retryErr)
-			}
-			return
+		log.Printf("invalid event: %s", string(delivery.Raw()))
+		if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
+			log.Printf("quarantine invalid event: %v", qErr)
 		}
-		if err := delivery.Ack(ctx); err != nil {
-			log.Printf("ack invalid event: %v", err)
+		if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
+			log.Printf("retry invalid event: %v", retryErr)
 		}
 		return
 	}
@@ -117,22 +90,8 @@ func (w *Worker) processDelivery(ctx context.Context, delivery ports.Delivery) {
 	if err != nil {
 		log.Printf("process event %s: %v", env.ID, err)
 		if domain.IsPermanent(err) {
-			if qErr := w.quarantine.Save(ctx, &domain.QuarantineEntry{
-				ID:         domain.NewID(),
-				SourceType: "event",
-				SourceID:   env.ID,
-				EventID:    env.ID,
-				TenantID:   env.TenantID,
-				ErrorClass: string(domain.ClassifyError(err)),
-				PayloadRef: "jetstream:flowrule",
-				Error:      err.Error(),
-				CreatedAt:  w.clock.Now(),
-			}); qErr != nil {
+			if qErr := w.events.QuarantineEvent(ctx, env.ID, env.ID, env.TenantID, domain.ClassifyError(err), err.Error()); qErr != nil {
 				log.Printf("quarantine event %s: %v", env.ID, qErr)
-				if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
-					log.Printf("retry quarantined event: %v", retryErr)
-				}
-				return
 			}
 			if err := delivery.Ack(ctx); err != nil {
 				log.Printf("ack permanent error event %s: %v", env.ID, err)

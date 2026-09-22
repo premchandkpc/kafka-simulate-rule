@@ -7,12 +7,11 @@ import (
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
-	"github.com/flowrule/flowrule/internal/rules"
 )
 
 // Service handles rule compilation, activation, and querying.
 type Service struct {
-	compiler    *rules.Compiler
+	compiler    ports.RuleCompiler
 	ruleRepo    ports.RuleRepository
 	activations ports.ActivationRepository
 	executions  ports.ExecutionRepository
@@ -20,7 +19,7 @@ type Service struct {
 }
 
 func NewService(
-	compiler *rules.Compiler,
+	compiler ports.RuleCompiler,
 	ruleRepo ports.RuleRepository,
 	activations ports.ActivationRepository,
 	executions ports.ExecutionRepository,

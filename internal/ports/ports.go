@@ -104,3 +104,14 @@ type RuleCompiler interface {
 type RuleEvaluator interface {
 	Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error)
 }
+
+// EventProcessor processes incoming events through the rules engine.
+type EventProcessor interface {
+	Process(ctx context.Context, envelope *domain.EventEnvelope) (*domain.Execution, error)
+	QuarantineEvent(ctx context.Context, sourceID string, eventID string, tenantID string, errClass domain.ErrorClass, errMsg string) error
+}
+
+// EffectPublisher publishes pending effects to their destinations.
+type EffectPublisher interface {
+	PublishBatch(ctx context.Context, batchSize int) error
+}

@@ -7,7 +7,10 @@ import (
 	"strings"
 
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
 )
+
+var _ ports.RuleEvaluator = (*Evaluator)(nil)
 
 type Evaluator struct{}
 

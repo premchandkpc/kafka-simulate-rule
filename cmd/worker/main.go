@@ -64,6 +64,7 @@ func main() {
 	clock := domain.SystemClock{}
 	effectSender := effects.NewFakeDestination()
 	pool := db.Pool()
+	quarantineRepo := sql.NewQuarantineRepository(pool)
 
 	beginTx := func(ctx context.Context) (ports.Tx, error) {
 		pgxTx, err := pool.Begin(ctx)
@@ -83,12 +84,11 @@ func main() {
 		}
 	}
 
-	eventsSvc := svcevents.NewService(compiler, evaluator, clock, beginTx, newRepos)
+	eventsSvc := svcevents.NewService(compiler, evaluator, quarantineRepo, clock, beginTx, newRepos)
 	outboxRepo := sql.NewOutboxRepository(pool)
-	quarantineRepo := sql.NewQuarantineRepository(pool)
 	effectsSvc := svceffects.NewService(outboxRepo, effectSender, quarantineRepo, clock)
 
-	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, quarantineRepo, clock)
+	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, clock)
 	log.Println("worker started, fetching events...")
 	worker.Run(ctx)
 }

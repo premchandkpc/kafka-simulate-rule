@@ -6,7 +6,6 @@ import (
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
-	"github.com/flowrule/flowrule/internal/rules"
 )
 
 // TxRepos holds repository instances scoped to a single transaction.
@@ -23,26 +22,29 @@ type RepoFactory func(db interface{}) TxRepos
 
 // Service handles event processing, inbox dedup, rule evaluation, and execution creation.
 type Service struct {
-	compiler *rules.Compiler
-	evaluator *rules.Evaluator
-	clock    ports.Clock
-	beginTx  ports.TxFactory
-	newRepos RepoFactory
+	compiler   ports.RuleCompiler
+	evaluator  ports.RuleEvaluator
+	quarantine ports.QuarantineRepository
+	clock      ports.Clock
+	beginTx    ports.TxFactory
+	newRepos   RepoFactory
 }
 
 func NewService(
-	compiler *rules.Compiler,
-	evaluator *rules.Evaluator,
+	compiler ports.RuleCompiler,
+	evaluator ports.RuleEvaluator,
+	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
 	beginTx ports.TxFactory,
 	newRepos RepoFactory,
 ) *Service {
 	return &Service{
-		compiler:  compiler,
-		evaluator: evaluator,
-		clock:     clock,
-		beginTx:   beginTx,
-		newRepos:  newRepos,
+		compiler:   compiler,
+		evaluator:  evaluator,
+		quarantine: quarantine,
+		clock:      clock,
+		beginTx:    beginTx,
+		newRepos:   newRepos,
 	}
 }
 
@@ -175,4 +177,19 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope) (
 	}
 
 	return execution, nil
+}
+
+// QuarantineEvent records a failed event for later inspection.
+func (s *Service) QuarantineEvent(ctx context.Context, sourceID string, eventID string, tenantID string, errClass domain.ErrorClass, errMsg string) error {
+	return s.quarantine.Save(ctx, &domain.QuarantineEntry{
+		ID:         domain.NewID(),
+		SourceType: "event",
+		SourceID:   sourceID,
+		EventID:    eventID,
+		TenantID:   tenantID,
+		ErrorClass: string(errClass),
+		PayloadRef: "jetstream:flowrule",
+		Error:      errMsg,
+		CreatedAt:  s.clock.Now(),
+	})
 }

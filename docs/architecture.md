@@ -1,88 +1,97 @@
-# Target architecture
+# Architecture
 
-## One execution path
-
-```text
-producer
-  -> JetStream stream (or Kafka topic)
-  -> durable pull consumer
-  -> partition worker: validate -> select revision -> evaluate -> stage effects
-  -> transactional store
-       ├─ inbox: accepted event IDs
-       ├─ rule revisions + activation pointer
-       ├─ execution result / audit record
-       └─ outbox: commands and emitted events
-  -> outbox publisher -> external services / output subjects
-```
-
-One worker owns a `(tenant, rule-set, partition)` at a time. Events with one `partition_key` land on the same partition, so state changes for that key are ordered. Different keys execute concurrently. This is the scaling and correctness unit—not a cluster-wide scheduler lane.
-
-## Boundaries (implemented)
-
-| Component | Responsibility | Does not do | Status |
-| --- | --- | --- | --- |
-| Ingress | Validate envelope and publish durably | Evaluate rules | DONE |
-| Broker adapter | Fetch, ack/nak, retry, publish | Define business semantics | DONE |
-| Rule registry | Immutable revisions and atomic activation pointer | Broadcast plans | DONE |
-| Partition worker | Evaluate and atomically write inbox/audit/outbox | Coordinate all workers | DONE |
-| Effects publisher | Deliver outbox records with retries | Mutate rule state | DONE |
-| Query API | Deploy, activate, replay, inspect | Participate in delivery | DONE |
-
-Use Postgres (or equivalent transactional SQL) for the registry, inbox, execution audit, outbox, and partition leases. Use Kubernetes deployment plus leases/consumer ownership for coordination. This removes custom Raft, gossip, file recovery, plan acknowledgements, and lane scheduling.
-
-## Transport choice
-
-| Option | Use when | Trade-off | Status |
-| --- | --- | --- | --- |
-| NATS JetStream | Low latency, request/reply, durable work queues, simple operations | Smaller analytics/retention ecosystem | DONE |
-| Kafka adapter | Kafka is already the event backbone or long retention is central | Higher operational and client complexity | TODO |
-| Cloud queue adapter | Managed operations matter more than portability | Provider-specific semantics | TODO |
-
-Expose only `Fetch`, `Ack`, `Retry`, `Publish`, and message metadata to the engine. Do not expose Kafka partitions, consumer groups, or JetStream subjects to rule evaluation; mappings belong in deployment configuration.
-
-## Delivery semantics
-
-At-least-once is the base guarantee. Get effective-once business behavior with a stable event ID plus transactional inbox/outbox:
-
-1. Insert or lock `(tenant, event_id)` in `inbox`.
-2. On conflict, acknowledge the duplicate without evaluating actions.
-3. Evaluate the pinned rule revision and commit audit/state/outbox in one transaction.
-4. Acknowledge the broker only after commit.
-5. Retry each outbox effect until its destination accepts its idempotency key.
-
-An arbitrary HTTP call cannot be exactly-once. Send `idempotency_key = execution_id + action_index`; a destination must deduplicate it. Otherwise model the effect as an explicit reconcilable operation.
-
-## Revision rollout
-
-Revisions are immutable. `rule_activation` maps a rule set and tenant scope to one revision in a single audited transaction.
-
-- New events pin the visible revision when execution starts.
-- Retries use the revision recorded by the initial execution.
-- Canary rollout hashes `partition_key`; it never randomly switches per retry.
-- Rollback moves the activation pointer for new executions and never rewrites history.
-
-Workers cache `(rule_id, revision)` and invalidate through a monotonic registry version or notification. A cache miss reads the source of truth, so plan distribution is not on the critical path.
-
-## Backpressure and recovery
-
-- Pull only work local concurrency and database capacity can handle.
-- Persist retry attempt and due time; use exponential backoff with jitter.
-- Quarantine exhausted/non-retryable messages with event, revision, error class, and trace ID.
-- Apply destination limits and circuit breakers in the effects publisher, not the pure evaluator.
-- On worker loss, its lease expires and another worker resumes broker delivery. Inbox/outbox makes redelivery safe.
-
-## Code shape (implemented)
+## Project structure
 
 ```text
-cmd/api                  deploy, activate, inspect, replay               DONE
-cmd/worker               fetch loop and graceful shutdown                 DONE
-internal/domain          Rule, Event, Decision, Effect, Errors            DONE
-internal/rules           parse, validate, compile index, evaluate         DONE
-internal/ports           interfaces for broker, store, clock, effects    DONE
-internal/adapters/sql    SQL registry + inbox/outbox + leases             DONE
-internal/adapters/nats   JetStream consumer and publisher                 DONE
-internal/adapters/effects outbox publishing and destination adapters      DONE
-internal/application     use cases: ProcessEvent, PublishEffects, Activate DONE
+cmd/api/                         HTTP server for rule deployment and execution queries
+cmd/worker/                      NATS consumer, event processing, effect publishing loop
+
+internal/domain/                 Entities, value objects, domain errors. No I/O.
+internal/rules/                  Schema validation, compiler, pure evaluator.
+internal/services/rules/         Rule compilation, activation, querying.
+internal/services/events/        Event processing, inbox dedup, evaluation, quarantine.
+internal/services/effects/       Effect publishing, retry, outbox management.
+
+internal/ports/                  Interfaces: broker, repositories, clock, services.
+internal/adapters/sql/           PostgreSQL repositories, migrations, Querier wrapper.
+internal/adapters/nats/          JetStream consumer and publisher.
+internal/adapters/memory/        In-memory adapters for testing.
+internal/adapters/effects/       HTTP and fake destination adapters.
+
+tests/contract/                  Adapter conformance test suites.
+tests/integration/               End-to-end transaction and duplicate tests.
+migrations/                      Versioned schema changes.
 ```
 
-Keep evaluation pure: `Decision Evaluate(Rule, Event, Facts)`. It needs no broker, database, goroutine, CGo, or FFI dependency.
+## Dependency rule
+
+```
+cmd -> services -> ports
+                -> domain
+adapters -> ports -> domain
+rules -> domain
+```
+
+Dependencies point inward. Domain depends on nothing outside the standard library. Ports define what the application needs; adapters implement it.
+
+## Port interfaces
+
+```go
+// Transaction boundary
+type Tx interface {
+    Commit(ctx context.Context) error
+    Rollback(ctx context.Context) error
+}
+type TxFactory func(ctx context.Context) (Tx, error)
+
+// Broker
+type BrokerConsumer interface {
+    Fetch(ctx context.Context, n int) ([]Delivery, error)
+}
+type Delivery interface {
+    Event() (*domain.EventEnvelope, error)
+    Ack(ctx context.Context) error
+    Nak(ctx context.Context) error
+    Retry(ctx context.Context, delay time.Duration) error
+    Raw() []byte
+}
+
+// Services (inbound ports)
+type EventProcessor interface {
+    Process(ctx context.Context, envelope *domain.EventEnvelope) (*domain.Execution, error)
+    QuarantineEvent(ctx context.Context, sourceID, eventID, tenantID string, errClass domain.ErrorClass, errMsg string) error
+}
+type EffectPublisher interface {
+    PublishBatch(ctx context.Context, batchSize int) error
+}
+type RuleCompiler interface {
+    Compile(source json.RawMessage) (*domain.RuleRevision, error)
+}
+type RuleEvaluator interface {
+    Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error)
+}
+```
+
+## Component boundaries
+
+| Component | Does | Does not |
+|-----------|------|----------|
+| Event intake | Validate envelope, dedup, evaluate, record decision | Call external services, enforce global ordering |
+| Rule management | Compile, validate, activate revisions | Execute rules at runtime |
+| Effect publisher | Claim outbox, send, retry, quarantine | Modify execution state |
+| Worker | Fetch from broker, delegate to services | Contain business logic directly |
+| Broker adapter | Transport semantics (at-least-once) | Define business semantics |
+
+## Capability matrix
+
+| Capability | FlowRule | Notes |
+|------------|----------|-------|
+| Rule evaluation | YES | Pure, deterministic |
+| Event dedup | YES | Transactional inbox |
+| Effect delivery | YES | Outbox pattern with retry |
+| Rule hot-reload | YES | New revision + activate |
+| Explainability | YES | RuleExplanation per evaluation |
+| Contract validation | YES | InputContract on rule revisions |
+| Aggregation / windows | NO | Use a workflow engine |
+| Long-running workflows | NO | EmitAction chains internally; CommandAction pushes to workflow layer |
+| Loops / timers / compensation | NO | Rule engine scope ends at effect emission |
