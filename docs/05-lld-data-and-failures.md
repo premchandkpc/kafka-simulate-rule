@@ -47,8 +47,8 @@ Use a single transaction-owning repository/use case. Keep the external send afte
 
 ## Current implementation gaps to fix
 
-1. Separate SQL calls break the required transaction and leave a crash window.
-2. `ActivationRepository.Get` and `RuleRepository.GetActive` return a database error for no rows, not a clean `nil`; the intended domain error path is therefore unreliable.
+1. ~~Separate SQL calls break the required transaction and leave a crash window.~~ **FIXED.** `ProcessEventUseCase.Execute` now runs inbox insert → activation read → rule read → evaluation → execution insert → outbox insert → inbox mark-committed inside a single `sql.Tx`. The broker ACK happens only after commit. Repositories accept `ports.Querier` (satisfied by both `*pgxpool.Pool` and `*pgx.Tx`), and a `TxFactory` + `RepoFactory` inject the transaction boundary without coupling the use case to a specific driver.
+2. ~~`ActivationRepository.Get` and `RuleRepository.GetActive` return a database error for no rows, not a clean `nil`; the intended domain error path is therefore unreliable.~~ **FIXED.** Both methods now return `nil, nil` when no rows match, consistent with `InboxRepository.Get` and `ExecutionRepository.Get`.
 3. Rule save stores `tenant_scope = revision.RuleID`, not the requested tenant scope, so non-default/tenant-specific activation cannot work correctly.
 4. `ClaimPending` uses `FOR UPDATE SKIP LOCKED` without an explicit transaction or claim-state update; locks are released when the query ends and competing publishers can send the same effect concurrently.
 5. `HTTPDestination.Send` does not make an HTTP call, and the worker uses only `FakeDestination`.

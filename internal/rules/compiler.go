@@ -49,8 +49,8 @@ type rawRuleSet struct {
 }
 
 type rawRule struct {
-	ID        string         `json:"id"`
-	Priority  int            `json:"priority"`
+	ID        string           `json:"id"`
+	Priority  int              `json:"priority"`
 	When      domain.Predicate `json:"when"`
 	Then      []domain.Action  `json:"then"`
 	Otherwise []domain.Action  `json:"otherwise,omitempty"`
@@ -90,6 +90,13 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 	compiled, err := c.compileRules(rawRules)
 	if err != nil {
 		return nil, err
+	}
+	if rs.Mode == string(domain.MatchModeFirstMatch) {
+		for i := 0; i < len(compiled)-1; i++ {
+			if len(compiled[i].Otherwise) > 0 {
+				return nil, fmt.Errorf("first_match permits otherwise only on the lowest-priority rule: %w", domain.ErrInvalidAction)
+			}
+		}
 	}
 
 	revision := &domain.RuleRevision{

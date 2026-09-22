@@ -297,3 +297,31 @@ func TestCompilerAmbiguousPriority(t *testing.T) {
 		t.Fatal("expected error for ambiguous priority")
 	}
 }
+
+func TestCompilerRejectsEarlyOtherwiseInFirstMatch(t *testing.T) {
+	compiler := NewCompiler(DefaultLimits())
+	source := json.RawMessage(`{
+		"rule_set": "order-policy",
+		"revision": 1,
+		"mode": "first_match",
+		"rules": [
+			{
+				"id": "high-priority", "priority": 100,
+				"when": {"path": "$.x", "op": "eq", "value": 1},
+				"then": [{"emit": {"topic": "matched", "data": {}}}],
+				"otherwise": [{"emit": {"topic": "unexpected", "data": {}}}]
+			},
+			{
+				"id": "fallback", "priority": 1,
+				"when": {"path": "$.x", "op": "eq", "value": 2},
+				"then": [{"emit": {"topic": "fallback-match", "data": {}}}],
+				"otherwise": [{"emit": {"topic": "fallback", "data": {}}}]
+			}
+		]
+	}`)
+
+	_, err := compiler.Compile(source)
+	if err == nil {
+		t.Fatal("expected first_match rule set with an early otherwise to be rejected")
+	}
+}

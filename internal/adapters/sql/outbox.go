@@ -6,20 +6,20 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type OutboxRepository struct {
-	pool *pgxpool.Pool
+	db ports.Querier
 }
 
-func NewOutboxRepository(pool *pgxpool.Pool) *OutboxRepository {
-	return &OutboxRepository{pool: pool}
+func NewOutboxRepository(db ports.Querier) *OutboxRepository {
+	return &OutboxRepository{db: db}
 }
 
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	for _, ef := range effects {
-		_, err := r.pool.Exec(ctx, `
+		_, err := r.db.Exec(ctx, `
 			INSERT INTO outbox_effects (effect_id, execution_id, destination, name, payload, effect_type, status, attempts, max_attempts, available_at, last_error, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			ON CONFLICT (effect_id) DO NOTHING
@@ -33,14 +33,27 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 }
 
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string) ([]domain.OutboxEffect, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT effect_id, execution_id, destination, name, payload, effect_type, status, attempts, max_attempts, available_at, last_error, created_at, updated_at
-		FROM outbox_effects
-		WHERE status = 'pending' AND available_at <= NOW()
-		ORDER BY available_at
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED
-	`, batchSize)
+	rows, err := r.db.Query(ctx, `
+		WITH candidates AS (
+			SELECT effect_id
+			FROM outbox_effects
+			WHERE (status = 'pending' AND available_at <= NOW())
+			   OR (status = 'claimed' AND claim_expires_at <= NOW())
+			ORDER BY available_at, created_at
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE outbox_effects AS o
+		SET status = 'claimed',
+			claimed_by = $2,
+			claimed_at = NOW(),
+			claim_expires_at = NOW() + INTERVAL '1 minute',
+			updated_at = NOW()
+		FROM candidates
+		WHERE o.effect_id = candidates.effect_id
+		RETURNING o.effect_id, o.execution_id, o.destination, o.name, o.payload, o.effect_type,
+		          o.status, o.attempts, o.max_attempts, o.available_at, o.last_error, o.created_at, o.updated_at
+	`, batchSize, owner)
 	if err != nil {
 		return nil, fmt.Errorf("claim pending: %w", err)
 	}
@@ -62,8 +75,9 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectID string) error {
 	now := time.Now().UTC()
-	_, err := r.pool.Exec(ctx, `
-		UPDATE outbox_effects SET status = 'delivered', updated_at = $2
+	_, err := r.db.Exec(ctx, `
+		UPDATE outbox_effects
+		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $2
 		WHERE effect_id = $1
 	`, effectID, now)
 	if err != nil {
@@ -75,8 +89,10 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectID string) e
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error {
 	now := time.Now().UTC()
 	availableAt := now.Add(delay)
-	_, err := r.pool.Exec(ctx, `
-		UPDATE outbox_effects SET status = 'pending', attempts = $2, available_at = $3, last_error = $4, updated_at = $5
+	_, err := r.db.Exec(ctx, `
+		UPDATE outbox_effects
+		SET status = 'pending', attempts = $2, available_at = $3, last_error = $4,
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $5
 		WHERE effect_id = $1
 	`, effectID, attempts, availableAt, errMsg, now)
 	if err != nil {
@@ -87,8 +103,10 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, d
 
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errMsg string) error {
 	now := time.Now().UTC()
-	_, err := r.pool.Exec(ctx, `
-		UPDATE outbox_effects SET status = 'quarantined', last_error = $2, updated_at = $3
+	_, err := r.db.Exec(ctx, `
+		UPDATE outbox_effects
+		SET status = 'quarantined', last_error = $2,
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $3
 		WHERE effect_id = $1
 	`, effectID, errMsg, now)
 	if err != nil {
@@ -98,17 +116,17 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errM
 }
 
 type ShardLeaseRepository struct {
-	pool *pgxpool.Pool
+	db ports.Querier
 }
 
-func NewShardLeaseRepository(pool *pgxpool.Pool) *ShardLeaseRepository {
-	return &ShardLeaseRepository{pool: pool}
+func NewShardLeaseRepository(db ports.Querier) *ShardLeaseRepository {
+	return &ShardLeaseRepository{db: db}
 }
 
 func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.db.Exec(ctx, `
 		INSERT INTO shard_leases (virtual_shard, owner, fencing_token, expires_at, routing_epoch)
 		VALUES ($1, $2, 1, $3, 0)
 		ON CONFLICT (virtual_shard) DO UPDATE SET
@@ -125,7 +143,7 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.db.Exec(ctx, `
 		UPDATE shard_leases SET expires_at = $3
 		WHERE virtual_shard = $1 AND owner = $2 AND fencing_token = $4
 	`, shard, owner, expiresAt, fencingToken)
@@ -139,7 +157,7 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 }
 
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.db.Exec(ctx, `
 		DELETE FROM shard_leases WHERE virtual_shard = $1 AND owner = $2
 	`, shard, owner)
 	if err != nil {
@@ -150,7 +168,7 @@ func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner 
 
 func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
 	lease := &domain.ShardLease{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT virtual_shard, owner, fencing_token, expires_at, routing_epoch
 		FROM shard_leases
 		WHERE virtual_shard = $1

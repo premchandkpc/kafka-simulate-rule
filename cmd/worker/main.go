@@ -46,11 +46,12 @@ func main() {
 	}
 
 	consumer, err := nats.NewConsumer(ctx, nats.Config{
-		NatsURL:  natsURL,
-		Stream:   "flowrule",
-		Consumer: "flowrule-worker",
-		Subjects: []string{"events.>"},
-		AckWait:  30 * time.Second,
+		NatsURL:    natsURL,
+		Stream:     "flowrule",
+		Consumer:   "flowrule-worker",
+		Subjects:   []string{"events.>"},
+		AckWait:    30 * time.Second,
+		MaxDeliver: 10,
 	})
 	if err != nil {
 		log.Fatalf("nats consumer: %v", err)
@@ -60,17 +61,29 @@ func main() {
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
 	clock := ports.SystemClock{}
-
-	inboxRepo := sql.NewInboxRepository(db.Pool())
-	activationRepo := sql.NewActivationRepository(db.Pool())
-	ruleRepo := sql.NewRuleRepository(db.Pool())
-	executionRepo := sql.NewExecutionRepository(db.Pool())
-	outboxRepo := sql.NewOutboxRepository(db.Pool())
-	quarantineRepo := &fakeQuarantineRepo{entries: make(map[string]*domain.QuarantineEntry)}
 	effectSender := effects.NewFakeDestination()
 
-	processUC := application.NewProcessEventUseCase(compiler, evaluator, inboxRepo, activationRepo, ruleRepo, executionRepo, outboxRepo, effectSender, clock)
-	publishUC := application.NewPublishEffectsUseCase(outboxRepo, effectSender, executionRepo, quarantineRepo, clock)
+	pool := db.Pool()
+
+	beginTx := func(ctx context.Context) (ports.Tx, error) {
+		return pool.Begin(ctx)
+	}
+
+	newRepos := func(q ports.Querier) application.TxRepos {
+		return application.TxRepos{
+			Inbox:       sql.NewInboxRepository(q),
+			Activations: sql.NewActivationRepository(q),
+			RuleRepo:    sql.NewRuleRepository(q),
+			Executions:  sql.NewExecutionRepository(q),
+			Outbox:      sql.NewOutboxRepository(q),
+		}
+	}
+
+	processUC := application.NewProcessEventUseCase(compiler, evaluator, effectSender, clock, beginTx, newRepos)
+
+	outboxRepo := sql.NewOutboxRepository(pool)
+	quarantineRepo := sql.NewQuarantineRepository(pool)
+	publishUC := application.NewPublishEffectsUseCase(outboxRepo, effectSender, nil, quarantineRepo, clock)
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
@@ -108,7 +121,20 @@ func main() {
 			if env == nil {
 				data, _ := json.Marshal(delivery.Raw())
 				log.Printf("invalid event: %s", string(data))
-				delivery.Nak(ctx)
+				if err := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
+					ID:         domain.NewID(),
+					SourceType: "event",
+					SourceID:   domain.ComputeSourceHash(delivery.Raw()),
+					ErrorClass: string(domain.ErrorClassValidation),
+					PayloadRef: "jetstream:flowrule",
+					Error:      "invalid event envelope JSON",
+					CreatedAt:  clock.Now(),
+				}); err != nil {
+					log.Printf("quarantine invalid event: %v", err)
+					delivery.Retry(ctx, 5*time.Second)
+					continue
+				}
+				delivery.Ack(ctx)
 				continue
 			}
 
@@ -116,7 +142,22 @@ func main() {
 			if err != nil {
 				log.Printf("process event %s: %v", env.ID, err)
 				if domain.IsPermanent(err) {
-					delivery.Nak(ctx)
+					if qErr := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
+						ID:         domain.NewID(),
+						SourceType: "event",
+						SourceID:   env.ID,
+						EventID:    env.ID,
+						TenantID:   env.TenantID,
+						ErrorClass: string(domain.ClassifyError(err)),
+						PayloadRef: "jetstream:flowrule",
+						Error:      err.Error(),
+						CreatedAt:  clock.Now(),
+					}); qErr != nil {
+						log.Printf("quarantine event %s: %v", env.ID, qErr)
+						delivery.Retry(ctx, 5*time.Second)
+						continue
+					}
+					delivery.Ack(ctx)
 				} else {
 					delivery.Retry(ctx, 5*time.Second)
 				}
@@ -130,19 +171,4 @@ func main() {
 			}
 		}
 	}
-}
-
-type fakeQuarantineRepo struct {
-	entries map[string]*domain.QuarantineEntry
-}
-
-func (f *fakeQuarantineRepo) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
-	f.entries[entry.ID] = entry
-	return nil
-}
-func (f *fakeQuarantineRepo) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
-	return f.entries[id], nil
-}
-func (f *fakeQuarantineRepo) Replay(ctx context.Context, id string) error {
-	return nil
 }

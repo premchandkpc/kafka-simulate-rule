@@ -13,6 +13,8 @@ It must do four things well:
 - evaluate rules against the event
 - persist execution + effects durably
 
+This document covers the deployment flow: the steps needed to stand up the system and make it live. It is intentionally separate from the runtime event flow described in [05-producer-consumer-and-requests.md](./05-producer-consumer-and-requests.md).
+
 ## 2. Build choices
 
 The project intentionally keeps the runtime small and deliberate:
@@ -41,7 +43,10 @@ A minimal deployment is:
     v
 [API process]
     |
-    +--> Postgres
+    +--> Postgres (rule control plane)
+
+[Event producers]
+    |
     +--> NATS JetStream
     |
     v
@@ -56,9 +61,19 @@ A minimal deployment is:
     +--> destinations / effect topics
 ```
 
-The API handles ingestion and rule lifecycle operations. The worker handles event consumption and evaluation. The effect publisher reads pending outbox rows and forwards them to destinations.
+The API handles rule lifecycle operations and execution lookup. Producers publish events directly to NATS; there is no event-ingest HTTP endpoint in the current code. The worker handles event consumption and evaluation. The effect publisher reads pending outbox rows and forwards them to destinations.
 
 ## 4. Deployment build from scratch
+
+The deployment flow has five stages, and each stage is a prerequisite for the next one:
+
+```text
+infra exists
+  -> schema exists
+  -> API process starts
+  -> worker process starts
+  -> rule is deployed and activated
+```
 
 ### Step 1: prepare infrastructure
 
@@ -78,13 +93,17 @@ export MIGRATIONS_DIR="migrations"
 
 The SQL layer bootstraps the schema automatically through the migrations runner in the database startup path.
 
+Important production distinction: migrations should be treated as a release-time deployment step, not as something the worker re-runs on every startup. Running migration logic on every runtime process is a convenience for local dev, not a production control-plane guarantee.
+
 ### Step 2: run database migrations
 
-The database is initialized by the app startup flow. The migration set is under:
+The database is initialized as a release-time deployment step. The migration set is under:
 
 - [migrations](../../migrations)
 
 This includes rule revision, activation, inbox, execution, outbox, shard lease, and quarantine tables.
+
+The important production principle is: deployment owns schema creation; runtime owns event processing.
 
 ### Step 3: start the API
 
@@ -100,7 +119,7 @@ The API exposes rule deployment and execution querying endpoints. The build here
 go run ./cmd/worker
 ```
 
-The worker connects to NATS JetStream, creates a durable consumer, fetches messages, evaluates them, and writes the execution result to SQL. It then acks the broker message only after the execution path is successful.
+The worker connects to NATS JetStream, creates a durable consumer (target: `MaxDeliver` limit of 10, current: not yet configured), fetches messages, evaluates them, and writes the execution result to SQL. It acknowledges only after the SQL transaction commits; that ordering is the core runtime correctness rule.
 
 ### Step 5: publish a rule
 
@@ -124,6 +143,8 @@ A production-like deployment should have:
 - tenancy isolation
 - rate limits and quotas
 - monitoring for lag, execution failures, and outbox growth
+
+This should also include health checks that are not process-only: a readiness check should confirm Postgres and JetStream are reachable, not just that the process stayed alive.
 
 ## 6. Why this is a clean deployment model
 

@@ -55,13 +55,19 @@ type Decision struct { Matched []string; Effects []Effect; Hash string }
 type BrokerConsumer interface { Fetch(ctx context.Context, n int) ([]Delivery, error) }
 type Delivery interface { Event() *EventEnvelope; Ack(ctx context.Context) error; Nak(ctx context.Context) error; Retry(ctx context.Context, delay time.Duration) error; Raw() []byte }
 type RuleRepository interface { GetActive(ctx context.Context, tenantScope, ruleSet string) (*RuleRevision, error); Save(ctx context.Context, revision *RuleRevision) error }
+type ActivationRepository interface { Get(ctx context.Context, tenantScope, ruleSet string) (*RuleActivation, error); Set(ctx context.Context, activation *RuleActivation) error }
 type ExecutionRepository interface { Save(ctx context.Context, execution *Execution) error; Get(ctx context.Context, executionID string) (*Execution, error); UpdateStatus(ctx context.Context, executionID string, status ExecutionStatus, errMsg string) error }
-type EffectSender interface { Send(ctx context.Context, effect *Effect) error }
 type InboxRepository interface { Insert(ctx context.Context, entry *InboxEntry) (bool, error); Get(ctx context.Context, tenantID, eventID string) (*InboxEntry, error); MarkCommitted(ctx context.Context, tenantID, eventID, executionID string) error }
 type OutboxRepository interface { Insert(ctx context.Context, effects []OutboxEffect) error; ClaimPending(ctx context.Context, batchSize int, owner string) ([]OutboxEffect, error); MarkDelivered(ctx context.Context, effectID string) error; ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error; Quarantine(ctx context.Context, effectID string, errMsg string) error }
+type QuarantineRepository interface { Save(ctx context.Context, entry *QuarantineEntry) error; Get(ctx context.Context, id string) (*QuarantineEntry, error); Replay(ctx context.Context, id string) error }
+type ShardLeaseRepository interface { Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*ShardLease, error); Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*ShardLease, error); Release(ctx context.Context, shard uint32, owner string) error; GetOwner(ctx context.Context, shard uint32) (*ShardLease, error) }
+type EffectSender interface { Send(ctx context.Context, effect *Effect) error }
+type Querier interface { Exec(...); Query(...); QueryRow(...) }
+type Tx interface { Querier; Commit(ctx context.Context) error; Rollback(ctx context.Context) error }
+type TxFactory func(ctx context.Context) (Tx, error)
 ```
 
-`ExecutionStore.Process` owns the transaction and is intentionally one coarse port: it atomically inserts the inbox row, pins the revision, writes the execution decision, applies owned state changes, and inserts effects. Splitting this into many repository calls invites accidental non-atomic workflows.
+`ProcessEventUseCase.Execute` owns the transaction and is intentionally one coarse use case: it atomically inserts the inbox row, pins the revision, writes the execution decision, applies owned state changes, and inserts effects. Splitting this into many repository calls invites accidental non-atomic workflows. Repositories accept a `Querier` interface (satisfied by both `*pgxpool.Pool` and `*pgx.Tx`), and a `TxFactory` + `RepoFactory` inject the transaction boundary at the composition root.
 
 ## Relational model (implemented in `migrations/`)
 

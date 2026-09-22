@@ -305,7 +305,7 @@ Event arrives
 Match event.type to rule_set
   |
   v
-Load active revision for (tenant_id, rule_set)
+Load active revision for (tenant_scope, rule_set)
   |
   v
 For each rule (sorted by priority DESC):

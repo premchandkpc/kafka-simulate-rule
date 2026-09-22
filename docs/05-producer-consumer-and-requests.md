@@ -24,14 +24,14 @@ A producer is expected to route events by business key, not by random round robi
 
 The system has a few important request categories.
 
-### Event ingest request
+### Event publish
 
-The main request is an event submission. It is accepted as a durable input and published to the broker.
+The main data-plane request is a producer publishing an event directly to NATS. The current API does not expose an event-ingest endpoint.
 
 Flow:
 
 ```text
-client -> API -> validate -> publish event -> durable stream -> worker -> execution
+producer -> NATS publish -> durable stream -> worker -> execution
 ```
 
 ### Rule deployment request
@@ -73,7 +73,7 @@ fetch messages
 
 The processing path is implemented in [internal/application/usecases.go](../../internal/application/usecases.go).
 
-The flow is:
+The target runtime flow is:
 
 1. validate the envelope
 2. check if the event already exists in inbox
@@ -84,22 +84,32 @@ The flow is:
 7. create an execution record
 8. insert outbox effects
 9. mark inbox as committed
-10. ack the broker delivery
+10. commit the transaction and then ack the broker delivery
 
 This is the core runtime path of the engine.
+
+The important distinction is this:
+
+- step 5 to step 9 are one atomic transaction, and the ack happens only after commit
+- repositories accept a `Querier` interface (satisfied by both `*pgxpool.Pool` and `*pgx.Tx`), and a `TxFactory` injects the transaction boundary at the composition root
+- no network I/O happens inside the transaction boundary
+
+This is the core correctness guarantee of the engine and is now implemented.
 
 ## 5. Broker delivery semantics
 
 The broker uses at-least-once semantics.
 
-That means the worker must be idempotent at the application level. The project does this via:
+This means the worker must be idempotent at the application level. The intended design does this via:
 
 - unique event ID
 - inbox record with unique `(tenant_id, event_id)`
 - execution lookup on duplicate entry
 - effect IDs computed deterministically
 
-If the message is redelivered, it will not create a new execution or a second durable effect.
+If the message is redelivered, it should not create a new execution or a second durable effect.
+
+This guarantee is real because step 5 to step 9 are inside one commit boundary. A crash between any two writes rolls back the entire transaction, and redelivery finds the inbox in its pre-transaction state.
 
 ## 6. Retry and backoff behavior
 
@@ -112,12 +122,12 @@ The important distinction is:
 
 ## 7. Publisher flow
 
-After the execution record is written, the outbox publisher claims pending effects and sends them to destinations.
+After the execution record is written, the outbox publisher atomically changes eligible rows from `pending` to `claimed` with an owner and one-minute claim lease, then sends them outside a transaction. An expired claim can be reclaimed after publisher loss.
 
 This is the effect path:
 
 ```text
-outbox pending row -> effect sender -> success or failure -> delivered or retry -> quarantine
+outbox pending row -> durable claimed row -> effect sender -> delivered or retry -> quarantine
 ```
 
 This keeps decision creation and action delivery separate.

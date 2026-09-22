@@ -15,8 +15,8 @@ The broker acknowledgement and destination call happen outside the transaction. 
 
 | Table | Key | Important columns | Invariant | Status |
 | --- | --- | --- | --- | --- |
-| `rule_revisions` | `(tenant_id, rule_set, revision)` | source, compiled artifact, hash, compiler version | immutable after publish | DONE |
-| `rule_activations` | `(tenant_id, rule_set)` | revision, activation version, actor | one visible revision | DONE |
+| `rule_revisions` | `(tenant_scope, rule_id, revision)` | source, compiled artifact, hash, compiler version | immutable after publish | DONE |
+| `rule_activations` | `(tenant_scope, rule_set)` | revision, activation version, actor | one visible revision | DONE |
 | `inbox` | `(tenant_id, event_id)` | status, first_seen_at, committed_at | duplicate identity is unique | DONE |
 | `executions` | `execution_id` | event ID, revision, decision hash, status | revision never changes | DONE |
 | `outbox_effects` | `effect_id` | execution ID, destination, payload ref, status, available_at | effect ID is unique | DONE |

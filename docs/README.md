@@ -99,3 +99,115 @@ Everything else is derived, cached, or replaceable.
 - General workflow/DAG language, arbitrary loops, or distributed VM.
 - Exactly-once delivery to arbitrary external systems.
 - In-process leader election, gossip, plan broadcast, or service registry.
+
+
+
+# FlowRule system stories
+
+This is the code-verified guide to FlowRule as of this repository revision. It is deliberately separate from the earlier design documents: each story labels the difference between the **current prototype** and the **production design**.
+
+| Story | Answers |
+| --- | --- |
+| [01 — Build and local bootstrap](01-build-and-bootstrap.md) | What must exist, how to build/run it, and what starts automatically |
+| [02 — HLD and deployment](02-hld-and-deployment.md) | System boundaries, production topology, ownership, and guarantees |
+| [03 — Request and event journeys](03-request-and-event-journeys.md) | Every request/message type and its end-to-end path |
+| [04 — Rules and event mapping](04-rules-and-event-mapping.md) | How an event selects, evaluates, and emits rules/actions |
+| [05 — LLD, data, and failure handling](05-lld-data-and-failures.md) | Code structure, persistence, idempotency, retries, and known gaps |
+| [06 — Partitioning and scaling](06-partitioning-and-scaling.md) | Ordering key choice, shards, consumers, capacity, and rollout plan |
+
+Read stories 01–04 for an onboarding view. Read 05–06 before operating or extending the worker.
+
+## Current-state warning
+
+The executable is a vertical-slice prototype, not yet a production deployment. In particular, it has no container/Kubernetes manifests, no real outbound destination, no persistent quarantine implementation, no worker shard ownership, and no request authentication. The inbox/execution/outbox writes are now inside a single Postgres transaction (fixed), but the outbox claim race, durable quarantine, MaxDeliver ceiling, shard routing, and the `tenant_scope` bug remain. The stories do not hide these limitations.
+
+
+
+# FlowRule Story: from deployment to runtime
+
+This folder turns the project into a single narrative: how FlowRule is built from scratch, how it is deployed, how it scales, and how a business event becomes a durable rule execution and effect.
+
+## Story in one sentence
+
+FlowRule is a durable, keyed event-processing system that accepts incoming events, pins the active rule revision for the tenant and rule set, evaluates them deterministically, records the execution in SQL, and publishes outbound effects through an outbox pipeline.
+
+## The two flows that matter
+
+FlowRule has two different operational flows, and they are not the same thing:
+
+1. Deployment flow: startup, migration, process wiring, rule activation, readiness.
+2. Runtime flow: one event entering the system, being deduplicated, evaluated, committed, and turned into durable effects.
+
+The deployment flow runs on release time and startup time. The runtime flow runs on event time and is the correctness-critical path.
+
+This story explicitly separates the target behavior from the current implementation, because the repo contains both: a strong target architecture and a current codebase that is still catching up to it.
+
+## Where the system starts
+
+The runtime is split into two main pieces:
+
+- API process: accepts rule deployment and event intake requests.
+- Worker process: consumes durable broker messages, evaluates rules, and writes execution state.
+
+The actual code entrypoints are:
+
+- [cmd/api/main.go](../../cmd/api/main.go)
+- [cmd/worker/main.go](../../cmd/worker/main.go)
+
+The durable domain model is defined in:
+
+- [internal/domain/types.go](../../internal/domain/types.go)
+
+The broker abstraction is in:
+
+- [internal/adapters/nats/nats.go](../../internal/adapters/nats/nats.go)
+
+The business use cases are in:
+
+- [internal/application/usecases.go](../../internal/application/usecases.go)
+
+## Canonical execution path
+
+```text
+client request
+  -> API / ingress
+  -> durable broker (NATS JetStream)
+  -> worker pull consumer
+  -> inbox + activation + rule revision lookup
+  -> evaluator
+  -> execution + outbox insert in SQL
+  -> effect publisher
+  -> external destination / topic
+```
+
+## The design pillars
+
+1. Durable event acceptance
+2. Rule revision immutability
+3. Transactional inbox and execution audit
+4. Ordered processing per partition key
+5. At-least-once broker delivery with deduplication
+6. Outbox-based effect delivery with retry and quarantine
+
+## Read the story in order
+
+- [01-build-and-deployment.md](./01-build-and-deployment.md) — deployment flow: build, infra, migration, API, worker startup
+- [02-hld.md](./02-hld.md) — high-level design and operational goals
+- [03-lld.md](./03-lld.md) — internal modules, ports, and transaction flow
+- [04-partitions-and-scaling.md](./04-partitions-and-scaling.md) — partition model, sharding, and scale strategy
+- [05-producer-consumer-and-requests.md](./05-producer-consumer-and-requests.md) — runtime flow: event intake, broker flow, dedupe, ack/commit ordering
+- [06-rule-event-mapping.md](./06-rule-event-mapping.md) — event mapping to rules, actions, and outcome records
+- [07-target-vs-current-code.md](./07-target-vs-current-code.md) — explicit contract gap analysis: what the target plan says vs what the current code does
+
+## Main design documents in the repo
+
+The project already contains the deeper reference material:
+
+- [docs/hld.md](../hld.md)
+- [docs/lld.md](../lld.md)
+- [docs/request-flows.md](../request-flows.md)
+- [docs/architecture.md](../architecture.md)
+- [docs/target-plan.md](../target-plan.md)
+- [docs/rule-and-event.md](../rule-and-event.md)
+
+This story collapses them into a practical deployment and runtime narrative that explains the system as a single coherent flow.

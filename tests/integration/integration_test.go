@@ -11,6 +11,8 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type mockInbox struct {
@@ -78,8 +80,8 @@ func (m *mockRuleRepo) GetActive(ctx context.Context, tenantScope string, ruleSe
 	return m.revisions[key], nil
 }
 
-func (m *mockRuleRepo) Save(ctx context.Context, revision *domain.RuleRevision) error {
-	key := revision.RuleID + ":" + revision.RuleID
+func (m *mockRuleRepo) Save(ctx context.Context, tenantScope string, revision *domain.RuleRevision) error {
+	key := tenantScope + ":" + revision.RuleID
 	m.revisions[key] = revision
 	return nil
 }
@@ -197,12 +199,30 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 	ruleRepo := newMockRuleRepo()
 	executions := newMockExecutionRepo()
 	outbox := newMockOutbox()
-	quarantine := newMockQuarantine()
 	effectSender := effects.NewFakeDestination()
 
+	beginTx := func(ctx context.Context) (ports.Tx, error) {
+		return &mockTx{
+			inbox:       inbox,
+			activations: activations,
+			ruleRepo:    ruleRepo,
+			executions:  executions,
+			outbox:      outbox,
+		}, nil
+	}
+
+	newRepos := func(db ports.Querier) application.TxRepos {
+		return application.TxRepos{
+			Inbox:       inbox,
+			Activations: activations,
+			RuleRepo:    ruleRepo,
+			Executions:  executions,
+			Outbox:      outbox,
+		}
+	}
+
 	uc := application.NewProcessEventUseCase(
-		compiler, evaluator, inbox, activations, ruleRepo,
-		executions, outbox, effectSender, clock,
+		compiler, evaluator, effectSender, clock, beginTx, newRepos,
 	)
 
 	revision, err := compiler.Compile(json.RawMessage(`{
@@ -238,9 +258,31 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 	})
 	ruleRepo.revisions["test-tenant:order.created"] = revision
 
-	_ = quarantine
 	return uc, inbox, executions, outbox
 }
+
+type mockTx struct {
+	inbox       *mockInbox
+	activations *mockActivation
+	ruleRepo    *mockRuleRepo
+	executions  *mockExecutionRepo
+	outbox      *mockOutbox
+}
+
+func (m *mockTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (m *mockTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+
+func (m *mockTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return nil
+}
+
+func (m *mockTx) Commit(ctx context.Context) error   { return nil }
+func (m *mockTx) Rollback(ctx context.Context) error { return nil }
 
 func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 	uc, _, executions, _ := setupTestUseCase(t)
@@ -327,5 +369,28 @@ func TestEffectIDGenerationIsDeterministic(t *testing.T) {
 	id3 := domain.ComputeEffectID("tenant", "event-1", "rule-set", 1, "rule-1", 1)
 	if id1 == id3 {
 		t.Error("expected different effect ID for different action index")
+	}
+}
+
+func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
+	compiler := rules.NewCompiler(rules.DefaultLimits())
+	ruleRepo := newMockRuleRepo()
+	activations := newMockActivation()
+	uc := application.NewActivateRuleUseCase(compiler, ruleRepo, activations, ports.SystemClock{})
+
+	_, err := uc.Execute(context.Background(), "tenant-a", "order.created", json.RawMessage(`{
+		"rule_set":"order.created", "revision":1, "mode":"first_match",
+		"rules":[{"id":"match", "priority":1,
+		"when":{"path":"$.total", "op":"gte", "value":1},
+		"then":[{"emit":{"topic":"orders.review", "data":{}}}]}]
+	}`), "test")
+	if err != nil {
+		t.Fatalf("activate rule: %v", err)
+	}
+	if ruleRepo.revisions["tenant-a:order.created"] == nil {
+		t.Fatal("expected rule revision to be saved under the supplied tenant scope")
+	}
+	if ruleRepo.revisions["order.created:order.created"] != nil {
+		t.Fatal("rule revision must not derive tenant scope from the rule ID")
 	}
 }

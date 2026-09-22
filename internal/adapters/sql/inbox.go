@@ -6,20 +6,20 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type InboxRepository struct {
-	pool *pgxpool.Pool
+	db ports.Querier
 }
 
-func NewInboxRepository(pool *pgxpool.Pool) *InboxRepository {
-	return &InboxRepository{pool: pool}
+func NewInboxRepository(db ports.Querier) *InboxRepository {
+	return &InboxRepository{db: db}
 }
 
 func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
-	tag, err := r.pool.Exec(ctx, `
+	tag, err := r.db.Exec(ctx, `
 		INSERT INTO inbox (tenant_id, event_id, status, first_seen_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (tenant_id, event_id) DO NOTHING
@@ -32,7 +32,7 @@ func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) 
 
 func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	entry := &domain.InboxEntry{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT tenant_id, event_id, status, execution_id, first_seen_at, committed_at
 		FROM inbox
 		WHERE tenant_id = $1 AND event_id = $2
@@ -51,7 +51,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 
 func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error {
 	now := time.Now().UTC()
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.db.Exec(ctx, `
 		UPDATE inbox SET status = 'committed', execution_id = $3, committed_at = $4
 		WHERE tenant_id = $1 AND event_id = $2
 	`, tenantID, eventID, executionID, now)
@@ -62,15 +62,15 @@ func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, ev
 }
 
 type ExecutionRepository struct {
-	pool *pgxpool.Pool
+	db ports.Querier
 }
 
-func NewExecutionRepository(pool *pgxpool.Pool) *ExecutionRepository {
-	return &ExecutionRepository{pool: pool}
+func NewExecutionRepository(db ports.Querier) *ExecutionRepository {
+	return &ExecutionRepository{db: db}
 }
 
 func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execution) error {
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.db.Exec(ctx, `
 		INSERT INTO executions (execution_id, event_id, tenant_id, rule_set, revision, decision_hash, status, error, trace_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (execution_id) DO NOTHING
@@ -84,7 +84,7 @@ func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execut
 
 func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
 	exec := &domain.Execution{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT execution_id, event_id, tenant_id, rule_set, revision, decision_hash, status, error, trace_id, created_at, completed_at
 		FROM executions
 		WHERE execution_id = $1
@@ -107,7 +107,7 @@ func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID stri
 		now := time.Now().UTC()
 		completedAt = &now
 	}
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.db.Exec(ctx, `
 		UPDATE executions SET status = $2, error = $3, completed_at = $4
 		WHERE execution_id = $1
 	`, executionID, status, errMsg, completedAt)

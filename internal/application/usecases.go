@@ -12,39 +12,42 @@ import (
 	"github.com/flowrule/flowrule/internal/rules"
 )
 
+// TxRepos holds repository instances scoped to a single transaction.
+type TxRepos struct {
+	Inbox       ports.InboxRepository
+	Activations ports.ActivationRepository
+	RuleRepo    ports.RuleRepository
+	Executions  ports.ExecutionRepository
+	Outbox      ports.OutboxRepository
+}
+
+// RepoFactory creates transaction-scoped repositories from a Querier.
+type RepoFactory func(db ports.Querier) TxRepos
+
 type ProcessEventUseCase struct {
 	rules        *rules.Compiler
 	evaluator    *rules.Evaluator
-	inbox        ports.InboxRepository
-	activations  ports.ActivationRepository
-	ruleRepo     ports.RuleRepository
-	executions   ports.ExecutionRepository
-	outbox       ports.OutboxRepository
 	effectSender ports.EffectSender
 	clock        ports.Clock
+	beginTx      ports.TxFactory
+	newRepos     RepoFactory
 }
 
 func NewProcessEventUseCase(
 	compiler *rules.Compiler,
 	evaluator *rules.Evaluator,
-	inbox ports.InboxRepository,
-	activations ports.ActivationRepository,
-	ruleRepo ports.RuleRepository,
-	executions ports.ExecutionRepository,
-	outbox ports.OutboxRepository,
 	effectSender ports.EffectSender,
 	clock ports.Clock,
+	beginTx ports.TxFactory,
+	newRepos RepoFactory,
 ) *ProcessEventUseCase {
 	return &ProcessEventUseCase{
 		rules:        compiler,
 		evaluator:    evaluator,
-		inbox:        inbox,
-		activations:  activations,
-		ruleRepo:     ruleRepo,
-		executions:   executions,
-		outbox:       outbox,
 		effectSender: effectSender,
 		clock:        clock,
+		beginTx:      beginTx,
+		newRepos:     newRepos,
 	}
 }
 
@@ -53,12 +56,20 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 		return nil, err
 	}
 
-	entry, err := uc.inbox.Get(ctx, envelope.TenantID, envelope.ID)
+	tx, err := uc.beginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	repos := uc.newRepos(tx)
+
+	entry, err := repos.Inbox.Get(ctx, envelope.TenantID, envelope.ID)
 	if err != nil {
 		return nil, fmt.Errorf("check inbox: %w", err)
 	}
 	if entry != nil {
-		exec, err := uc.executions.Get(ctx, entry.ExecutionID)
+		exec, err := repos.Executions.Get(ctx, entry.ExecutionID)
 		if err != nil {
 			return nil, fmt.Errorf("get existing execution: %w", err)
 		}
@@ -73,17 +84,17 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 		Status:      domain.InboxStatusProcessing,
 		FirstSeenAt: uc.clock.Now(),
 	}
-	inserted, err := uc.inbox.Insert(ctx, inboxEntry)
+	inserted, err := repos.Inbox.Insert(ctx, inboxEntry)
 	if err != nil {
 		return nil, fmt.Errorf("insert inbox: %w", err)
 	}
 	if !inserted {
-		entry, err = uc.inbox.Get(ctx, envelope.TenantID, envelope.ID)
+		entry, err = repos.Inbox.Get(ctx, envelope.TenantID, envelope.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get inbox after conflict: %w", err)
 		}
 		if entry != nil {
-			exec, err := uc.executions.Get(ctx, entry.ExecutionID)
+			exec, err := repos.Executions.Get(ctx, entry.ExecutionID)
 			if err != nil {
 				return nil, fmt.Errorf("get execution after conflict: %w", err)
 			}
@@ -94,7 +105,7 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 	}
 
 	ruleSet := envelope.Type
-	activation, err := uc.activations.Get(ctx, envelope.TenantID, ruleSet)
+	activation, err := repos.Activations.Get(ctx, envelope.TenantID, ruleSet)
 	if err != nil {
 		return nil, fmt.Errorf("get activation: %w", err)
 	}
@@ -102,7 +113,7 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 		return nil, domain.ErrRuleNotActive
 	}
 
-	revision, err := uc.ruleRepo.GetActive(ctx, envelope.TenantID, ruleSet)
+	revision, err := repos.RuleRepo.GetActive(ctx, envelope.TenantID, ruleSet)
 	if err != nil {
 		return nil, fmt.Errorf("get active revision: %w", err)
 	}
@@ -129,7 +140,7 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 		CreatedAt:    now,
 	}
 
-	if err := uc.executions.Save(ctx, execution); err != nil {
+	if err := repos.Executions.Save(ctx, execution); err != nil {
 		return nil, fmt.Errorf("save execution: %w", err)
 	}
 
@@ -151,16 +162,20 @@ func (uc *ProcessEventUseCase) Execute(ctx context.Context, envelope *domain.Eve
 		})
 	}
 
-	if err := uc.outbox.Insert(ctx, outboxEffects); err != nil {
+	if err := repos.Outbox.Insert(ctx, outboxEffects); err != nil {
 		return nil, fmt.Errorf("insert outbox: %w", err)
 	}
 
-	if err := uc.inbox.MarkCommitted(ctx, envelope.TenantID, envelope.ID, executionID); err != nil {
+	if err := repos.Inbox.MarkCommitted(ctx, envelope.TenantID, envelope.ID, executionID); err != nil {
 		return nil, fmt.Errorf("mark inbox committed: %w", err)
 	}
 
-	if err := uc.executions.UpdateStatus(ctx, executionID, domain.ExecutionStatusCompleted, ""); err != nil {
-		log.Printf("warning: update execution status: %v", err)
+	if err := repos.Executions.UpdateStatus(ctx, executionID, domain.ExecutionStatusCompleted, ""); err != nil {
+		return nil, fmt.Errorf("mark execution completed: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return execution, nil
@@ -216,6 +231,7 @@ func (uc *PublishEffectsUseCase) Execute(ctx context.Context, batchSize int) err
 					SourceType: "effect",
 					SourceID:   ef.ID,
 					ErrorClass: string(domain.ClassifyError(err)),
+					Error:      err.Error(),
 					CreatedAt:  uc.clock.Now(),
 				})
 				if quarantineErr != nil {
@@ -276,7 +292,7 @@ func (uc *ActivateRuleUseCase) Execute(ctx context.Context, tenantScope string, 
 	}
 	revision.RuleID = ruleSet
 
-	if err := uc.ruleRepo.Save(ctx, revision); err != nil {
+	if err := uc.ruleRepo.Save(ctx, tenantScope, revision); err != nil {
 		return nil, fmt.Errorf("save revision: %w", err)
 	}
 

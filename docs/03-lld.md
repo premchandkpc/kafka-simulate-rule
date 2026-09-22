@@ -74,7 +74,7 @@ The main flow in [internal/application/usecases.go](../../internal/application/u
 6. persist outbox effects
 7. mark event committed
 
-This is the exact implementation of the durable event-processing loop.
+This is the exact implementation of the durable event-processing loop. Steps 2–7 run inside a single Postgres transaction; the broker ACK happens only after commit.
 
 ## 5. Transaction algorithm
 
@@ -91,7 +91,7 @@ begin tx
 commit
 ```
 
-This keeps the critical path short and safe. No network operation is allowed inside the same transaction boundary.
+This is now implemented. Repositories accept a `Querier` interface (satisfied by both `*pgxpool.Pool` and `*pgx.Tx`), and a `TxFactory` + `RepoFactory` inject the transaction boundary at the composition root. No network operation is allowed inside the same transaction boundary.
 
 The main design principle is: durable state writes are atomic, but external effects are asynchronous and retryable.
 

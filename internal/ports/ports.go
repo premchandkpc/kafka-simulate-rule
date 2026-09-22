@@ -5,7 +5,18 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// Querier abstracts the common query interface shared by *pgxpool.Pool and *pgx.Tx.
+// Both concrete types satisfy this interface, allowing repositories to operate
+// inside or outside a transaction.
+type Querier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 type BrokerConsumer interface {
 	Fetch(ctx context.Context, maxMessages int) ([]Delivery, error)
@@ -25,7 +36,7 @@ type BrokerPublisher interface {
 
 type RuleRepository interface {
 	GetActive(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error)
-	Save(ctx context.Context, revision *domain.RuleRevision) error
+	Save(ctx context.Context, tenantScope string, revision *domain.RuleRevision) error
 }
 
 type ActivationRepository interface {
@@ -68,6 +79,17 @@ type ShardLeaseRepository interface {
 
 type EffectSender interface {
 	Send(ctx context.Context, effect *domain.Effect) error
+}
+
+// TxFactory creates a new transaction. Injected into use cases that need
+// transactional boundaries without coupling them to a specific database driver.
+type TxFactory func(ctx context.Context) (Tx, error)
+
+// Tx extends Querier with commit capability, representing an active database transaction.
+type Tx interface {
+	Querier
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
 }
 
 type Clock interface {

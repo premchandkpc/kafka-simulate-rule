@@ -42,7 +42,9 @@ Use TLS/mTLS between services, secret-backed connection strings, least-privilege
 
 The intended model is: at-least-once consumption, exactly-once *local recording* through a transactional inbox/outbox, and effectively-once external effects only when the destination deduplicates a stable `effect_id`.
 
-The current code falls short of the local atomicity claim: inbox insert, rule read, execution insert, outbox insert, and inbox commit run in separate pool calls. A crash between calls can leave an inbox row in `processing` and cause redelivery to have no execution to return. Treat it as a development prototype until Story 05’s transaction work is complete.
+The local atomicity claim is now met: `ProcessEventUseCase.Execute` runs inbox insert, activation read, rule read, evaluation, execution insert, outbox insert, and inbox mark-committed inside a single Postgres transaction. The broker ACK happens only after commit. Repositories accept a `Querier` interface satisfied by both `*pgxpool.Pool` and `*pgx.Tx`, and a `TxFactory` injects the transaction boundary at the composition root.
+
+Remaining gaps before production: the outbox claim race (gap 4 in Story 05), durable quarantine, MaxDeliver ceiling, shard routing, and the `tenant_scope` bug in rule save.
 
 Never promise exactly-once HTTP delivery: a destination may receive a request just before the publisher crashes. It must accept `effect_id` as an idempotency key and return the same result for repeats.
 

@@ -31,13 +31,15 @@ The supplied `{ruleSet}` path value overwrites the compiled rule set name. The c
 producer publishes EventEnvelope to events.<name>
   -> JetStream durable pull consumer fetches up to 10
   -> worker parses and validates envelope
-  -> inbox duplicate lookup/insert
-  -> activation lookup using (tenant_id, event.type)
-  -> active rule revision lookup
-  -> pure evaluator creates decision + deterministic effects
-  -> execution and outbox rows written
-  -> inbox marked committed
-  -> broker ACK
+  -> BEGIN TRANSACTION
+     -> inbox duplicate lookup/insert
+     -> activation lookup using (tenant_id, event.type)
+     -> active rule revision lookup
+     -> pure evaluator creates decision + deterministic effects
+     -> execution and outbox rows written
+     -> inbox marked committed
+  -> COMMIT
+  -> broker ACK (only after commit)
   -> five-second publisher loop claims pending effects
   -> destination Send
   -> delivered, retry, or quarantine state
@@ -53,7 +55,7 @@ The inbox key is `(tenant_id, event_id)`. A duplicate whose row points to an exi
 SHA-256(tenant_id | event_id | rule_set | revision | rule_id | action_index)
 ```
 
-That allows a correctly implemented destination to deduplicate redelivery. The current implementation has a crash-window issue because the local writes are not in one transaction; see Story 05.
+That allows a correctly implemented destination to deduplicate redelivery. The local writes are now inside a single Postgres transaction; a crash at any point rolls back cleanly and redelivery finds the state it expects (see Story 05, gap 1 — fixed).
 
 ## Effect retry journey
 

@@ -53,4 +53,4 @@ For a matching rule, every `then` action becomes an effect. For a nonmatching ru
 
 Actions use static JSON data. The engine does not template data with event fields, call external facts, or mutate state during evaluation. The resulting decision hash covers revision content hash, event ID, matched rule IDs, and effects.
 
-Keep revisions immutable. A retry must use the revision captured in its execution record, rather than reselecting today’s activation; the current worker does not yet persist enough intermediate processing state to make that promise across its crash window.
+Keep revisions immutable. A retry must use the revision captured in its execution record, rather than reselecting today’s activation. The execution record stores the revision used at evaluation time, and the transactional inbox ensures that a crash at any point rolls back cleanly — redelivery either finds no execution (re-evaluates with the current activation) or finds the existing execution (returns it with the pinned revision).

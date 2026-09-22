@@ -30,12 +30,13 @@ Client
   v
 [ProcessEventUseCase.Execute]
   |
+  | BEGIN TRANSACTION
   | 1. Validate envelope (required fields, occurred_at not zero)
   | 2. Check inbox for duplicate (tenant_id, event_id)
   |    - If exists: return existing execution (idempotent)
   | 3. Insert inbox entry (tenant_id, event_id, status='processing')
   |    - If conflict: return existing execution
-  | 4. Read activation for (tenant_id, rule_set=event_type)
+  | 4. Read activation for (tenant_scope, rule_set=event_type)
   |    - If not found: return ErrRuleNotActive
   | 5. Read active rule revision
   |    - If not found: return ErrRuleNotFound
@@ -51,7 +52,8 @@ Client
   | 9. Insert execution record
   | 10. Insert outbox effects
   | 11. Mark inbox committed (execution_id, committed_at)
-  | 12. Update execution status to completed
+  | COMMIT
+  | 12. Ack broker delivery (only after commit)
   | 13. Return execution
   |
   v
@@ -153,7 +155,7 @@ Client
   v
 [Worker] --next event-->
   |
-  | 1. Read activation for (tenant_id, rule_set)
+  | 1. Read activation for (tenant_scope, rule_set)
   | 2. Read revision from rule_revisions
   | 3. Cache revision in memory (invalidate on cache miss)
   | 4. Evaluate event against new revision

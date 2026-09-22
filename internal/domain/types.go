@@ -63,6 +63,7 @@ const (
 )
 
 type RuleRevision struct {
+	TenantScope     string          `json:"tenant_scope"`
 	RuleID          string          `json:"rule_id"`
 	Revision        int64           `json:"revision"`
 	ContentHash     string          `json:"content_hash"`
@@ -74,20 +75,20 @@ type RuleRevision struct {
 }
 
 type CompiledRule struct {
-	ID        string      `json:"id"`
-	Priority  int         `json:"priority"`
-	When      Predicate   `json:"when"`
-	Then      []Action    `json:"then"`
-	Otherwise []Action    `json:"otherwise,omitempty"`
+	ID        string    `json:"id"`
+	Priority  int       `json:"priority"`
+	When      Predicate `json:"when"`
+	Then      []Action  `json:"then"`
+	Otherwise []Action  `json:"otherwise,omitempty"`
 }
 
 type Predicate struct {
 	All   []*Predicate `json:"all,omitempty"`
 	Any   []*Predicate `json:"any,omitempty"`
 	Not   *Predicate   `json:"not,omitempty"`
-	Path  string        `json:"path,omitempty"`
-	Op    Operator      `json:"op,omitempty"`
-	Value interface{}   `json:"value,omitempty"`
+	Path  string       `json:"path,omitempty"`
+	Op    Operator     `json:"op,omitempty"`
+	Value interface{}  `json:"value,omitempty"`
 }
 
 type Operator string
@@ -196,18 +197,19 @@ type OutboxStatus string
 
 const (
 	OutboxStatusPending     OutboxStatus = "pending"
+	OutboxStatusClaimed     OutboxStatus = "claimed"
 	OutboxStatusDelivered   OutboxStatus = "delivered"
 	OutboxStatusFailed      OutboxStatus = "failed"
 	OutboxStatusQuarantined OutboxStatus = "quarantined"
 )
 
 type InboxEntry struct {
-	TenantID    string       `json:"tenant_id"`
-	EventID     string       `json:"event_id"`
-	Status      InboxStatus  `json:"status"`
-	ExecutionID string       `json:"execution_id,omitempty"`
-	FirstSeenAt time.Time    `json:"first_seen_at"`
-	CommittedAt *time.Time   `json:"committed_at,omitempty"`
+	TenantID    string      `json:"tenant_id"`
+	EventID     string      `json:"event_id"`
+	Status      InboxStatus `json:"status"`
+	ExecutionID string      `json:"execution_id,omitempty"`
+	FirstSeenAt time.Time   `json:"first_seen_at"`
+	CommittedAt *time.Time  `json:"committed_at,omitempty"`
 }
 
 type InboxStatus string
@@ -231,6 +233,9 @@ type QuarantineEntry struct {
 	SourceID   string    `json:"source_id"`
 	ErrorClass string    `json:"error_class"`
 	PayloadRef string    `json:"payload_ref"`
+	EventID    string    `json:"event_id,omitempty"`
+	TenantID   string    `json:"tenant_id,omitempty"`
+	Error      string    `json:"error,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
