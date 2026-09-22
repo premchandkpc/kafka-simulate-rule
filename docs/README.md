@@ -86,6 +86,7 @@ Everything else is derived, cached, or replaceable.
 - [Rule runtime contract](rule-runtime.md)
 - [Project structure and standards](project-structure.md)
 - [Implementation roadmap](implementation-roadmap.md)
+- [Architecture boundaries: what FlowRule is and isn't](architecture-boundaries.md)
 - [Target architecture](architecture.md)
 - [Rule model and correctness contract](rule-model.md)
 - [Delivery plan](delivery-plan.md)
