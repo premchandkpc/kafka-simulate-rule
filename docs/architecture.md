@@ -17,26 +17,26 @@ producer
 
 One worker owns a `(tenant, rule-set, partition)` at a time. Events with one `partition_key` land on the same partition, so state changes for that key are ordered. Different keys execute concurrently. This is the scaling and correctness unit—not a cluster-wide scheduler lane.
 
-## Boundaries
+## Boundaries (implemented)
 
-| Component | Responsibility | Does not do |
-| --- | --- | --- |
-| Ingress | Validate envelope and publish durably | Evaluate rules |
-| Broker adapter | Fetch, ack/nak, retry, publish | Define business semantics |
-| Rule registry | Immutable revisions and atomic activation pointer | Broadcast plans |
-| Partition worker | Evaluate and atomically write inbox/audit/outbox | Coordinate all workers |
-| Effects publisher | Deliver outbox records with retries | Mutate rule state |
-| Query API | Deploy, activate, replay, inspect | Participate in delivery |
+| Component | Responsibility | Does not do | Status |
+| --- | --- | --- | --- |
+| Ingress | Validate envelope and publish durably | Evaluate rules | DONE |
+| Broker adapter | Fetch, ack/nak, retry, publish | Define business semantics | DONE |
+| Rule registry | Immutable revisions and atomic activation pointer | Broadcast plans | DONE |
+| Partition worker | Evaluate and atomically write inbox/audit/outbox | Coordinate all workers | DONE |
+| Effects publisher | Deliver outbox records with retries | Mutate rule state | DONE |
+| Query API | Deploy, activate, replay, inspect | Participate in delivery | DONE |
 
 Use Postgres (or equivalent transactional SQL) for the registry, inbox, execution audit, outbox, and partition leases. Use Kubernetes deployment plus leases/consumer ownership for coordination. This removes custom Raft, gossip, file recovery, plan acknowledgements, and lane scheduling.
 
 ## Transport choice
 
-| Option | Use when | Trade-off |
-| --- | --- | --- |
-| NATS JetStream | Low latency, request/reply, durable work queues, simple operations | Smaller analytics/retention ecosystem |
-| Kafka adapter | Kafka is already the event backbone or long retention is central | Higher operational and client complexity |
-| Cloud queue adapter | Managed operations matter more than portability | Provider-specific semantics |
+| Option | Use when | Trade-off | Status |
+| --- | --- | --- | --- |
+| NATS JetStream | Low latency, request/reply, durable work queues, simple operations | Smaller analytics/retention ecosystem | DONE |
+| Kafka adapter | Kafka is already the event backbone or long retention is central | Higher operational and client complexity | TODO |
+| Cloud queue adapter | Managed operations matter more than portability | Provider-specific semantics | TODO |
 
 Expose only `Fetch`, `Ack`, `Retry`, `Publish`, and message metadata to the engine. Do not expose Kafka partitions, consumer groups, or JetStream subjects to rule evaluation; mappings belong in deployment configuration.
 
@@ -71,17 +71,18 @@ Workers cache `(rule_id, revision)` and invalidate through a monotonic registry 
 - Apply destination limits and circuit breakers in the effects publisher, not the pure evaluator.
 - On worker loss, its lease expires and another worker resumes broker delivery. Inbox/outbox makes redelivery safe.
 
-## Minimal code shape
+## Code shape (implemented)
 
 ```text
-cmd/api                 deploy, activate, inspect, replay
-cmd/worker              fetch loop and graceful shutdown
-internal/domain         Rule, Event, Decision, Effect
-internal/rules          parse, validate, compile index, evaluate
-internal/store          SQL registry + inbox/outbox + leases
-internal/broker         interface; JetStream and Kafka adapters
-internal/effects        outbox publishing and destination adapters
-internal/http           API transport only
+cmd/api                  deploy, activate, inspect, replay               DONE
+cmd/worker               fetch loop and graceful shutdown                 DONE
+internal/domain          Rule, Event, Decision, Effect, Errors            DONE
+internal/rules           parse, validate, compile index, evaluate         DONE
+internal/ports           interfaces for broker, store, clock, effects    DONE
+internal/adapters/sql    SQL registry + inbox/outbox + leases             DONE
+internal/adapters/nats   JetStream consumer and publisher                 DONE
+internal/adapters/effects outbox publishing and destination adapters      DONE
+internal/application     use cases: ProcessEvent, PublishEffects, Activate DONE
 ```
 
 Keep evaluation pure: `Decision Evaluate(Rule, Event, Facts)`. It needs no broker, database, goroutine, CGo, or FFI dependency.

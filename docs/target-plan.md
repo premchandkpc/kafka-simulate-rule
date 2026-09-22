@@ -46,7 +46,7 @@ Each context owns its invariants. HTTP handlers, broker clients, and database ad
 The producer supplies the business key whose transitions must be ordered. The routing key is not selected by the worker and is never silently changed by a rule.
 
 ```text
-virtual_shard = hash(tenant_id || ":" || partition_key) mod N
+virtual_shard = hash(tenant_id + ":" + partition_key) mod 4096
 ```
 
 Use a fixed virtual shard count, for example 4096, and assign virtual shards to workers. Changing worker count changes ownership, not the hash space. A worker may process different shards concurrently, but processes one key serially. A hot key is intentionally serialized and must be visible as a metric.

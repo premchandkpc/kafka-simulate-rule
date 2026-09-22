@@ -1,23 +1,23 @@
 # Project Structure and Standards
 
-## Recommended Go layout
+## Go layout
 
 ```text
-cmd/api/                         composition root and admin/read APIs
-cmd/worker/                      fetch, shard ownership, graceful drain
-internal/domain/                 entities, value objects, invariants, errors
-internal/application/            use cases and transaction orchestration
-internal/rules/                  schema, compiler, canonicalization, evaluator
-internal/ports/                  small interfaces for broker, store, clock, effects
-internal/adapters/sql/           migrations and PostgreSQL implementation
-internal/adapters/jetstream/     NATS implementation
-internal/adapters/kafka/         optional Kafka implementation
-internal/adapters/effects/       HTTP/event destination implementations
-internal/observability/          logs, metrics, traces, health
-api/                             OpenAPI and JSON Schema contracts
-tests/contract/                  shared adapter conformance fixtures
-tests/integration/               real SQL/broker failure tests
-migrations/                      versioned schema changes
+cmd/api/                         composition root and admin/read APIs         DONE
+cmd/worker/                      fetch, shard ownership, graceful drain       DONE
+internal/domain/                 entities, value objects, invariants, errors   DONE
+internal/application/            use cases and transaction orchestration      DONE
+internal/rules/                  schema, compiler, canonicalization, evaluator DONE
+internal/ports/                  small interfaces for broker, store, clock    DONE
+internal/adapters/sql/           migrations and PostgreSQL implementation     DONE
+internal/adapters/nats/          NATS JetStream implementation               DONE
+internal/adapters/kafka/         optional Kafka implementation               TODO
+internal/adapters/effects/       HTTP/event destination implementations       DONE
+internal/observability/          logs, metrics, traces, health               TODO
+api/                             OpenAPI and JSON Schema contracts            DONE
+tests/contract/                  shared adapter conformance fixtures          DONE
+tests/integration/               real SQL/broker failure tests                DONE
+migrations/                      versioned schema changes                     DONE
 ```
 
 Dependencies point inward: domain has no I/O imports; application depends on ports; adapters depend on ports and external libraries; `cmd` wires concrete implementations. Avoid `pkg/` until a public API is intentionally supported.

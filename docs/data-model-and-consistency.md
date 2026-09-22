@@ -11,18 +11,17 @@ inbox insert -> active revision read/pin -> evaluate -> execution audit
 
 The broker acknowledgement and destination call happen outside the transaction. This is a deliberate outbox pattern, not distributed exactly-once.
 
-## Tables
+## Tables (implemented in `migrations/`)
 
-| Table | Key | Important columns | Invariant |
-| --- | --- | --- | --- |
-| `rule_revisions` | `(tenant_id, rule_set, revision)` | source, compiled artifact, hash, compiler version | immutable after publish |
-| `rule_activations` | `(tenant_id, rule_set)` | revision, activation version, actor | one visible revision |
-| `inbox` | `(tenant_id, event_id)` | status, first_seen_at, committed_at | duplicate identity is unique |
-| `executions` | `execution_id` | event ID, revision, decision hash, status | revision never changes |
-| `outbox_effects` | `effect_id` | execution ID, destination, payload ref, status, available_at | effect ID is unique |
-| `effect_attempts` | `(effect_id, attempt)` | started, finished, result class | attempts are append-only |
-| `quarantine` | `quarantine_id` | source ID, error class, payload ref, replay state | replay is authorized and audited |
-| `shard_leases` | `virtual_shard` | owner, fencing token, expires_at | stale owners cannot commit |
+| Table | Key | Important columns | Invariant | Status |
+| --- | --- | --- | --- | --- |
+| `rule_revisions` | `(tenant_id, rule_set, revision)` | source, compiled artifact, hash, compiler version | immutable after publish | DONE |
+| `rule_activations` | `(tenant_id, rule_set)` | revision, activation version, actor | one visible revision | DONE |
+| `inbox` | `(tenant_id, event_id)` | status, first_seen_at, committed_at | duplicate identity is unique | DONE |
+| `executions` | `execution_id` | event ID, revision, decision hash, status | revision never changes | DONE |
+| `outbox_effects` | `effect_id` | execution ID, destination, payload ref, status, available_at | effect ID is unique | DONE |
+| `quarantine` | `quarantine_id` | source ID, error class, payload ref, replay state | replay is authorized and audited | DONE |
+| `shard_leases` | `virtual_shard` | owner, fencing token, expires_at | stale owners cannot commit | DONE |
 
 Use foreign keys where retention and partitioning allow. Use check constraints for status values. Partition high-volume execution, inbox, outbox-attempt, and audit tables by tenant/time only after measured volume justifies it; do not prematurely partition every table.
 

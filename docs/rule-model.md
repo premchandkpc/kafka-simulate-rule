@@ -11,33 +11,36 @@ This makes evaluation fast, replayable, and safe without a Rust VM or a second s
 Use JSON or YAML first. Add a textual DSL only after the model is stable.
 
 ```yaml
-id: high-value-order
-version: 7
-when:
-  event_type: order.created
-  all:
-    - path: $.total
-      op: gte
-      value: 1000
-    - path: $.country
-      op: in
-      value: [IN, US]
-then:
-  - emit:
-      topic: orders.review.requested
-      data:
-        order_id: $.id
-        reason: high_value
-  - command:
-      destination: risk
-      name: assess-order
-      data:
-        order_id: $.id
-otherwise:
-  - emit:
-      topic: orders.auto-approved
-      data:
-        order_id: $.id
+rule_set: order.created
+revision: 7
+mode: first_match
+rules:
+  - id: high-value-order
+    priority: 100
+    when:
+      all:
+        - path: $.total
+          op: gte
+          value: 1000
+        - path: $.country
+          op: in
+          value: [IN, US]
+    then:
+      - emit:
+          topic: orders.review.requested
+          data:
+            order_id: $.id
+            reason: high_value
+      - command:
+          destination: risk
+          name: assess-order
+          data:
+            order_id: $.id
+    otherwise:
+      - emit:
+          topic: orders.auto-approved
+          data:
+            order_id: $.id
 ```
 
 ## Semantics
@@ -74,7 +77,7 @@ Activation validation rejects unknown schema paths, unsafe templates, duplicate 
 ## Effects and idempotency
 
 ```text
-effect_id = SHA-256(event.id + rule.revision + rule.id + action.index)
+effect_id = SHA-256(tenant_id | event_id | rule_set | revision | rule_id | action_index)
 ```
 
 The outbox has a unique key on `effect_id`; the publisher sends it as the destination idempotency key. Replays therefore regenerate the same effects without duplicating business actions.
