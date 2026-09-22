@@ -80,7 +80,7 @@ func (w *Worker) publishLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.publishUC.Execute(ctx, 10); err != nil {
+			if err := w.effects.PublishBatch(ctx, 10); err != nil {
 				log.Printf("publish effects: %v", err)
 			}
 		}
@@ -113,7 +113,7 @@ func (w *Worker) processDelivery(ctx context.Context, delivery ports.Delivery) {
 		return
 	}
 
-	exec, err := w.processUC.Execute(ctx, env)
+	exec, err := w.events.Process(ctx, env)
 	if err != nil {
 		log.Printf("process event %s: %v", env.ID, err)
 		if domain.IsPermanent(err) {
