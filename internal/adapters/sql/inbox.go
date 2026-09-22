@@ -6,15 +6,14 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/jackc/pgx/v5"
 )
 
 type InboxRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewInboxRepository(db ports.Querier) *InboxRepository {
+func NewInboxRepository(db Querier) *InboxRepository {
 	return &InboxRepository{db: db}
 }
 
@@ -62,10 +61,10 @@ func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, ev
 }
 
 type ExecutionRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewExecutionRepository(db ports.Querier) *ExecutionRepository {
+func NewExecutionRepository(db Querier) *ExecutionRepository {
 	return &ExecutionRepository{db: db}
 }
 

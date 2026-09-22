@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +15,8 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	svceffects "github.com/flowrule/flowrule/internal/services/effects"
+	svcevents "github.com/flowrule/flowrule/internal/services/events"
 )
 
 func main() {
@@ -61,17 +61,20 @@ func main() {
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
-	clock := ports.SystemClock{}
+	clock := domain.SystemClock{}
 	effectSender := effects.NewFakeDestination()
-
 	pool := db.Pool()
 
 	beginTx := func(ctx context.Context) (ports.Tx, error) {
-		return pool.Begin(ctx)
+		pgxTx, err := pool.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return sql.NewTx(pgxTx), nil
 	}
-
-	newRepos := func(q ports.Querier) application.TxRepos {
-		return application.TxRepos{
+	newRepos := func(db interface{}) svcevents.TxRepos {
+		q := db.(sql.Querier)
+		return svcevents.TxRepos{
 			Inbox:       sql.NewInboxRepository(q),
 			Activations: sql.NewActivationRepository(q),
 			RuleRepo:    sql.NewRuleRepository(q),
@@ -80,103 +83,12 @@ func main() {
 		}
 	}
 
-	processUC := application.NewProcessEventUseCase(compiler, evaluator, effectSender, clock, beginTx, newRepos)
-
+	eventsSvc := svcevents.NewService(compiler, evaluator, clock, beginTx, newRepos)
 	outboxRepo := sql.NewOutboxRepository(pool)
 	quarantineRepo := sql.NewQuarantineRepository(pool)
-	publishUC := application.NewPublishEffectsUseCase(outboxRepo, effectSender, quarantineRepo, clock)
+	effectsSvc := svceffects.NewService(outboxRepo, effectSender, quarantineRepo, clock)
 
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := publishUC.Execute(ctx, 10); err != nil {
-					log.Printf("publish effects: %v", err)
-				}
-			}
-		}
-	}()
-
+	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, quarantineRepo, clock)
 	log.Println("worker started, fetching events...")
-	var wg sync.WaitGroup
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("worker shutting down, waiting for in-flight events...")
-			wg.Wait()
-			log.Println("worker stopped")
-			return
-		default:
-		}
-
-		deliveries, err := consumer.Fetch(ctx, 10)
-		if err != nil {
-			log.Printf("fetch: %v", err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		for _, delivery := range deliveries {
-			wg.Add(1)
-			go func(d ports.Delivery) {
-				defer wg.Done()
-				env := d.Event()
-				if env == nil {
-					data, _ := json.Marshal(d.Raw())
-					log.Printf("invalid event: %s", string(data))
-					if err := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
-						ID:         domain.NewID(),
-						SourceType: "event",
-						SourceID:   domain.ComputeSourceHash(d.Raw()),
-						ErrorClass: string(domain.ErrorClassValidation),
-						PayloadRef: "jetstream:flowrule",
-						Error:      "invalid event envelope JSON",
-						CreatedAt:  clock.Now(),
-					}); err != nil {
-						log.Printf("quarantine invalid event: %v", err)
-						d.Retry(ctx, 5*time.Second)
-						return
-					}
-					d.Ack(ctx)
-					return
-				}
-
-				exec, err := processUC.Execute(ctx, env)
-				if err != nil {
-					log.Printf("process event %s: %v", env.ID, err)
-					if domain.IsPermanent(err) {
-						if qErr := quarantineRepo.Save(ctx, &domain.QuarantineEntry{
-							ID:         domain.NewID(),
-							SourceType: "event",
-							SourceID:   env.ID,
-							EventID:    env.ID,
-							TenantID:   env.TenantID,
-							ErrorClass: string(domain.ClassifyError(err)),
-							PayloadRef: "jetstream:flowrule",
-							Error:      err.Error(),
-							CreatedAt:  clock.Now(),
-						}); qErr != nil {
-							log.Printf("quarantine event %s: %v", env.ID, qErr)
-							d.Retry(ctx, 5*time.Second)
-							return
-						}
-						d.Ack(ctx)
-					} else {
-						d.Retry(ctx, 5*time.Second)
-					}
-					return
-				}
-
-				if err := d.Ack(ctx); err != nil {
-					log.Printf("ack %s: %v", env.ID, err)
-				} else {
-					log.Printf("processed event %s -> execution %s", env.ID, exec.ID)
-				}
-			}(delivery)
-		}
-	}
+	worker.Run(ctx)
 }

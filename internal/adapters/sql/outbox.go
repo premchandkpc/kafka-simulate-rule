@@ -6,14 +6,13 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type OutboxRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewOutboxRepository(db ports.Querier) *OutboxRepository {
+func NewOutboxRepository(db Querier) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
@@ -116,10 +115,10 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errM
 }
 
 type ShardLeaseRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewShardLeaseRepository(db ports.Querier) *ShardLeaseRepository {
+func NewShardLeaseRepository(db Querier) *ShardLeaseRepository {
 	return &ShardLeaseRepository{db: db}
 }
 

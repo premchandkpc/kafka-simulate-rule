@@ -9,6 +9,21 @@ rule_set = EventEnvelope.type
 activation = (EventEnvelope.tenant_id, rule_set)
 ```
 
+This is the core contract: the producer says what happened, and FlowRule decides what to do about it.
+A producer should emit an event type like `order.created`, not a private internal rule name such as `Rule-101`.
+
+```text
+Event type: "order.created"
+        ↓
+Rule set: "order.created"
+        ↓
+Active revision: 7
+        ↓
+Rules: Rule 101, 102, 103
+        ↓
+Decision / effects
+```
+
 The NATS subject routes delivery to the worker but does not select a rule. All `events.>` messages share one durable consumer in the current worker; a subject such as `events.order-created` is simply a transport convention.
 
 ## Event envelope
@@ -54,3 +69,28 @@ For a matching rule, every `then` action becomes an effect. For a nonmatching ru
 Actions use static JSON data. The engine does not template data with event fields, call external facts, or mutate state during evaluation. The resulting decision hash covers revision content hash, event ID, matched rule IDs, and effects.
 
 Keep revisions immutable. A retry must use the revision captured in its execution record, rather than reselecting today’s activation. The execution record stores the revision used at evaluation time, and the transactional inbox ensures that a crash at any point rolls back cleanly — redelivery either finds no execution (re-evaluates with the current activation) or finds the existing execution (returns it with the pinned revision).
+
+## Rule engine boundary vs workflow layer
+
+The current architecture explicitly treats FlowRule as a rules engine and not a general workflow engine.
+
+This means:
+
+- a single event with multiple rules is normal
+- sequential rule chains should usually be modeled as event chaining, not internal recursive rule calls
+- parallel rules are natural when they decide independent effects off the same event
+- aggregation, state correlation, batch windows, human approval, and compensation should live in a separate aggregate or workflow layer
+
+A clean call pattern is:
+
+```text
+Event A
+  -> Rule Set A
+  -> emit Event B
+  -> broker
+  -> Rule Set B
+  -> emit Event C
+  -> broker
+```
+
+This preserves determinism, replayability, partition ordering, and effect durability while keeping the rules engine small and debuggable.

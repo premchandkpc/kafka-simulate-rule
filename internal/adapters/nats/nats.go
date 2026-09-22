@@ -105,12 +105,12 @@ type jetstreamDelivery struct {
 	msg jetstream.Msg
 }
 
-func (d *jetstreamDelivery) Event() *domain.EventEnvelope {
+func (d *jetstreamDelivery) Event() (*domain.EventEnvelope, error) {
 	env := &domain.EventEnvelope{}
 	if err := json.Unmarshal(d.msg.Data(), env); err != nil {
-		return nil
+		return nil, err
 	}
-	return env
+	return env, nil
 }
 
 func (d *jetstreamDelivery) Raw() []byte {

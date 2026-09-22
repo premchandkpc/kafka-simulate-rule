@@ -2,28 +2,18 @@ package ports
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
-
-// Querier abstracts the common query interface shared by *pgxpool.Pool and *pgx.Tx.
-// Both concrete types satisfy this interface, allowing repositories to operate
-// inside or outside a transaction.
-type Querier interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
 
 type BrokerConsumer interface {
 	Fetch(ctx context.Context, maxMessages int) ([]Delivery, error)
 }
 
 type Delivery interface {
-	Event() *domain.EventEnvelope
+	Event() (*domain.EventEnvelope, error)
 	Ack(ctx context.Context) error
 	Nak(ctx context.Context) error
 	Retry(ctx context.Context, delay time.Duration) error
@@ -77,25 +67,40 @@ type ShardLeaseRepository interface {
 	GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error)
 }
 
+type ContractRegistry interface {
+	Get(ctx context.Context, name string, version string) (*domain.ContractSchema, error)
+	Register(ctx context.Context, schema *domain.ContractSchema) error
+	List(ctx context.Context, name string) ([]domain.ContractSchema, error)
+}
+
 type EffectSender interface {
 	Send(ctx context.Context, effect *domain.Effect) error
 }
 
-// TxFactory creates a new transaction. Injected into use cases that need
-// transactional boundaries without coupling them to a specific database driver.
-type TxFactory func(ctx context.Context) (Tx, error)
-
-// Tx extends Querier with commit capability, representing an active database transaction.
-type Tx interface {
-	Querier
-	Commit(ctx context.Context) error
-	Rollback(ctx context.Context) error
+type Logger interface {
+	Printf(format string, args ...any)
 }
 
 type Clock interface {
 	Now() time.Time
 }
 
-type SystemClock struct{}
+// Tx is a pure transaction abstraction. The SQL adapter wraps pgx.Tx
+// and implements this interface for the application layer.
+type Tx interface {
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
 
-func (SystemClock) Now() time.Time { return time.Now().UTC() }
+// TxFactory creates a new transaction.
+type TxFactory func(ctx context.Context) (Tx, error)
+
+// RuleCompiler compiles raw rule source into an immutable revision.
+type RuleCompiler interface {
+	Compile(source json.RawMessage) (*domain.RuleRevision, error)
+}
+
+// RuleEvaluator evaluates a compiled revision against an event.
+type RuleEvaluator interface {
+	Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error)
+}

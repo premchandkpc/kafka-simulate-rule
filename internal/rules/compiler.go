@@ -42,18 +42,22 @@ func NewCompiler(limits Limits) *Compiler {
 }
 
 type rawRuleSet struct {
-	RuleSet  string          `json:"rule_set"`
-	Revision int64           `json:"revision"`
-	Mode     string          `json:"mode"`
-	Rules    json.RawMessage `json:"rules"`
+	RuleSet       string          `json:"rule_set"`
+	Revision      int64           `json:"revision"`
+	Mode          string          `json:"mode"`
+	Rules         json.RawMessage `json:"rules"`
+	InputContract *domain.ContractRef `json:"input_contract,omitempty"`
 }
 
 type rawRule struct {
-	ID        string           `json:"id"`
-	Priority  int              `json:"priority"`
-	When      domain.Predicate `json:"when"`
-	Then      []domain.Action  `json:"then"`
-	Otherwise []domain.Action  `json:"otherwise,omitempty"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Tags        []string         `json:"tags,omitempty"`
+	Priority    int              `json:"priority"`
+	When        domain.Predicate `json:"when"`
+	Then        []domain.Action  `json:"then"`
+	Otherwise   []domain.Action  `json:"otherwise,omitempty"`
 }
 
 func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error) {
@@ -107,7 +111,8 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 		Compiled:        compiled,
 		Source:          source,
 		CompilerVersion: CompilerVersion,
-		CreatedAt:       domain.EventNow(),
+		InputContract:   rs.InputContract,
+		CreatedAt:       domain.SystemClock{}.Now(),
 	}
 	return revision, nil
 }
@@ -161,11 +166,14 @@ func (c *Compiler) compileRules(rawRules []rawRule) ([]domain.CompiledRule, erro
 		}
 
 		compiled = append(compiled, domain.CompiledRule{
-			ID:        r.ID,
-			Priority:  r.Priority,
-			When:      r.When,
-			Then:      r.Then,
-			Otherwise: r.Otherwise,
+			ID:          r.ID,
+			Name:        r.Name,
+			Description: r.Description,
+			Tags:        r.Tags,
+			Priority:    r.Priority,
+			When:        r.When,
+			Then:        r.Then,
+			Otherwise:   r.Otherwise,
 		})
 	}
 
@@ -287,10 +295,6 @@ func SourceHash(source json.RawMessage) string {
 	return string(domain.ComputeSourceHash(source))
 }
 
-func FilterActiveByType(compiled []domain.CompiledRule, eventType string) []domain.CompiledRule {
-	return compiled
-}
-
 func SortByPriority(rules []domain.CompiledRule) {
 	sort.Slice(rules, func(i, j int) bool {
 		return rules[i].Priority > rules[j].Priority
@@ -332,4 +336,49 @@ func DescribePredicate(p domain.Predicate) string {
 		parts = append(parts, "not("+DescribePredicate(*p.Not)+")")
 	}
 	return strings.Join(parts, " ")
+}
+
+// ValidatePathsAgainstContract checks that all paths referenced in a compiled
+// rule set exist in the given contract schema. Returns an error for the first
+// unknown path found, or nil if all paths are valid.
+func ValidatePathsAgainstContract(compiled []domain.CompiledRule, schema *domain.ContractSchema) error {
+	for _, rule := range compiled {
+		if err := validatePredicatePaths(rule.When, schema); err != nil {
+			return fmt.Errorf("rule %s: %w", rule.ID, err)
+		}
+	}
+	return nil
+}
+
+func validatePredicatePaths(p domain.Predicate, schema *domain.ContractSchema) error {
+	if p.All != nil {
+		for _, sub := range p.All {
+			if sub != nil {
+				if err := validatePredicatePaths(*sub, schema); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if p.Any != nil {
+		for _, sub := range p.Any {
+			if sub != nil {
+				if err := validatePredicatePaths(*sub, schema); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if p.Not != nil {
+		if err := validatePredicatePaths(*p.Not, schema); err != nil {
+			return err
+		}
+	}
+	if p.Path != "" {
+		field := strings.TrimPrefix(p.Path, "$.")
+		if _, ok := schema.Fields[field]; !ok {
+			return fmt.Errorf("path %q not found in contract %s@%s", p.Path, schema.Name, schema.Version)
+		}
+	}
+	return nil
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
 )
 
@@ -42,7 +41,7 @@ func main() {
 	}
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
-	clock := ports.SystemClock{}
+	clock := domain.SystemClock{}
 
 	activationRepo := sql.NewActivationRepository(db.Pool())
 	ruleRepo := sql.NewRuleRepository(db.Pool())
@@ -110,19 +109,4 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	server.Shutdown(shutdownCtx)
-}
-
-type fakeQuarantineRepo struct {
-	entries map[string]*domain.QuarantineEntry
-}
-
-func (f *fakeQuarantineRepo) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
-	f.entries[entry.ID] = entry
-	return nil
-}
-func (f *fakeQuarantineRepo) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
-	return f.entries[id], nil
-}
-func (f *fakeQuarantineRepo) Replay(ctx context.Context, id string) error {
-	return nil
 }

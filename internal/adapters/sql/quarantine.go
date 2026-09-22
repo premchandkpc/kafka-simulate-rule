@@ -5,17 +5,16 @@ import (
 	"fmt"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/jackc/pgx/v5"
 )
 
 // QuarantineRepository persists failure evidence. Replay records an operator
 // action; source-specific republishing belongs to a dedicated replay workflow.
 type QuarantineRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewQuarantineRepository(db ports.Querier) *QuarantineRepository {
+func NewQuarantineRepository(db Querier) *QuarantineRepository {
 	return &QuarantineRepository{db: db}
 }
 

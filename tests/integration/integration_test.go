@@ -192,7 +192,7 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 	t.Helper()
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
-	clock := ports.SystemClock{}
+	clock := domain.SystemClock{}
 
 	inbox := newMockInbox()
 	activations := newMockActivation()
@@ -211,7 +211,7 @@ func setupTestUseCase(t *testing.T) (*application.ProcessEventUseCase, *mockInbo
 		}, nil
 	}
 
-	newRepos := func(db ports.Querier) application.TxRepos {
+	newRepos := func(db interface{}) application.TxRepos {
 		return application.TxRepos{
 			Inbox:       inbox,
 			Activations: activations,
@@ -376,7 +376,7 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	ruleRepo := newMockRuleRepo()
 	activations := newMockActivation()
-	uc := application.NewActivateRuleUseCase(compiler, ruleRepo, activations, ports.SystemClock{})
+	uc := application.NewActivateRuleUseCase(compiler, ruleRepo, activations, domain.SystemClock{})
 
 	_, err := uc.Execute(context.Background(), "tenant-a", "order.created", json.RawMessage(`{
 		"rule_set":"order.created", "revision":1, "mode":"first_match",
@@ -392,5 +392,34 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	}
 	if ruleRepo.revisions["order.created:order.created"] != nil {
 		t.Fatal("rule revision must not derive tenant scope from the rule ID")
+	}
+}
+
+func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *testing.T) {
+	uc, inbox, executions, outbox := setupTestUseCase(t)
+	env := &domain.EventEnvelope{
+		ID:           "evt-given-1",
+		Type:         "order.created",
+		TenantID:     "test-tenant",
+		PartitionKey: "order-42",
+		OccurredAt:   time.Now().UTC(),
+		Data:         json.RawMessage(`{"total": 1500, "id": "order-42"}`),
+	}
+
+	exec, err := uc.Execute(context.Background(), env)
+	if err != nil {
+		t.Fatalf("process event: %v", err)
+	}
+	if exec == nil {
+		t.Fatal("expected execution")
+	}
+	if inbox.entries["test-tenant:evt-given-1"].Status != domain.InboxStatusCommitted {
+		t.Fatal("expected inbox entry to be committed")
+	}
+	if len(executions.executions) != 1 {
+		t.Fatalf("expected one execution, got %d", len(executions.executions))
+	}
+	if len(outbox.effects) != 1 {
+		t.Fatalf("expected one outbox effect, got %d", len(outbox.effects))
 	}
 }

@@ -18,6 +18,7 @@ func NewEvaluator() *Evaluator {
 func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error) {
 	matched := make([]string, 0)
 	effects := make([]domain.Effect, 0)
+	explanations := make([]domain.RuleExplanation, 0, len(revision.Compiled))
 
 	for _, rule := range revision.Compiled {
 		ok, err := e.evalPredicate(rule.When, event.Data, facts)
@@ -25,21 +26,38 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 			return nil, fmt.Errorf("rule %s: %w", rule.ID, err)
 		}
 
+		explanation := domain.RuleExplanation{
+			RuleID:   rule.ID,
+			RuleName: rule.Name,
+			Matched:  ok,
+			Priority: rule.Priority,
+		}
+
 		if ok {
 			matched = append(matched, rule.ID)
+			actions := make([]string, 0, len(rule.Then))
 			for i, action := range rule.Then {
 				effect := e.buildEffect(revision, event, rule.ID, i, action)
 				effects = append(effects, effect)
+				actions = append(actions, describeAction(action))
 			}
+			explanation.Reason = "predicate matched"
+			explanation.Actions = actions
 			if revision.MatchMode == domain.MatchModeFirstMatch {
+				explanations = append(explanations, explanation)
 				break
 			}
 		} else {
+			actions := make([]string, 0, len(rule.Otherwise))
 			for i, action := range rule.Otherwise {
 				effect := e.buildEffect(revision, event, rule.ID, i, action)
 				effects = append(effects, effect)
+				actions = append(actions, describeAction(action))
 			}
+			explanation.Reason = "predicate did not match"
+			explanation.Actions = actions
 		}
+		explanations = append(explanations, explanation)
 	}
 
 	hash := domain.ComputeDecisionHash(revision.ContentHash, event.ID, "", matched, effects)
@@ -48,6 +66,7 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 		MatchedRules: matched,
 		Effects:      effects,
 		Hash:         hash,
+		Explanations: explanations,
 	}, nil
 }
 
@@ -278,6 +297,16 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		Name:        name,
 		Payload:     payload,
 		EffectType:  effectType,
-		CreatedAt:   domain.EventNow(),
+		CreatedAt:   domain.SystemClock{}.Now(),
 	}
+}
+
+func describeAction(action domain.Action) string {
+	if action.Emit != nil {
+		return "emit:" + action.Emit.Topic
+	}
+	if action.Command != nil {
+		return "command:" + action.Command.Destination + "/" + action.Command.Name
+	}
+	return "unknown"
 }

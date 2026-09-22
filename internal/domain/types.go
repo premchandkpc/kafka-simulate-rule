@@ -4,21 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-var (
-	pathPattern = regexp.MustCompile(`^\$[\.\[]+`)
-)
+func init() {}
 
-func init() {
-	_ = pathPattern
-}
+type SystemClock struct{}
 
-func EventNow() time.Time { return time.Now().UTC() }
+func (SystemClock) Now() time.Time { return time.Now().UTC() }
 
 type EventEnvelope struct {
 	ID           string            `json:"id"`
@@ -71,15 +66,39 @@ type RuleRevision struct {
 	Compiled        []CompiledRule  `json:"compiled"`
 	Source          json.RawMessage `json:"source"`
 	CompilerVersion string          `json:"compiler_version"`
+	InputContract   *ContractRef    `json:"input_contract,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 }
 
+type ContractRef struct {
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	SchemaHash string `json:"schema_hash,omitempty"`
+}
+
+type ContractSchema struct {
+	Name       string                      `json:"name"`
+	Version    string                      `json:"version"`
+	Fields     map[string]ContractField    `json:"fields"`
+	Owner      string                      `json:"owner,omitempty"`
+	Deprecated bool                        `json:"deprecated,omitempty"`
+}
+
+type ContractField struct {
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
 type CompiledRule struct {
-	ID        string    `json:"id"`
-	Priority  int       `json:"priority"`
-	When      Predicate `json:"when"`
-	Then      []Action  `json:"then"`
-	Otherwise []Action  `json:"otherwise,omitempty"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Tags        []string  `json:"tags,omitempty"`
+	Priority    int       `json:"priority"`
+	When        Predicate `json:"when"`
+	Then        []Action  `json:"then"`
+	Otherwise   []Action  `json:"otherwise,omitempty"`
 }
 
 type Predicate struct {
@@ -149,9 +168,19 @@ const (
 )
 
 type Decision struct {
-	MatchedRules []string `json:"matched_rules"`
-	Effects      []Effect `json:"effects"`
-	Hash         string   `json:"hash"`
+	MatchedRules []string          `json:"matched_rules"`
+	Effects      []Effect          `json:"effects"`
+	Hash         string            `json:"hash"`
+	Explanations []RuleExplanation `json:"explanations,omitempty"`
+}
+
+type RuleExplanation struct {
+	RuleID    string   `json:"rule_id"`
+	RuleName  string   `json:"rule_name,omitempty"`
+	Matched   bool     `json:"matched"`
+	Priority  int      `json:"priority"`
+	Reason    string   `json:"reason"`
+	Actions   []string `json:"actions,omitempty"`
 }
 
 type Execution struct {
@@ -176,6 +205,38 @@ const (
 	ExecutionStatusFailed      ExecutionStatus = "failed"
 	ExecutionStatusQuarantined ExecutionStatus = "quarantined"
 )
+
+// Complete transitions execution to completed state. Only valid from pending.
+func (e *Execution) Complete(now time.Time) error {
+	if e.Status != ExecutionStatusPending {
+		return fmt.Errorf("cannot complete execution in state %s", e.Status)
+	}
+	e.Status = ExecutionStatusCompleted
+	e.CompletedAt = &now
+	return nil
+}
+
+// Fail transitions execution to failed state. Only valid from pending.
+func (e *Execution) Fail(now time.Time, errMsg string) error {
+	if e.Status != ExecutionStatusPending {
+		return fmt.Errorf("cannot fail execution in state %s", e.Status)
+	}
+	e.Status = ExecutionStatusFailed
+	e.Error = errMsg
+	e.CompletedAt = &now
+	return nil
+}
+
+// Quarantine transitions execution to quarantined state. Only valid from pending.
+func (e *Execution) Quarantine(now time.Time, errMsg string) error {
+	if e.Status != ExecutionStatusPending {
+		return fmt.Errorf("cannot quarantine execution in state %s", e.Status)
+	}
+	e.Status = ExecutionStatusQuarantined
+	e.Error = errMsg
+	e.CompletedAt = &now
+	return nil
+}
 
 type OutboxEffect struct {
 	ID          string          `json:"id"`
@@ -203,6 +264,50 @@ const (
 	OutboxStatusQuarantined OutboxStatus = "quarantined"
 )
 
+// Claim transitions effect from pending to claimed. Only valid from pending.
+func (e *OutboxEffect) Claim(owner string, now time.Time) error {
+	if e.Status != OutboxStatusPending {
+		return fmt.Errorf("cannot claim effect in state %s", e.Status)
+	}
+	e.Status = OutboxStatusClaimed
+	e.UpdatedAt = now
+	return nil
+}
+
+// Deliver transitions effect to delivered. Only valid from claimed.
+func (e *OutboxEffect) Deliver(now time.Time) error {
+	if e.Status != OutboxStatusClaimed {
+		return fmt.Errorf("cannot deliver effect in state %s", e.Status)
+	}
+	e.Status = OutboxStatusDelivered
+	e.UpdatedAt = now
+	return nil
+}
+
+// Retry transitions effect back to pending with updated attempts.
+func (e *OutboxEffect) Retry(now time.Time, delay time.Duration, attempts int, errMsg string) error {
+	if e.Status != OutboxStatusClaimed {
+		return fmt.Errorf("cannot retry effect in state %s", e.Status)
+	}
+	e.Status = OutboxStatusPending
+	e.Attempts = attempts
+	e.AvailableAt = now.Add(delay)
+	e.LastError = errMsg
+	e.UpdatedAt = now
+	return nil
+}
+
+// Quarantine transitions effect to quarantined. Only valid from claimed.
+func (e *OutboxEffect) Quarantine(now time.Time, errMsg string) error {
+	if e.Status != OutboxStatusClaimed {
+		return fmt.Errorf("cannot quarantine effect in state %s", e.Status)
+	}
+	e.Status = OutboxStatusQuarantined
+	e.LastError = errMsg
+	e.UpdatedAt = now
+	return nil
+}
+
 type InboxEntry struct {
 	TenantID    string      `json:"tenant_id"`
 	EventID     string      `json:"event_id"`
@@ -218,6 +323,22 @@ const (
 	InboxStatusProcessing InboxStatus = "processing"
 	InboxStatusCommitted  InboxStatus = "committed"
 )
+
+// Commit transitions inbox entry to committed state. Only valid from processing.
+func (e *InboxEntry) Commit(executionID string, now time.Time) error {
+	if e.Status != InboxStatusProcessing {
+		return fmt.Errorf("cannot commit inbox entry in state %s", e.Status)
+	}
+	e.Status = InboxStatusCommitted
+	e.ExecutionID = executionID
+	e.CommittedAt = &now
+	return nil
+}
+
+// IsDuplicate returns true if this event was already processed.
+func (e *InboxEntry) IsDuplicate() bool {
+	return e.Status == InboxStatusCommitted && e.ExecutionID != ""
+}
 
 type ShardLease struct {
 	VirtualShard uint32    `json:"virtual_shard"`

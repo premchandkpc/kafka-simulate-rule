@@ -122,7 +122,59 @@ Read stories 01–04 for an onboarding view. Read 05–06 before operating or ex
 
 The executable is a vertical-slice prototype, not yet a production deployment. In particular, it has no container/Kubernetes manifests, no real outbound destination, no persistent quarantine implementation, no worker shard ownership, and no request authentication. The inbox/execution/outbox writes are now inside a single Postgres transaction (fixed), but the outbox claim race, durable quarantine, MaxDeliver ceiling, shard routing, and the `tenant_scope` bug remain. The stories do not hide these limitations.
 
+## Complete end-to-end flow
 
+FlowRule has two flows, and they are intentionally separate:
+
+```text
+CONTROL PLANE
+  create / validate / store rule revision
+        -> activate revision for (tenant_id, rule_set)
+        -> expose admin/query API
+
+DATA PLANE
+  producer emits EventEnvelope
+        -> broker durably stores it
+        -> worker fetches it
+        -> lookup active rule set by event.type
+        -> resolve active revision
+        -> evaluate event against rules
+        -> persist execution + outbox
+        -> ack broker only after commit
+        -> publish outbox effects
+        -> emit downstream event or command
+```
+
+The critical boundary is:
+
+- Producer owns the event contract.
+- FlowRule owns the decision logic.
+- The producer does not normally name a rule ID or a private internal rule implementation.
+- Instead, it emits an event type such as `order.created`, and FlowRule resolves that to the active rule set and revision.
+
+That keeps the producer decoupled from rule internals and preserves replayability.
+
+## FlowRule is not a general workflow engine
+
+FlowRule is intentionally a rules engine for one event-to-decision turn, not a full orchestration runtime.
+
+It supports:
+
+- single-event evaluation against one active rule revision
+- multiple rules in a rule set with priority and `first_match` / `all_matches`
+- event chaining via emitted output events
+- parallel rule evaluation within a single event set
+- durable outbox tracking for commands and emitted events
+
+It does not own:
+
+- arbitrary loops
+- timers / windowing jobs
+- long-running saga compensation
+- arbitrary service orchestration
+- human approvals or workflow state machines
+
+Those belong in a separate workflow or aggregator layer.
 
 # FlowRule Story: from deployment to runtime
 

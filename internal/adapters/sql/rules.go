@@ -6,15 +6,14 @@ import (
 	"fmt"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/jackc/pgx/v5"
 )
 
 type RuleRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewRuleRepository(db ports.Querier) *RuleRepository {
+func NewRuleRepository(db Querier) *RuleRepository {
 	return &RuleRepository{db: db}
 }
 
@@ -65,10 +64,10 @@ func (r *RuleRepository) Save(ctx context.Context, tenantScope string, revision 
 }
 
 type ActivationRepository struct {
-	db ports.Querier
+	db Querier
 }
 
-func NewActivationRepository(db ports.Querier) *ActivationRepository {
+func NewActivationRepository(db Querier) *ActivationRepository {
 	return &ActivationRepository{db: db}
 }
 
