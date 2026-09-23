@@ -134,11 +134,11 @@ curl -s localhost:8080/v1/executions/{executionID} | jq
 
 | File | Covers |
 |------|--------|
-| [architecture.md](architecture.md) | Project structure, ports, component boundaries, dependency rules, port interfaces, capability matrix, sequence diagrams |
-| [design.md](design.md) | HLD, LLD, data model, transaction algorithm, consistency model, bounded contexts, state machines, concurrency patterns |
-| [rules.md](rules.md) | Rule shape, compilation, evaluation, operators, contracts, limits, determinism, error handling, best practices, testing |
-| [operations.md](operations.md) | Deployment, failure scenarios, partitioning, scaling, metrics, production checklist, troubleshooting |
-| [roadmap.md](roadmap.md) | Implementation status, gaps, target plan, what we will not build, technical decisions |
+| [architecture.md](architecture.md) | Project structure, ports, component boundaries, dependency rules, port interfaces, capability matrix, sequence diagrams, component wiring, testing architecture |
+| [design.md](design.md) | HLD, LLD, data model, transaction algorithm, consistency model, bounded contexts, state machines, concurrency patterns, failure handling, partitioning |
+| [rules.md](rules.md) | Rule shape, compilation, evaluation, operators, contracts, limits, determinism, error handling, best practices, testing, deployment lifecycle |
+| [operations.md](operations.md) | Deployment, failure scenarios, partitioning, scaling, metrics, production checklist, troubleshooting, runbooks, capacity planning |
+| [roadmap.md](roadmap.md) | Implementation status, gaps, target plan, what we will not build, technical decisions, release criteria |
 
 ## API Endpoints
 
@@ -152,6 +152,7 @@ curl -s localhost:8080/v1/executions/{executionID} | jq
 ### API Request/Response Examples
 
 #### Deploy Rule Revision
+
 **Request:**
 ```http
 POST /v1/rules/order.created/revisions
@@ -196,6 +197,7 @@ Content-Type: application/json
 ```
 
 #### Get Execution
+
 **Request:**
 ```http
 GET /v1/executions/exec-abc123
@@ -233,10 +235,16 @@ GET /v1/executions/exec-abc123
 | MAX_DELIVER | `10` | Max delivery attempts before NATS requeues |
 | PUBLISH_INTERVAL | `5s` | Effect publisher batch interval |
 | PUBLISH_BATCH_SIZE | `10` | Effects per publish batch |
+| MAX_RULES_PER_SET | `100` | Compiler limit |
+| MAX_PREDICATES | `200` | Compiler limit |
+| MAX_NESTING_DEPTH | `10` | Compiler limit |
+| MAX_ACTIONS_PER_SET | `10` | Compiler limit |
+| MAX_PAYLOAD_BYTES | `262144` | 256KB compiler limit |
 
 ## Testing
 
 ### Unit Tests
+
 ```bash
 # Run all tests
 go test ./...
@@ -249,6 +257,7 @@ go test ./internal/rules/...
 ```
 
 ### Integration Tests
+
 ```bash
 # Start test infrastructure
 docker compose -f docker-compose.test.yml up -d
@@ -258,12 +267,14 @@ go test -tags=integration ./tests/integration/...
 ```
 
 ### Contract Tests
+
 ```bash
 # Run adapter contract tests (SQL, NATS, memory)
 go test ./tests/contract/...
 ```
 
 ### Example Test: Rule Evaluation
+
 ```go
 func TestHighValueOrderRule(t *testing.T) {
     compiler := rules.NewCompiler(rules.DefaultLimits())
@@ -300,6 +311,69 @@ func TestHighValueOrderRule(t *testing.T) {
     assert.Len(t, decision.Effects, 1)
 }
 ```
+
+## Advanced Examples
+
+### Composite Predicates
+
+```json
+{
+  "id": "complex-rule",
+  "priority": 50,
+  "when": {
+    "all": [
+      { "path": "$.customer.tier", "op": "eq", "value": "premium" },
+      {
+        "any": [
+          { "path": "$.total", "op": "gte", "value": 5000 },
+          { "path": "$.items", "op": "exists" }
+        ]
+      },
+      {
+        "not": {
+          "path": "$.flags", "op": "contains", "value": "test"
+        }
+      }
+    ]
+  },
+  "then": [
+    { "emit": { "topic": "vip.orders", "data": { "order_id": "$.id" } } },
+    { "command": { "destination": "workflow/notify", "name": "vip_alert", "data": { "customer_id": "$.customer.id" } } }
+  ]
+}
+```
+
+### Using `otherwise` for Default Handling (first_match mode only)
+
+```json
+{
+  "rules": [
+    { "id": "high-value", "priority": 100, "when": { "path": "$.total", "op": "gte", "value": 1000 }, "then": [...] },
+    { "id": "standard", "priority": 50, "when": { "path": "$.total", "op": "gte", "value": 100 }, "then": [...] },
+    { "id": "default", "priority": 1, "when": null, "then": [
+      { "emit": { "topic": "orders.default", "data": { "order_id": "$.id" } } }
+    ]}
+  ]
+}
+```
+
+### Input Contract Validation
+
+```json
+{
+  "rule_set": "order.created",
+  "revision": 2,
+  "mode": "first_match",
+  "input_contract": {
+    "name": "OrderEvent",
+    "version": "1.0",
+    "schema_hash": "a1b2c3d4"
+  },
+  "rules": [...]
+}
+```
+
+This prevents activating rules that reference non-existent fields like `$.nonexistent.field`.
 
 ## License
 
