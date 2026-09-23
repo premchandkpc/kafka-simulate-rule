@@ -5,17 +5,17 @@ A distributed rules engine that evaluates business events against configurable r
 ## What it does
 
 ```
-                      ┌─────────────────────────────────────────────┐
-                      │              FlowRule Engine                │
-                      │                                             │
-    ┌──────────┐     │  ┌─────────┐   ┌──────────┐   ┌─────────┐ │     ┌──────────────┐
-    │  Event   │────>│  │  Inbox   │──>│ Evaluator │──>│ Outbox  │─│────>│  Destination │
-    │  (NATS)  │     │  │  Dedup   │   │  Rules   │   │ Effects │ │     │  (HTTP/gRPC) │
-    └──────────┘     │  └─────────┘   └──────────┘   └─────────┘ │     └──────────────┘
-                      │       │                           │        │
-                      │       └───── Single Postgres ─────┘        │
-                      │             Transaction                    │
-                      └─────────────────────────────────────────────┘
+                       ┌─────────────────────────────────────────────┐
+                       │              FlowRule Engine                │
+                       │                                             │
+     ┌──────────┐     │  ┌─────────┐   ┌──────────┐   ┌─────────┐ │     ┌──────────────┐
+     │  Event   │────>│  │  Inbox   │──>│ Evaluator │──>│ Outbox  │─│────>│  Destination │
+     │  (NATS)  │     │  │  Dedup   │   │  Rules   │   │ Effects │ │     │  (HTTP/gRPC) │
+     └──────────┘     │  └─────────┘   └──────────┘   └─────────┘ │     └──────────────┘
+                       │       │                           │        │
+                       │       └───── Single Postgres ─────┘        │
+                       │             Transaction                    │
+                       └─────────────────────────────────────────────┘
 ```
 
 1. **Accepts** an event from a broker (NATS JetStream) with a tenant ID, event type, partition key, and JSON payload
@@ -105,7 +105,7 @@ curl -s -X POST localhost:8080/v1/rules/order.created/revisions \
       {
         "id": "fraud-check",
         "priority": 50,
-        "when": { "path": "$.country", "op": "nin", "value": ["US","CA","UK"] },
+        "when": { "path": "$.country", "op": "not_in", "value": ["US","CA","UK"] },
         "then": [{
           "emit": {
             "topic": "orders.fraud-review",
@@ -145,7 +145,7 @@ curl -s localhost:8080/v1/executions/{executionID} | jq
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/v1/rules/{ruleSet}/revisions` | Deploy and activate a new rule revision |
-| POST | `/v1/rules/{ruleSet}/revisions/{revision}/activate` | Activate existing revision (not implemented) |
+| POST | `/v1/rules/{ruleSet}/revisions/{revision}/activate` | Activate existing revision (returns 501 Not Implemented) |
 | GET | `/v1/executions/{executionID}` | Get execution details with decision |
 | GET | `/health` | Health check |
 
@@ -214,7 +214,7 @@ GET /v1/executions/exec-abc123
   "decision_hash": "sha256...",
   "status": "completed",
   "error": null,
-  "trace_id": "trace-123",
+  "trace_id": null,
   "created_at": "2026-01-15T10:30:05Z",
   "completed_at": "2026-01-15T10:30:05Z"
 }
@@ -228,6 +228,11 @@ GET /v1/executions/exec-abc123
 | NATS_URL | `nats://localhost:4222` | NATS server URL |
 | MIGRATIONS_DIR | `migrations` | Path to SQL migrations |
 | API_LISTEN | `:8080` | HTTP server address |
+
+The following are configured in code (cmd/worker/main.go), not via environment variables:
+
+| Setting | Value | Description |
+|---------|-------|-------------|
 | STREAM | `flowrule` | JetStream stream name |
 | CONSUMER | `flowrule-worker` | JetStream consumer name |
 | SUBJECTS | `events.>` | Subject filter for event consumption |
@@ -235,11 +240,17 @@ GET /v1/executions/exec-abc123
 | MAX_DELIVER | `10` | Max delivery attempts before NATS requeues |
 | PUBLISH_INTERVAL | `5s` | Effect publisher batch interval |
 | PUBLISH_BATCH_SIZE | `10` | Effects per publish batch |
-| MAX_RULES_PER_SET | `100` | Compiler limit |
-| MAX_PREDICATES | `200` | Compiler limit |
-| MAX_NESTING_DEPTH | `10` | Compiler limit |
-| MAX_ACTIONS_PER_SET | `10` | Compiler limit |
+
+### Compiler Limits (Configurable via rules.DefaultLimits())
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| MAX_RULES_PER_SET | `100` | Maximum rules in a single rule set |
+| MAX_PREDICATES | `200` | Total predicates across all rules |
+| MAX_NESTING_DEPTH | `10` | Maximum nesting depth for composite predicates |
+| MAX_ACTIONS_PER_SET | `10` | Total actions across all rules |
 | MAX_PAYLOAD_BYTES | `262144` | 256KB compiler limit |
+| MAX_RULE_ID_LEN | `128` | Maximum rule ID length |
 
 ## Testing
 

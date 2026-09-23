@@ -88,7 +88,7 @@ COMMIT
 | OutboxEffect | domain | ID, ExecutionID, Destination, Name, Payload, Status, Attempts | Delivery record |
 | InboxEntry | domain | TenantID, EventID, Status, ExecutionID, FirstSeenAt, CommittedAt | Dedup record |
 | ShardLease | domain | VirtualShard, Owner, FencingToken, ExpiresAt, RoutingEpoch | Worker ownership |
-| QuarantineEntry | domain | ID, SourceType, SourceID, ErrorClass, PayloadRef, EventID | Failed item |
+| QuarantineEntry | domain | ID, SourceType, SourceID, ErrorClass, PayloadRef, EventID, TenantID, Error | Failed item |
 | RuleActivation | domain | TenantScope, RuleSet, Revision, Version, Actor, ActivatedAt | Active revision pointer |
 
 ### Domain Behavior: State Machines
@@ -98,15 +98,15 @@ State transitions are enforced at the domain layer. Invalid transitions return e
 #### Execution
 
 ```
-                     ┌──────────────┐
-                     │   pending    │
-                     └──────┬───────┘
-                            │
-               ┌────────────┼────────────┐
-               ▼            ▼            ▼
-         ┌──────────┐ ┌──────────┐ ┌──────────────┐
-         │completed │ │  failed  │ │ quarantined  │
-         └──────────┘ └──────────┘ └──────────────┘
+                      ┌──────────────┐
+                      │   pending    │
+                      └──────┬───────┘
+                             │
+                ┌────────────┼────────────┐
+                ▼            ▼            ▼
+          ┌──────────┐ ┌──────────┐ ┌──────────────┐
+          │completed │ │  failed  │ │ quarantined  │
+          └──────────┘ └──────────┘ └──────────────┘
 ```
 
 ```go
@@ -127,8 +127,8 @@ exec.Quarantine(now, msg) // pending → quarantined
         │ claimed  │──────────────────┘
         └────┬─────┘
              │
-      ┌──────┼──────┐
-      ▼      ▼      ▼
+       ┌─────┼─────┐
+       ▼     ▼     ▼
 ┌─────────┐ ┌──────────┐ ┌──────────────┐
 │delivered│ │ pending  │ │ quarantined  │
 └─────────┘ │ (retry)  │ └──────────────┘
@@ -277,8 +277,6 @@ CREATE TABLE quarantine (
     payload_ref    TEXT,
     event_id       TEXT,
     tenant_id      TEXT,
-    revision       BIGINT,
-    decision_hash  TEXT,
     error_message  TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()

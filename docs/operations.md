@@ -16,9 +16,18 @@
 | NATS_URL | nats://localhost:4222 |
 | MIGRATIONS_DIR | migrations |
 | API listen | :8080 |
-| Stream | flowrule |
-| Consumer | flowrule-worker |
-| Subject filter | events.> |
+
+The following are hardcoded in cmd/worker/main.go (not environment variables):
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| STREAM | flowrule | JetStream stream name |
+| CONSUMER | flowrule-worker | JetStream consumer name |
+| SUBJECTS | events.> | Subject filter for event consumption |
+| ACK_WAIT | 30s | NATS ack wait timeout |
+| MAX_DELIVER | 10 | Max delivery attempts before NATS requeues |
+| PUBLISH_INTERVAL | 5s | Effect publisher batch interval |
+| PUBLISH_BATCH_SIZE | 10 | Effects per publish batch |
 
 ### Steps
 
@@ -73,6 +82,8 @@ Claimed effects have `claim_expires_at`. After TTL, effects become claimable aga
 
 4096 virtual shards mapped to physical workers via `shard_leases` table. Each lease has a fencing token to prevent stale workers from committing.
 
+**Note**: Shard tables and fencing token logic exist in migrations and domain, but the worker does not yet enforce shard ownership or filter by virtual shard.
+
 ### Ordering
 
 Events with the same `partition_key` route to the same shard. Ordering is guaranteed within a key, never across keys.
@@ -101,6 +112,8 @@ A single key with high volume becomes a bottleneck on one shard. Ordering remain
 
 ## Metrics
 
+Currently no metrics are exported. The following should be added:
+
 - Accepted/rejected events per tenant
 - Duplicate inbox conflicts
 - Evaluation latency p50/p99
@@ -109,3 +122,32 @@ A single key with high volume becomes a bottleneck on one shard. Ordering remain
 - Quarantine count by error class
 - Effect delivery latency
 - Lease loss rate
+
+## Troubleshooting
+
+### Event not processed
+
+1. Check worker logs for errors
+2. Verify NATS consumer is running: `nats stream info flowrule`
+3. Check inbox table for stuck entries: `SELECT * FROM inbox WHERE status = 'processing'`
+4. Verify rule activation exists: `SELECT * FROM rule_activations`
+
+### Effects not delivered
+
+1. Check outbox_effects table for pending/claimed status
+2. Verify destination is reachable
+3. Check quarantine table for failed effects
+4. Increase PUBLISH_INTERVAL / PUBLISH_BATCH_SIZE if backlog growing
+
+### Duplicate executions
+
+1. Verify inbox unique constraint exists
+2. Check that broker ACK happens after commit (worker code order)
+3. Verify NATS MaxDeliver and AckWait settings
+
+### High latency
+
+1. Check PostgreSQL connection pool saturation
+2. Check NATS consumer fetch batch size
+3. Look for long-running transactions in pg_stat_activity
+4. Consider read replicas for activation/rule queries

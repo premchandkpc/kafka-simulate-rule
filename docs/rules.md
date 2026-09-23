@@ -180,8 +180,6 @@ Paths use dot notation starting with `$`:
 | not_in | value not in array | `{"path":"$.status","op":"not_in","value":["cancelled"]}` |
 | exists | path exists (non-null) | `{"path":"$.discount","op":"exists"}` |
 | not_exists | path missing or null | `{"path":"$.discount","op":"not_exists"}` |
-| contains | string contains | `{"path":"$.name","op":"contains","value":"premium"}` |
-| starts_with | string starts with | `{"path":"$.email","op":"starts_with","value":"admin"}` |
 
 **Type coercion:** Numbers are normalized (float64 → int64 when whole). String comparison for non-numeric.
 

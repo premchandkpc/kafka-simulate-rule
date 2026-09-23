@@ -5,29 +5,29 @@
 FlowRule follows hexagonal (ports and adapters) architecture. Dependencies point inward. Domain depends on nothing outside the standard library. Ports define what the application needs; adapters implement it.
 
 ```
-                           ┌─────────────────────────────────┐
-                           │          cmd/api                 │
-                           │    cmd/worker                    │
-                           └───────────┬─────────────────────┘
-                                       │
-                           ┌───────────▼─────────────────────┐
-                           │       internal/services          │
-                           │  ┌────────┬──────────┬────────┐ │
-                           │  │ rules  │ events   │ effects│ │
-                           │  └────┬───┴────┬─────┴───┬────┘ │
-                           └───────┼────────┼─────────┼──────┘
-                                   │        │         │
-                     ┌─────────────▼────────▼─────────▼──────┐
-                     │           internal/ports               │
-                     │   (interfaces only, no implementations)│
-                     └─────────────┬─────────────────────────┘
-                                   │
-               ┌───────────────────┼───────────────────┐
-               │                   │                   │
-     ┌─────────▼─────────┐ ┌──────▼──────┐ ┌─────────▼─────────┐
-     │  adapters/sql     │ │adapters/nats│ │adapters/effects   │
-     │  adapters/memory  │ │             │ │                   │
-     └───────────────────┘ └─────────────┘ └───────────────────┘
+                            ┌─────────────────────────────────┐
+                            │          cmd/api                 │
+                            │    cmd/worker                    │
+                            └───────────┬─────────────────────┘
+                                        │
+                            ┌───────────▼─────────────────────┐
+                            │       internal/services          │
+                            │  ┌────────┬──────────┬────────┐ │
+                            │  │ rules  │ events   │ effects│ │
+                            │  └────┬───┴────┬─────┴───┬────┘ │
+                            └───────┼────────┼─────────┼──────┘
+                                    │        │         │
+                      ┌─────────────▼────────▼─────────▼──────┐
+                      │           internal/ports               │
+                      │   (interfaces only, no implementations)│
+                      └─────────────┬─────────────────────────┘
+                                    │
+                ┌───────────────────┼───────────────────┐
+                │                   │                   │
+      ┌─────────▼─────────┐ ┌──────▼──────┐ ┌─────────▼─────────┐
+      │  adapters/sql     │ │adapters/nats│ │adapters/effects   │
+      │  adapters/memory  │ │             │ │                   │
+      └───────────────────┘ └─────────────┘ └───────────────────┘
 ```
 
 ## Project Structure
@@ -279,7 +279,7 @@ type Clock interface {
 | Aggregation / windows | NO | Use a workflow engine |
 | Long-running workflows | NO | EmitAction chains internally; CommandAction pushes to workflow layer |
 | Loops / timers / compensation | NO | Rule engine scope ends at effect emission |
-| Per-key ordering | YES | Virtual shards + fencing tokens |
+| Per-key ordering | PARTIAL | Virtual shards + fencing tokens (tables exist, not enforced in worker) |
 | Multi-tenancy | YES | tenant_scope isolation |
 | Replay | PLANNED | API endpoint not yet implemented |
 
@@ -293,18 +293,6 @@ type Clock interface {
 | NATS_URL | `nats://localhost:4222` | NATS server URL |
 | MIGRATIONS_DIR | `migrations` | Path to SQL migrations |
 | API_LISTEN | `:8080` | HTTP server address |
-| STREAM | `flowrule` | JetStream stream name |
-| CONSUMER | `flowrule-worker` | JetStream consumer name |
-| SUBJECTS | `events.>` | Subject filter for event consumption |
-| ACK_WAIT | `30s` | NATS ack wait timeout |
-| MAX_DELIVER | `10` | Max delivery attempts before NATS requeues |
-| PUBLISH_INTERVAL | `5s` | Effect publisher batch interval |
-| PUBLISH_BATCH_SIZE | `10` | Effects per publish batch |
-| MAX_RULES_PER_SET | `100` | Compiler limit |
-| MAX_PREDICATES | `200` | Compiler limit |
-| MAX_NESTING_DEPTH | `10` | Compiler limit |
-| MAX_ACTIONS_PER_SET | `10` | Compiler limit |
-| MAX_PAYLOAD_BYTES | `262144` | 256KB compiler limit |
 
 ### Component Wiring (cmd/worker)
 

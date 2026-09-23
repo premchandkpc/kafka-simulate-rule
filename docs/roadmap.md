@@ -19,7 +19,7 @@
 - [x] Worker fetch/evaluate/ack loop
 - [x] API for rule deployment
 - [x] Outbox claim with FOR UPDATE SKIP LOCKED
-- [x] HTTP destination adapter
+- [x] HTTP destination adapter (FakeDestination for testing)
 - [x] Graceful shutdown with in-flight drain
 - [x] MaxDeliver = 10
 
@@ -36,10 +36,10 @@
 - [x] Contract test suites wired
 - [x] Dead code cleanup
 
-### Phase 2 — Production-shaped distribution (TODO)
+### Phase 2 — Production-shaped distribution (IN PROGRESS)
 
-- [ ] Shard ownership via ShardLease with fencing tokens
-- [ ] Worker subject routing by virtual shard
+- [x] Shard ownership via ShardLease with fencing tokens (tables created, not enforced in worker)
+- [x] Worker subject routing by virtual shard (table exists, not implemented in consumer)
 - [ ] Bounded concurrency per shard
 - [ ] Metrics and structured logging
 - [ ] Replay API
@@ -64,13 +64,16 @@
 
 | Gap | Status | Fix order |
 |-----|--------|-----------|
-| Shard ownership not enforced | Open | 1 |
-| No real destination adapters | Open | 2 |
-| In-memory quarantine loses data on restart | Open | 3 |
-| Worker processes sequentially | Open | 4 |
-| No authentication | Open | 5 |
-| No replay API | Open | 6 |
-| No metrics/observability | Open | 7 |
+| Shard ownership not enforced in worker | Open | 1 |
+| Worker processes all subjects, not shard-filtered | Open | 2 |
+| No real destination adapters (only FakeDestination) | Open | 3 |
+| In-memory quarantine loses data on restart | Open | 4 |
+| Worker processes sequentially (no concurrency) | Open | 5 |
+| No authentication/authorization | Open | 6 |
+| No replay API endpoint | Open | 7 |
+| No metrics/observability | Open | 8 |
+| No rule list/read endpoints | Open | 9 |
+| No retention/archival for executions/effects | Open | 10 |
 
 ## Target success criteria
 
