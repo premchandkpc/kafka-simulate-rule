@@ -1,0 +1,25 @@
+flowchart TD
+    classDef process fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef store fill:#fefce8,stroke:#a16207,color:#422006
+    classDef failure fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+    classDef external fill:#fff7ed,stroke:#c2410c,color:#431407
+
+    Start[Every 5 seconds:<br/>publisher loop selects up to 10]:::process
+    Outbox[(outbox_effects)]:::store
+    Claim[Claim pending effects]:::process
+    Send[Send effect with deterministic effect ID]:::process
+    Destination[HTTP or fake destination]:::external
+    Success{Delivered?}:::process
+    Delivered[Mark delivered]:::process
+    Retry{Attempts remaining?}:::process
+    Schedule[Schedule exponential-backoff retry<br/>and return to pending]:::failure
+    Quarantine[Quarantine effect]:::failure
+    Q[(quarantine)]:::store
+
+    Start --> Claim
+    Outbox -->|pending effects| Claim --> Send --> Destination --> Success
+    Success -->|yes| Delivered --> Outbox
+    Success -->|no| Retry
+    Retry -->|yes| Schedule --> Outbox
+    Retry -->|no| Quarantine --> Q
+    Note[The outbox is committed with the execution.<br/>The destination must treat effect ID as an idempotency key.]:::process

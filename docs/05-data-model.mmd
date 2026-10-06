@@ -1,0 +1,48 @@
+erDiagram
+    RULE_REVISIONS {
+        string tenant_scope
+        string rule_id
+        int revision
+        string hash
+    }
+    RULE_ACTIVATIONS {
+        string tenant_scope
+        string rule_set
+        int active_revision
+    }
+    INBOX {
+        string tenant_id
+        string event_id
+        string execution_id
+        string status
+    }
+    EXECUTIONS {
+        string id
+        string event_id
+        string tenant_id
+        int revision
+        string decision_hash
+        string status
+    }
+    OUTBOX_EFFECTS {
+        string id
+        string execution_id
+        string status
+        int attempts
+    }
+    QUARANTINE {
+        string id
+        string source_id
+        string error_class
+    }
+    SHARD_LEASES {
+        string virtual_shard
+        string owner
+        int fencing_token
+    }
+
+    RULE_REVISIONS ||--o{ RULE_ACTIVATIONS : "selected by"
+    RULE_ACTIVATIONS ||--o{ EXECUTIONS : "pins revision for"
+    INBOX ||--|| EXECUTIONS : "commits one"
+    EXECUTIONS ||--o{ OUTBOX_EFFECTS : "creates"
+    OUTBOX_EFFECTS }o--o{ QUARANTINE : "may create entry in"

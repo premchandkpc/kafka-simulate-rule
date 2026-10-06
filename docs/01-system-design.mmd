@@ -1,0 +1,52 @@
+flowchart TB
+    %% Design view: hexagonal layers and allowed dependency direction.
+    classDef entry fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef service fill:#ecfdf5,stroke:#047857,color:#064e3b
+    classDef core fill:#f5f3ff,stroke:#6d28d9,color:#2e1065
+    classDef port fill:#fff1f2,stroke:#be123c,color:#4c0519
+    classDef adapter fill:#f0fdfa,stroke:#0f766e,color:#134e4a
+
+    subgraph Entrypoints[Entrypoints]
+        API[cmd/api<br/>HTTP server]:::entry
+        Worker[cmd/worker<br/>NATS consumer + publisher loop]:::entry
+    end
+    subgraph Application[Application services]
+        RuleSvc[rules<br/>compile, save, activate, query]:::service
+        EventSvc[events<br/>deduplicate, evaluate, persist]:::service
+        EffectSvc[effects<br/>claim, send, retry, quarantine]:::service
+    end
+    subgraph Core[Domain and rules]
+        Domain[domain<br/>entities, state machines, errors]:::core
+        Rules[rules<br/>compiler and pure evaluator]:::core
+    end
+    subgraph Ports[Ports: interfaces owned by the application]
+        Repos[Rule, activation, inbox,<br/>execution, outbox, quarantine repositories]:::port
+        Broker[Broker consumer and delivery]:::port
+        Sender[Effect sender]:::port
+        Tx[Transaction factory and clock]:::port
+    end
+    subgraph Adapters[Adapters: implementations]
+        SQL[sql<br/>PostgreSQL repositories]:::adapter
+        NATS[nats<br/>JetStream consumer/publisher]:::adapter
+        HTTP[effects<br/>HTTP or fake destination]:::adapter
+    end
+
+    API --> RuleSvc
+    API --> EventSvc
+    Worker --> EventSvc
+    Worker --> EffectSvc
+    RuleSvc --> Rules
+    EventSvc --> Rules
+    RuleSvc --> Repos
+    EventSvc --> Repos
+    EventSvc --> Broker
+    EffectSvc --> Repos
+    EffectSvc --> Sender
+    RuleSvc --> Tx
+    EventSvc --> Tx
+    EffectSvc --> Tx
+    Rules --> Domain
+    Repos -. implemented by .-> SQL
+    Tx -. implemented by .-> SQL
+    Broker -. implemented by .-> NATS
+    Sender -. implemented by .-> HTTP

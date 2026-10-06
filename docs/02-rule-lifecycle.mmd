@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant Client as API client
+    participant API as cmd/api
+    participant Rules as Rule service
+    participant Compiler as Rule compiler
+    participant DB as PostgreSQL
+
+    Client->>API: POST /v1/rules/{ruleSet}/revisions
+    API->>Rules: Activate(tenantScope, ruleSet, source, actor)
+    Rules->>Compiler: Compile(source)
+    alt Source is invalid
+        Compiler-->>Rules: Validation error
+        Rules-->>API: Error
+        API-->>Client: 4xx response
+    else Source is valid
+        Compiler-->>Rules: Immutable RuleRevision (compiled + hash)
+        Rules->>DB: Save rule revision
+        Rules->>DB: Set active revision for tenant + rule set
+        DB-->>Rules: RuleActivation
+        Rules-->>API: RuleActivation
+        API-->>Client: 200 OK
+    end
+    Note over DB: Rule revisions are immutable.<br/>Activation selects one revision per tenant + rule set.

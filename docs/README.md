@@ -135,6 +135,12 @@ curl -s localhost:8080/v1/executions/{executionID} | jq
 | File | Covers |
 |------|--------|
 | [architecture.md](architecture.md) | Project structure, ports, component boundaries, dependency rules, port interfaces, capability matrix, sequence diagrams, component wiring, testing architecture |
+| [flow.mmd](flow.mmd) | Small map of the complete system and links to the focused Mermaid diagrams below |
+| [01-system-design.mmd](01-system-design.mmd) | Design view: hexagonal layers, dependency direction, ports, and adapters |
+| [02-rule-lifecycle.mmd](02-rule-lifecycle.mmd) | Scenario: deploy, compile, save, and activate a rule revision |
+| [03-event-processing.mmd](03-event-processing.mmd) | Scenario: consume an event, deduplicate it, evaluate rules, commit, and acknowledge |
+| [04-effect-delivery.mmd](04-effect-delivery.mmd) | Scenario: claim outbox effects, deliver, retry, or quarantine them |
+| [05-data-model.mmd](05-data-model.mmd) | Design view: the PostgreSQL tables and their core relationships |
 | [design.md](design.md) | HLD, LLD, data model, transaction algorithm, consistency model, bounded contexts, state machines, concurrency patterns, failure handling, partitioning |
 | [rules.md](rules.md) | Rule shape, compilation, evaluation, operators, contracts, limits, determinism, error handling, best practices, testing, deployment lifecycle |
 | [operations.md](operations.md) | Deployment, failure scenarios, partitioning, scaling, metrics, production checklist, troubleshooting, runbooks, capacity planning |

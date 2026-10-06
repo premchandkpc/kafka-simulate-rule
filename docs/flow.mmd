@@ -1,0 +1,25 @@
+flowchart TB
+    %% Start here: a small map of the focused diagrams in this directory.
+    classDef entry fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef service fill:#ecfdf5,stroke:#047857,color:#064e3b
+    classDef store fill:#fefce8,stroke:#a16207,color:#422006
+    classDef external fill:#fff7ed,stroke:#c2410c,color:#431407
+
+    Client[API client]:::external
+    Producer[Event producer]:::external
+    Target[Effect destination]:::external
+    API[cmd/api]:::entry
+    Worker[cmd/worker]:::entry
+    Rules[Rule service]:::service
+    Events[Event service]:::service
+    Effects[Effect service]:::service
+    DB[(PostgreSQL)]:::store
+    NATS[NATS JetStream]:::external
+
+    Client --> API --> Rules --> DB
+    Producer --> NATS --> Worker --> Events
+    Events --> DB
+    Worker --> Effects --> DB
+    Effects --> Target
+
+    Note[Open the focused diagrams:<br/>01-system-design.mmd<br/>02-rule-lifecycle.mmd<br/>03-event-processing.mmd<br/>04-effect-delivery.mmd<br/>05-data-model.mmd]:::entry

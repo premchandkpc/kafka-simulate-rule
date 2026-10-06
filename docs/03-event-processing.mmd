@@ -1,0 +1,35 @@
+sequenceDiagram
+    autonumber
+    participant NATS as NATS JetStream
+    participant Worker as Worker
+    participant Events as Event service
+    participant DB as PostgreSQL
+    participant Eval as Rule evaluator
+
+    NATS->>Worker: Fetch delivery from events.>
+    Worker->>Worker: Decode EventEnvelope
+    alt Invalid envelope
+        Worker->>DB: Save quarantine entry
+        Worker->>NATS: NakWithDelay(5s)
+    else Valid envelope
+        Worker->>Events: Process(envelope)
+        Events->>DB: BEGIN transaction
+        Events->>DB: Insert inbox entry (tenant_id, event_id)
+        alt Duplicate event
+            Events->>DB: Read existing execution
+            Events->>DB: COMMIT
+            Events-->>Worker: Existing execution
+            Worker->>NATS: Ack
+        else New event
+            Events->>DB: Read active rule revision
+            Events->>Eval: Evaluate(revision, event)
+            Eval-->>Events: Decision + effects
+            Events->>DB: Save execution
+            Events->>DB: Insert durable outbox effects
+            Events->>DB: Mark inbox committed
+            Events->>DB: COMMIT
+            Events-->>Worker: Execution
+            Worker->>NATS: Ack only after commit
+        end
+    end
+    Note over DB: Unique (tenant_id, event_id) prevents<br/>duplicate business execution.
