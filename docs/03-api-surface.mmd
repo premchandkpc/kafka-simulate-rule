@@ -1,0 +1,42 @@
+flowchart LR
+    %% Design view: HTTP routes to handlers to the rule service and repositories.
+    classDef entry fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef svc fill:#ecfdf5,stroke:#047857,color:#064e3b
+    classDef core fill:#f5f3ff,stroke:#6d28d9,color:#2e1065
+    classDef store fill:#fefce8,stroke:#a16207,color:#422006
+    classDef bad fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+
+    subgraph Routes["cmd/api routes"]
+        R1["POST /v1/rules/{ruleSet}/revisions"]:::entry
+        R2["POST /v1/rules/{ruleSet}/revisions/{revision}/activate"]:::bad
+        R3["GET /v1/executions/{executionID}"]:::entry
+        R4["GET /health"]:::entry
+    end
+
+    H1["handler: decode body,<br/>tenant scope default, actor api"]:::entry
+    H2["handler: returns 501 not implemented"]:::bad
+    H3["handler: lookup or 404"]:::entry
+
+    R1 --> H1
+    R2 --> H2
+    R3 --> H3
+
+    Act["rules.Service.Activate<br/>compile, save, activate"]:::svc
+    Get["rules.Service.GetExecution"]:::svc
+
+    H1 --> Act
+    H3 --> Get
+
+    Comp["rules.Compiler<br/>limits, duplicate ids,<br/>priority, otherwise, actions"]:::core
+    Act --> Comp
+
+    RR[("rule_revisions")]:::store
+    AR[("rule_activations")]:::store
+    ER[("executions")]:::store
+
+    Act --> RR
+    Act --> AR
+    Get --> ER
+
+    Err["400 with error body<br/>on compile or save failure"]:::bad
+    H1 --> Err

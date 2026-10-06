@@ -136,11 +136,29 @@ curl -s localhost:8080/v1/executions/{executionID} | jq
 |------|--------|
 | [architecture.md](architecture.md) | Project structure, ports, component boundaries, dependency rules, port interfaces, capability matrix, sequence diagrams, component wiring, testing architecture |
 | [flow.mmd](flow.mmd) | Small map of the complete system and links to the focused Mermaid diagrams below |
-| [01-system-design.mmd](01-system-design.mmd) | Design view: hexagonal layers, dependency direction, ports, and adapters |
-| [02-rule-lifecycle.mmd](02-rule-lifecycle.mmd) | Scenario: deploy, compile, save, and activate a rule revision |
-| [03-event-processing.mmd](03-event-processing.mmd) | Scenario: consume an event, deduplicate it, evaluate rules, commit, and acknowledge |
-| [04-effect-delivery.mmd](04-effect-delivery.mmd) | Scenario: claim outbox effects, deliver, retry, or quarantine them |
-| [05-data-model.mmd](05-data-model.mmd) | Design view: the PostgreSQL tables and their core relationships |
+| [01-system-design.mmd](01-system-design.mmd) | Design: hexagonal layers, ports, and adapters |
+| [02-dependency-direction.mmd](02-dependency-direction.mmd) | Design: allowed import direction between layers |
+| [03-api-surface.mmd](03-api-surface.mmd) | Technical: HTTP routes, handlers, services, and repositories |
+| [04-rule-structure.mmd](04-rule-structure.mmd) | Technical: rule JSON shape, compilation, predicates, and actions |
+| [05-rule-lifecycle.mmd](05-rule-lifecycle.mmd) | Scenario: deploy, compile, save, and activate a rule revision |
+| [06-rule-evaluation-modes.mmd](06-rule-evaluation-modes.mmd) | Technical: `first_match` versus `all_matches` evaluation modes |
+| [07-evaluation-algorithm.mmd](07-evaluation-algorithm.mmd) | Technical: deterministic evaluator control flow |
+| [08-event-processing.mmd](08-event-processing.mmd) | Scenario: consume, deduplicate, evaluate, commit, and acknowledge an event |
+| [09-worker-runtime.mmd](09-worker-runtime.mmd) | Technical: worker fetch loop and concurrent effect publishing loop |
+| [10-effect-delivery.mmd](10-effect-delivery.mmd) | Scenario: claim outbox effects, deliver, retry, or quarantine them |
+| [11-outbox-claim-protocol.mmd](11-outbox-claim-protocol.mmd) | Technical: concurrent publishers and `SKIP LOCKED` outbox claims |
+| [12-execution-lifecycle.mmd](12-execution-lifecycle.mmd) | Technical: execution state transitions |
+| [13-outbox-lifecycle.mmd](13-outbox-lifecycle.mmd) | Technical: outbox-effect state transitions and claim expiry |
+| [14-state-transitions.mmd](14-state-transitions.mmd) | Technical: combined inbox, execution, and outbox state machines |
+| [15-error-classification.mmd](15-error-classification.mmd) | Technical: permanent versus transient error handling paths |
+| [16-exactly-once-recovery.mmd](16-exactly-once-recovery.mmd) | Technical: redelivery, commit recovery, and idempotent effects |
+| [17-sharding-ordering.mmd](17-sharding-ordering.mmd) | Technical: partition keys, virtual shards, leases, and ordering |
+| [18-scaling-and-ordering.mmd](18-scaling-and-ordering.mmd) | Technical: worker scaling and current shard-enforcement roadmap constraint |
+| [19-data-model.mmd](19-data-model.mmd) | Design: PostgreSQL tables and their core relationships |
+| [20-deployment-topology.mmd](20-deployment-topology.mmd) | Operations: processes, infrastructure, ports, and configuration |
+| [21-testing-architecture.mmd](21-testing-architecture.mmd) | Technical: unit, contract, and integration test layers |
+| [22-business-order-review.mmd](22-business-order-review.mmd) | Business example: route a high-value order from a rule to human review |
+| [23-operations-troubleshooting.mmd](23-operations-troubleshooting.mmd) | Operations: investigate stalled events, delivery failures, and latency |
 | [design.md](design.md) | HLD, LLD, data model, transaction algorithm, consistency model, bounded contexts, state machines, concurrency patterns, failure handling, partitioning |
 | [rules.md](rules.md) | Rule shape, compilation, evaluation, operators, contracts, limits, determinism, error handling, best practices, testing, deployment lifecycle |
 | [operations.md](operations.md) | Deployment, failure scenarios, partitioning, scaling, metrics, production checklist, troubleshooting, runbooks, capacity planning |

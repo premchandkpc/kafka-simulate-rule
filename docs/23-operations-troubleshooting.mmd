@@ -1,0 +1,30 @@
+flowchart TD
+    classDef check fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef action fill:#ecfdf5,stroke:#047857,color:#064e3b
+    classDef failure fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+
+    Start[Observed problem]:::check
+    Type{What is failing?}:::check
+
+    Event[Event is not processed]:::failure
+    E1[Check worker logs and NATS consumer]:::action
+    E2[Check inbox for processing entries]:::action
+    E3[Check rule activation exists]:::action
+
+    Effect[Effect is not delivered]:::failure
+    O1[Check outbox status: pending or claimed]:::action
+    O2[Check destination reachability]:::action
+    O3[Inspect quarantine entries]:::action
+    O4[Increase publish interval or batch only if backlog is growing]:::action
+
+    Latency[High latency]:::failure
+    L1[Check PostgreSQL pool saturation]:::action
+    L2[Check NATS fetch batch size]:::action
+    L3[Inspect long-running transactions]:::action
+
+    Start --> Type
+    Type -->|Event| Event --> E1 --> E2 --> E3
+    Type -->|Effect| Effect --> O1 --> O2 --> O3 --> O4
+    Type -->|Latency| Latency --> L1 --> L2 --> L3
+
+    Note[Metrics are planned, not currently exported.<br/>Use logs, NATS, and PostgreSQL during investigation.]:::check

@@ -1,0 +1,27 @@
+flowchart TB
+    classDef event fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef store fill:#fefce8,stroke:#a16207,color:#422006
+    classDef worker fill:#ecfdf5,stroke:#047857,color:#064e3b
+    classDef planned fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-dasharray: 5 5
+
+    Event[Event: tenant ID + partition key]:::event
+    Hash[Hash tenant ID + partition key<br/>into one of 4,096 virtual shards]:::event
+    Lease[(shard_leases:<br/>owner + fencing token)]:::store
+    W1[Worker A]:::worker
+    W2[Worker B]:::worker
+    W3[Worker C]:::worker
+    Ordered[Same partition key:<br/>sequential order]:::event
+    Parallel[Different partition keys:<br/>parallel processing]:::event
+
+    Event --> Hash
+    Hash --> Lease
+    Lease --> W1
+    Lease --> W2
+    Lease --> W3
+    Hash --> Ordered
+    Hash --> Parallel
+
+    Current[Current implementation:<br/>shard tables and domain types exist,<br/>but worker-side shard ownership is not enforced yet.]:::planned
+    Current -. roadmap constraint .-> Lease
+
+    Note[Choose the smallest entity that needs ordering as the partition key.<br/>A hot key remains serial, while other keys continue independently.]:::event

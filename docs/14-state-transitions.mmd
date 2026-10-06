@@ -1,0 +1,32 @@
+stateDiagram-v2
+    direction LR
+
+    state "Inbox entry" as Inbox {
+        [*] --> processing : first event delivery
+        processing --> committed : transaction commits\nwith execution ID
+    }
+
+    state "Execution" as Execution {
+        [*] --> pending
+        pending --> completed : decision persisted
+        pending --> failed : terminal processing error
+        pending --> quarantined : permanent error
+    }
+
+    state "Outbox effect" as Outbox {
+        [*] --> pending
+        pending --> claimed : publisher claims it
+        claimed --> delivered : destination succeeds
+        claimed --> pending : retry after backoff
+        claimed --> quarantined : max attempts reached
+    }
+
+    note right of Inbox
+        A unique tenant_id + event_id
+        permits one committed execution.
+    end note
+
+    note right of Outbox
+        A claim expires so another
+        publisher can recover abandoned work.
+    end note

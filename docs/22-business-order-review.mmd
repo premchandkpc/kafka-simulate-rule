@@ -1,0 +1,25 @@
+flowchart LR
+    %% Business example: an expensive order is routed to human review.
+    classDef person fill:#fff7ed,stroke:#c2410c,color:#431407
+    classDef system fill:#eff6ff,stroke:#1d4ed8,color:#172554
+    classDef decision fill:#ecfdf5,stroke:#047857,color:#064e3b
+    classDef outcome fill:#f5f3ff,stroke:#6d28d9,color:#2e1065
+
+    Author[Operations or risk analyst]:::person
+    Rule[Publish rule:<br/>orders over $1,000 need review]:::system
+    Store[Storefront]:::person
+    Event[Order-created event]:::system
+    Evaluate[Evaluate active order rule]:::decision
+    High{Order total<br/>over $1,000?}:::decision
+    Approve[Continue normal order fulfilment]:::outcome
+    Review[Create approval workflow]:::outcome
+    Analyst[Review team]:::person
+    Result[Approve or decline order]:::outcome
+
+    Author --> Rule
+    Store --> Event --> Evaluate --> High
+    High -->|No| Approve
+    High -->|Yes| Review --> Analyst --> Result
+    Rule -. becomes the active rule .-> Evaluate
+
+    Note[Example only: the rule engine decides and emits work.<br/>The external workflow owns the human approval process.]:::system
