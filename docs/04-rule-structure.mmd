@@ -44,6 +44,10 @@ flowchart TB
     Then --> Emit
     Then --> Cmd
 
-    Limits["Compiler rejects:<br/>empty source, missing id or revision,<br/>unknown match mode, duplicate rule ids,<br/>duplicate priorities, depth over 10,<br/>over 100 rules or 200 predicates,<br/>over 10 actions, payload over 256KB,<br/>more than one action per rule"]:::bad
+    Contract["input_contract name, version, schema_hash<br/>validated against the contract registry<br/>before activation"]:::ok
+    Head --> Contract
+
+    Limits["Compiler rejects:<br/>empty source, missing id or revision,<br/>unknown match mode, duplicate rule ids,<br/>duplicate priorities, depth over 10,<br/>over 100 rules or 200 predicates,<br/>over 10 actions, payload over 256KB"]:::bad
     Head -.-> Limits
     Rules -.-> Limits
+    Other -.-> Limits

@@ -16,10 +16,10 @@ flowchart TB
     DB[(PostgreSQL)]:::store
     NATS[NATS JetStream]:::external
 
-    Client --> API --> Rules --> DB
-    Producer --> NATS --> Worker --> Events
+    Client -->|deploy rules, read executions| API --> Rules --> DB
+    Producer -->|publish order events| NATS --> Worker --> Events
     Events --> DB
     Worker --> Effects --> DB
     Effects --> Target
 
-    Note[Read diagrams in order:<br/>01-04 design and API<br/>05-07 rules<br/>08-16 runtime and reliability<br/>17-23 scaling, operations, testing, and business example<br/><br/>See docs/README.md for the complete catalog.]:::entry
+    Note["Read diagrams in order:<br/>01-04 design, dependencies, API, rule shape<br/>05-07 rules: lifecycle, modes, evaluator<br/>08-11 runtime: events, worker, delivery, claims<br/>12-16 reliability: state machines, errors, recovery<br/>17-23 scaling, data model, ops, testing, business<br/><br/>See docs/README.md for the complete catalog."]:::entry

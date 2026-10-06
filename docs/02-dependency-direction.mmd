@@ -71,4 +71,4 @@ flowchart TB
         F5["core must not import cmd or adapters"]:::bad
     end
 
-    Note["Adapters are only constructed in cmd/<br/>and injected through ports.<br/>Tests substitute adapters/memory."]:::note
+    Note["Adapters are only constructed in cmd/<br/>and injected through ports.<br/>Tests substitute adapters/memory.<br/>rules imports ports only to assert<br/>that Compiler and Evaluator implement<br/>the port interfaces."]:::note

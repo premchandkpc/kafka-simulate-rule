@@ -9,16 +9,19 @@ sequenceDiagram
     Client->>API: POST /v1/rules/{ruleSet}/revisions
     API->>Rules: Activate(tenantScope, ruleSet, source, actor)
     Rules->>Compiler: Compile(source)
+
     alt Source is invalid
         Compiler-->>Rules: Validation error
+        Note over Compiler: Checks limits, duplicate rule ids,<br/>ambiguous priorities, match mode,<br/>otherwise placement and action shape
         Rules-->>API: Error
-        API-->>Client: 4xx response
+        API-->>Client: 4xx with error body
     else Source is valid
-        Compiler-->>Rules: Immutable RuleRevision (compiled + hash)
-        Rules->>DB: Save rule revision
-        Rules->>DB: Set active revision for tenant + rule set
-        DB-->>Rules: RuleActivation
+        Compiler-->>Rules: Immutable RuleRevision with compiled rules and content hash
+        Rules->>DB: Save rule revision, immutable row
+        Rules->>DB: Set active revision for tenant and rule set
+        DB-->>Rules: RuleActivation with version and actor
         Rules-->>API: RuleActivation
-        API-->>Client: 200 OK
+        API-->>Client: 200 OK with activation payload
     end
-    Note over DB: Rule revisions are immutable.<br/>Activation selects one revision per tenant + rule set.
+
+    Note over DB: Rule revisions are immutable.<br/>Activation selects one revision per tenant and rule set.<br/>Events evaluate against the active revision only.

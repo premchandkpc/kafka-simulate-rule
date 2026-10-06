@@ -6,19 +6,19 @@ flowchart TB
     classDef store fill:#fefce8,stroke:#a16207,color:#422006
     classDef note fill:#f8fafc,stroke:#334155,color:#0f172a
 
-    subgraph U["unit: go test ./internal/..."]
+    subgraph U["unit tests, go test ./internal/..."]
         EvalT["rules.Evaluator<br/>matches, no match, all_matches,<br/>deterministic hash"]:::unit
         CompT["rules.Compiler<br/>invalid mode, duplicate ids,<br/>ambiguous priority, early otherwise"]:::unit
         DomT["domain state machines<br/>Complete, Fail, Claim, Deliver,<br/>Retry, Quarantine"]:::unit
     end
 
-    subgraph C["contract: go test ./tests/contract/..."]
+    subgraph C["contract tests, go test ./tests/contract/..."]
         Suite["shared suites for inbox,<br/>execution and outbox repositories"]:::contract
         Mem["adapters/memory fakes<br/>run the suites in process"]:::contract
         Suite --> Mem
     end
 
-    subgraph I["integration: go test -tags=integration ./tests/integration/..."]
+    subgraph I["integration tests, go test -tags=integration ./tests/integration/..."]
         Dup["duplicate redelivery<br/>produces one execution"]:::integ
         Hash["deterministic hash and<br/>effect id consistency"]:::integ
         Tenant["explicit tenant scope on activate"]:::integ
@@ -28,6 +28,6 @@ flowchart TB
     PG[("PostgreSQL from<br/>docker compose test file")]:::store
     I --> PG
 
-    Ports["ports interfaces are the seam:<br/>same suite runs against fakes<br/>and against the SQL adapter"]:::note
+    Ports["ports interfaces are the seam:<br/>the same suite runs against fakes<br/>and against the SQL adapter"]:::note
     C -.-> Ports
     U -.-> Ports

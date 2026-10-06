@@ -1,27 +1,26 @@
 flowchart LR
-    %% Design view: processes, infrastructure, ports, and environment variables.
+    %% Design view: processes, infrastructure, ports, and configuration.
     classDef entry fill:#eff6ff,stroke:#1d4ed8,color:#172554
     classDef store fill:#fefce8,stroke:#a16207,color:#422006
     classDef ext fill:#fff7ed,stroke:#c2410c,color:#431407
     classDef note fill:#f8fafc,stroke:#334155,color:#0f172a
 
-    subgraph Host["host"]
+    subgraph Host["host processes"]
         API["cmd/api<br/>LISTEN :8080<br/>runs migrations on boot"]:::entry
-        Worker["cmd/worker<br/>consumer flowrule-worker<br/>publisher every 5s"]:::entry
+        Worker["cmd/worker<br/>consumer flowrule-worker<br/>publishes every 5s"]:::entry
     end
 
     subgraph Infra["infrastructure"]
         PG[("PostgreSQL 14+<br/>port 5432<br/>8 versioned migrations")]:::store
-        NATS["NATS JetStream<br/>port 4222, monitor 8222<br/>stream flowrule, subjects events.>"]:::ext
+        NATS["NATS JetStream<br/>port 4222, monitor 8222<br/>stream flowrule, subjects events.all"]:::ext
         Dest["effect destination<br/>HTTP endpoint or fake"]:::ext
     end
 
     Client["rule and execution clients"]:::ext
-
-    Client -->|HTTP| API
-    Client -->|HTTP| API
     Producer["event producers"]:::ext
-    Producer -->|publish events.order.created| NATS
+
+    Client -->|HTTP rules and executions| API
+    Producer -->|publish order events| NATS
 
     API -->|DATABASE_URL, MIGRATIONS_DIR| PG
     Worker -->|DATABASE_URL, MIGRATIONS_DIR| PG
@@ -29,6 +28,6 @@ flowchart LR
     Worker -->|EffectSender| Dest
 
     Env["Environment: DATABASE_URL, NATS_URL,<br/>MIGRATIONS_DIR, API_LISTEN"]:::note
-    Code["Configured in code: STREAM, CONSUMER,<br/>SUBJECTS, ACK_WAIT 30s, MAX_DELIVER 10,<br/>PUBLISH_INTERVAL 5s, PUBLISH_BATCH_SIZE 10"]:::note
+    Code["Fixed in code: STREAM flowrule,<br/>CONSUMER flowrule-worker, SUBJECTS events.all,<br/>ACK_WAIT 30s, MAX_DELIVER 10,<br/>PUBLISH_INTERVAL 5s, BATCH 10"]:::note
     Env -.-> Host
     Code -.-> Worker

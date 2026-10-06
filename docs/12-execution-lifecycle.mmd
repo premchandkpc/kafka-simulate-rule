@@ -1,7 +1,7 @@
 stateDiagram-v2
     direction TB
     [*] --> Pending : executions row inserted inside the event transaction
-    Pending --> Completed : Complete, then the transaction commits
+    Pending --> Completed : Complete then the transaction commits
     Pending --> Failed : Fail with an error message
     Pending --> Quarantined : Quarantine a permanent failure
     Completed --> [*]
@@ -14,4 +14,6 @@ stateDiagram-v2
         state returns ErrInvalidExecutionStatus.
         The row, the inbox mark and the outbox
         effects commit atomically together.
+        Status values are pending, completed,
+        failed and quarantined.
     end note
