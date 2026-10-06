@@ -77,10 +77,13 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope) (
 	}
 
 	inboxEntry := &domain.InboxEntry{
-		TenantID:    envelope.TenantID,
-		EventID:     envelope.ID,
-		Status:      domain.InboxStatusProcessing,
-		FirstSeenAt: s.clock.Now(),
+		TenantID:     envelope.TenantID,
+		EventID:      envelope.ID,
+		Status:       domain.InboxStatusProcessing,
+		PartitionKey: envelope.PartitionKey,
+		RuleSet:      envelope.Type,
+		Payload:      envelope.Data,
+		FirstSeenAt:  s.clock.Now(),
 	}
 	inserted, err := repos.Inbox.Insert(ctx, inboxEntry)
 	if err != nil {

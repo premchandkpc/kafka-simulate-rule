@@ -40,6 +40,19 @@ type InboxRepository interface {
 	MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error
 }
 
+// BatchRepository handles batch scheduling and tracking.
+type BatchRepository interface {
+	ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error)
+	MarkBatched(ctx context.Context, tenantID string, eventID string, batchID string) error
+	SaveBatchRun(ctx context.Context, run *domain.BatchRun) error
+	GetBatchRun(ctx context.Context, batchID string) (*domain.BatchRun, error)
+}
+
+// BatchProcessor processes accumulated or scheduled batches.
+type BatchProcessor interface {
+	Tick(ctx context.Context) (int, error)
+}
+
 type ExecutionRepository interface {
 	Save(ctx context.Context, execution *domain.Execution) error
 	Get(ctx context.Context, executionID string) (*domain.Execution, error)

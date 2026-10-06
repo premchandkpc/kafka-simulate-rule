@@ -19,10 +19,11 @@ func NewInboxRepository(db Querier) *InboxRepository {
 
 func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
 	tag, err := r.db.Exec(ctx, `
-		INSERT INTO inbox (tenant_id, event_id, status, first_seen_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO inbox (tenant_id, event_id, status, first_seen_at, partition_key, rule_set, payload, batch_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (tenant_id, event_id) DO NOTHING
-	`, entry.TenantID, entry.EventID, entry.Status, entry.FirstSeenAt)
+	`, entry.TenantID, entry.EventID, entry.Status, entry.FirstSeenAt,
+		entry.PartitionKey, entry.RuleSet, entry.Payload, entry.BatchID)
 	if err != nil {
 		return false, fmt.Errorf("insert inbox: %w", err)
 	}
@@ -32,12 +33,14 @@ func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) 
 func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	entry := &domain.InboxEntry{}
 	err := r.db.QueryRow(ctx, `
-		SELECT tenant_id, event_id, status, execution_id, first_seen_at, committed_at
+		SELECT tenant_id, event_id, status, execution_id, first_seen_at, committed_at,
+		       COALESCE(partition_key, ''), COALESCE(rule_set, ''), payload, COALESCE(batch_id, '')
 		FROM inbox
 		WHERE tenant_id = $1 AND event_id = $2
 	`, tenantID, eventID).Scan(
 		&entry.TenantID, &entry.EventID, &entry.Status, &entry.ExecutionID,
 		&entry.FirstSeenAt, &entry.CommittedAt,
+		&entry.PartitionKey, &entry.RuleSet, &entry.Payload, &entry.BatchID,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {

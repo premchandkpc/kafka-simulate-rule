@@ -159,6 +159,11 @@ curl -s localhost:8080/v1/executions/{executionID} | jq
 | [21-testing-architecture.mmd](21-testing-architecture.mmd) | Technical: unit, contract, and integration test layers |
 | [22-business-order-review.mmd](22-business-order-review.mmd) | Business example: route a high-value order from a rule to human review |
 | [23-operations-troubleshooting.mmd](23-operations-troubleshooting.mmd) | Operations: investigate stalled events, delivery failures, and latency |
+| [24-single-service-target.mmd](24-single-service-target.mmd) | Target architecture: one deployable, internally modular business-event runtime |
+| [25-rule-chain-routing.mmd](25-rule-chain-routing.mmd) | Target flow: chained events and independent partition-key routing |
+| [26-execution-modes.mmd](26-execution-modes.mmd) | Target design: immediate, fetch, accumulation, scheduled, and outbox batch modes |
+| [27-order-flow-example.mmd](27-order-flow-example.mmd) | Business example: one order event fans out to same-key and different-key flows |
+| [future-architecture.md](future-architecture.md) | Target architecture, current-versus-proposed capability boundaries, and delivery phases |
 | [design.md](design.md) | HLD, LLD, data model, transaction algorithm, consistency model, bounded contexts, state machines, concurrency patterns, failure handling, partitioning |
 | [rules.md](rules.md) | Rule shape, compilation, evaluation, operators, contracts, limits, determinism, error handling, best practices, testing, deployment lifecycle |
 | [operations.md](operations.md) | Deployment, failure scenarios, partitioning, scaling, metrics, production checklist, troubleshooting, runbooks, capacity planning |

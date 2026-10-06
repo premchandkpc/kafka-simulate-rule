@@ -307,12 +307,16 @@ func (e *OutboxEffect) Quarantine(now time.Time, errMsg string) error {
 }
 
 type InboxEntry struct {
-	TenantID    string      `json:"tenant_id"`
-	EventID     string      `json:"event_id"`
-	Status      InboxStatus `json:"status"`
-	ExecutionID string      `json:"execution_id,omitempty"`
-	FirstSeenAt time.Time   `json:"first_seen_at"`
-	CommittedAt *time.Time  `json:"committed_at,omitempty"`
+	TenantID     string          `json:"tenant_id"`
+	EventID      string          `json:"event_id"`
+	Status       InboxStatus     `json:"status"`
+	ExecutionID  string          `json:"execution_id,omitempty"`
+	PartitionKey string          `json:"partition_key,omitempty"`
+	RuleSet      string          `json:"rule_set,omitempty"`
+	Payload      json.RawMessage `json:"payload,omitempty"`
+	BatchID      string          `json:"batch_id,omitempty"`
+	FirstSeenAt  time.Time       `json:"first_seen_at"`
+	CommittedAt  *time.Time      `json:"committed_at,omitempty"`
 }
 
 type InboxStatus string
