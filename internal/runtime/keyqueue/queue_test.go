@@ -29,7 +29,7 @@ func TestKeyQueue_PerKeySerialization(t *testing.T) {
 		return nil
 	}
 
-	kq := NewKeyQueue(10, 10, 1, processor, time.Now)
+	kq := NewKeyQueue(10, 10, 1, processor, time.Now, 1000, 10*time.Second, nil)
 	ctx := context.Background()
 	kq.Start(ctx)
 	defer kq.Stop()
@@ -104,7 +104,7 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 		return nil
 	}
 
-	kq := NewKeyQueue(10, 10, 3, processor, time.Now) // 3 workers
+	kq := NewKeyQueue(10, 10, 3, processor, time.Now, 1000, 10*time.Second, nil) // 3 workers
 	ctx := context.Background()
 	kq.Start(ctx)
 	defer kq.Stop()
@@ -139,7 +139,7 @@ func TestKeyQueue_Backpressure(t *testing.T) {
 		return nil
 	}
 
-	kq := NewKeyQueue(3, 2, 1, processor, time.Now) // Max 3 in-flight, 2 per key
+	kq := NewKeyQueue(3, 2, 1, processor, time.Now, 1000, 10*time.Second, nil) // Max 3 in-flight, 2 per key
 	ctx := context.Background()
 	kq.Start(ctx)
 	defer kq.Stop()
@@ -174,7 +174,7 @@ func TestKeyQueue_ContextCancellation(t *testing.T) {
 		return nil
 	}
 
-	kq := NewKeyQueue(1, 10, 1, processor, time.Now) // Only 1 global slot
+	kq := NewKeyQueue(1, 10, 1, processor, time.Now, 1000, 10*time.Second, nil) // Only 1 global slot
 	ctx, cancel := context.WithCancel(context.Background())
 	kq.Start(ctx)
 
@@ -196,4 +196,46 @@ func TestKeyQueue_ContextCancellation(t *testing.T) {
 	}
 
 	kq.Stop()
+}
+
+func TestKeyQueue_HotKeyDetection(t *testing.T) {
+	var detected []string
+	var mu sync.Mutex
+
+	callback := func(partitionKey string, depth int) {
+		mu.Lock()
+		detected = append(detected, partitionKey)
+		mu.Unlock()
+	}
+
+	// Use a slow processor so items accumulate in queue
+	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+		time.Sleep(100 * time.Millisecond)
+		return nil
+	}
+
+	// Low threshold for testing - 3 items
+	kq := NewKeyQueue(10, 10, 1, processor, time.Now, 3, 50*time.Millisecond, callback)
+	ctx := context.Background()
+	kq.Start(ctx)
+	defer kq.Stop()
+
+	// Submit 5 events for the same key - should trigger hot-key detection
+	for i := 0; i < 5; i++ {
+		env := &domain.EventEnvelope{ID: "evt-" + string(rune('0'+i)), PartitionKey: "hot-key"}
+		kq.Submit(ctx, env, &mockDelivery{}, 0, 0, "")
+	}
+
+	// Wait for detection - need to wait for at least one check interval
+	time.Sleep(300 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(detected) == 0 {
+		t.Errorf("expected hot-key detection, got none")
+	}
+	if len(detected) > 0 && detected[0] != "hot-key" {
+		t.Errorf("expected hot-key, got %s", detected[0])
+	}
 }

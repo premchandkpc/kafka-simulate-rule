@@ -20,6 +20,15 @@ type KeyQueue struct {
 	wg            sync.WaitGroup
 	processor     func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
 	clock         func() time.Time
+
+	// Hot-key detection
+	hotKeyThreshold    int
+	hotKeyCheckInterval time.Duration
+	hotKeyCallback     func(partitionKey string, depth int)
+	muHot              sync.Mutex
+	hotKeys            map[string]time.Time // key -> first detected time
+	stopHotKeyCheck    chan struct{}
+	wgHot              sync.WaitGroup
 }
 
 type keyQueue struct {
@@ -43,6 +52,9 @@ func NewKeyQueue(
 	workerCount int,
 	processor func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error,
 	clock func() time.Time,
+	hotKeyThreshold int,
+	hotKeyCheckInterval time.Duration,
+	hotKeyCallback func(partitionKey string, depth int),
 ) *KeyQueue {
 	if maxGlobalInFlight <= 0 {
 		maxGlobalInFlight = 100
@@ -56,14 +68,25 @@ func NewKeyQueue(
 	if clock == nil {
 		clock = time.Now
 	}
+	if hotKeyThreshold <= 0 {
+		hotKeyThreshold = 1000
+	}
+	if hotKeyCheckInterval <= 0 {
+		hotKeyCheckInterval = 10 * time.Second
+	}
 	return &KeyQueue{
-		queues:       make(map[string]*keyQueue),
-		maxPerKey:    maxPerKeyQueue,
-		globalSem:    make(chan struct{}, maxGlobalInFlight),
-		workerCount:  workerCount,
-		stopWorkers:  make(chan struct{}),
-		processor:    processor,
-		clock:        clock,
+		queues:              make(map[string]*keyQueue),
+		maxPerKey:           maxPerKeyQueue,
+		globalSem:           make(chan struct{}, maxGlobalInFlight),
+		workerCount:         workerCount,
+		stopWorkers:         make(chan struct{}),
+		processor:           processor,
+		clock:               clock,
+		hotKeyThreshold:     hotKeyThreshold,
+		hotKeyCheckInterval: hotKeyCheckInterval,
+		hotKeyCallback:      hotKeyCallback,
+		hotKeys:             make(map[string]time.Time),
+		stopHotKeyCheck:     make(chan struct{}),
 	}
 }
 
@@ -72,11 +95,63 @@ func (kq *KeyQueue) Start(ctx context.Context) {
 		kq.wg.Add(1)
 		go kq.workerLoop(ctx, i)
 	}
+
+	if kq.hotKeyCallback != nil {
+		kq.wgHot.Add(1)
+		go kq.hotKeyCheckLoop(ctx)
+	}
 }
 
 func (kq *KeyQueue) Stop() {
 	close(kq.stopWorkers)
+	close(kq.stopHotKeyCheck)
 	kq.wg.Wait()
+	kq.wgHot.Wait()
+}
+
+func (kq *KeyQueue) hotKeyCheckLoop(ctx context.Context) {
+	defer kq.wgHot.Done()
+	ticker := time.NewTicker(kq.hotKeyCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-kq.stopHotKeyCheck:
+			return
+		case <-ticker.C:
+			kq.checkHotKeys()
+		}
+	}
+}
+
+func (kq *KeyQueue) checkHotKeys() {
+	kq.mu.Lock()
+	queues := make(map[string]*keyQueue, len(kq.queues))
+	for k, v := range kq.queues {
+		queues[k] = v
+	}
+	kq.mu.Unlock()
+
+	now := kq.clock()
+	kq.muHot.Lock()
+	defer kq.muHot.Unlock()
+
+	for key, q := range queues {
+		depth := len(q.ch)
+		if depth >= kq.hotKeyThreshold {
+			if _, tracked := kq.hotKeys[key]; !tracked {
+				kq.hotKeys[key] = now
+				if kq.hotKeyCallback != nil {
+					go kq.hotKeyCallback(key, depth)
+				}
+			}
+		} else {
+			// Key cooled down
+			delete(kq.hotKeys, key)
+		}
+	}
 }
 
 func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {

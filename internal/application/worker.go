@@ -13,17 +13,22 @@ import (
 
 // WorkerConfig holds configuration for the worker.
 type WorkerConfig struct {
-	MaxGlobalInFlight int
-	MaxPerKeyQueue    int
-	KeyQueueWorkers   int
+	MaxGlobalInFlight      int
+	MaxPerKeyQueue         int
+	KeyQueueWorkers        int
+	HotKeyThreshold        int
+	HotKeyCheckInterval    time.Duration
+	HotKeyCallback         func(partitionKey string, depth int)
 }
 
 // DefaultWorkerConfig returns sensible defaults.
 func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{
-		MaxGlobalInFlight: 100,
-		MaxPerKeyQueue:    100,
-		KeyQueueWorkers:   1,
+		MaxGlobalInFlight:   100,
+		MaxPerKeyQueue:      100,
+		KeyQueueWorkers:     1,
+		HotKeyThreshold:     1000,
+		HotKeyCheckInterval: 10 * time.Second,
 	}
 }
 
@@ -101,6 +106,9 @@ func (w *Worker) Run(ctx context.Context) {
 			return w.processDelivery(ctx, delivery, fencingToken, vshard, workerID)
 		},
 		w.clock.Now,
+		w.config.HotKeyThreshold,
+		w.config.HotKeyCheckInterval,
+		w.config.HotKeyCallback,
 	)
 	w.keyQueue.Start(ctx)
 	defer w.keyQueue.Stop()
