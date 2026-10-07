@@ -14,6 +14,7 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/observability"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
@@ -65,14 +66,27 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Initialize observability
+	obsConfig := observability.DefaultConfig()
+	obsConfig.ServiceName = "flowrule-worker"
+	obs, err := observability.New(obsConfig)
+	if err != nil {
+		log.Fatalf("observability init: %v", err)
+	}
+	defer obs.Shutdown(ctx)
+
+	obs.Logger.Info("worker starting", "worker_id", os.Getenv("WORKER_ID"))
+
 	db, err := sql.New(ctx, dsn, migrationsDir)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		obs.Logger.Error("database connection failed", "error", err)
+		return
 	}
 	defer db.Close()
 
 	if err := db.RunMigrations(ctx); err != nil {
-		log.Fatalf("migrations: %v", err)
+		obs.Logger.Error("migrations failed", "error", err)
+		return
 	}
 
 	numShards := uint32(envInt("NUM_SHARDS", 4096))
@@ -87,12 +101,14 @@ func main() {
 		NumShards:  numShards,
 	})
 	if err != nil {
-		log.Fatalf("nats consumer: %v", err)
+		obs.Logger.Error("nats consumer failed", "error", err)
+		return
 	}
 	defer consumer.Close()
 	publisher, err := nats.NewPublisher(nats.Config{NatsURL: natsURL, Stream: "flowrule", NumShards: numShards})
 	if err != nil {
-		log.Fatalf("nats publisher: %v", err)
+		obs.Logger.Error("nats publisher failed", "error", err)
+		return
 	}
 	defer publisher.Close()
 
@@ -152,7 +168,14 @@ func main() {
 		KeyQueueWorkers:   envInt("KEY_QUEUE_WORKERS", 1),
 	}
 	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, batchSvc, batchInterval, clock, leaseManager, workerID, numShards, workerConfig)
-	log.Printf("worker started (id=%s, shards=%d), fetching events... (batch mode: %s, max: %d, window: %v, interval: %v)", workerID, numShards, batchMode, batchCfg.MaxBatch, batchCfg.Window, batchInterval)
+	obs.Logger.Info("worker started",
+		"worker_id", workerID,
+		"shards", numShards,
+		"batch_mode", batchMode,
+		"max_batch", batchCfg.MaxBatch,
+		"window", batchCfg.Window,
+		"interval", batchInterval,
+	)
 
 	// Start scheduler
 	schedRepo := sql.NewScheduledEventRepository(pool)
