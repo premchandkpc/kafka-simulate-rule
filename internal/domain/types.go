@@ -435,3 +435,57 @@ type ScheduledEvent struct {
 	CreatedAt     time.Time         `json:"created_at"`
 	ReleasedAt    *time.Time        `json:"released_at,omitempty"`
 }
+
+type WorkflowInstance struct {
+	WorkflowID       string          `json:"workflow_id"`
+	TenantID         string          `json:"tenant_id"`
+	WorkflowType     string          `json:"workflow_type"`
+	State            string          `json:"state"`
+	Version          int64           `json:"version"`
+	CurrentRevision  int64           `json:"current_revision,omitempty"`
+	Context          json.RawMessage `json:"context,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+}
+
+const (
+	WorkflowStatusPending   = "pending"
+	WorkflowStatusRunning   = "running"
+	WorkflowStatusCompleted = "completed"
+	WorkflowStatusFailed    = "failed"
+	WorkflowStatusPaused    = "paused"
+)
+
+func (w *WorkflowInstance) CanTransition(from, to string) bool {
+	// Basic state machine - can be extended
+	validTransitions := map[string][]string{
+		"pending":   {"running", "failed"},
+		"running":   {"completed", "failed", "paused"},
+		"paused":    {"running", "failed"},
+		"completed": {},
+		"failed":    {},
+	}
+	if next, ok := validTransitions[from]; ok {
+		for _, s := range next {
+			if s == to {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (w *WorkflowInstance) Transition(to string) error {
+	if !w.CanTransition(w.State, to) {
+		return fmt.Errorf("invalid workflow transition: %s -> %s", w.State, to)
+	}
+	w.State = to
+	w.Version++
+	now := SystemClock{}.Now()
+	w.UpdatedAt = now
+	if to == WorkflowStatusCompleted || to == WorkflowStatusFailed {
+		w.CompletedAt = &now
+	}
+	return nil
+}

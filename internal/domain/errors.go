@@ -51,6 +51,10 @@ var (
 	ErrActivationNotFound     = errors.New("activation not found")
 	ErrActivationConflict     = errors.New("activation conflict")
 
+	ErrWorkflowNotFound       = errors.New("workflow not found")
+	ErrWorkflowConflict       = errors.New("workflow version conflict")
+	ErrWorkflowInvalidTransition = errors.New("invalid workflow state transition")
+
 	ErrBrokerFetchFailed      = errors.New("broker fetch failed")
 	ErrBrokerAckFailed        = errors.New("broker ack failed")
 	ErrBrokerRetryFailed      = errors.New("broker retry failed")

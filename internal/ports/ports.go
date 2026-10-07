@@ -82,6 +82,13 @@ type ScheduledEventRepository interface {
 	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)
 }
 
+type WorkflowRepository interface {
+	Save(ctx context.Context, workflow *domain.WorkflowInstance) error
+	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Update(ctx context.Context, workflow *domain.WorkflowInstance) error
+	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
+}
+
 type ShardLeaseRepository interface {
 	Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error)
 	Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error)
