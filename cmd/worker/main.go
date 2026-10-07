@@ -16,6 +16,7 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 	"github.com/flowrule/flowrule/internal/services/batches"
 	svceffects "github.com/flowrule/flowrule/internal/services/effects"
@@ -74,19 +75,22 @@ func main() {
 		log.Fatalf("migrations: %v", err)
 	}
 
+	numShards := uint32(envInt("NUM_SHARDS", 4096))
+
 	consumer, err := nats.NewConsumer(ctx, nats.Config{
 		NatsURL:    natsURL,
 		Stream:     "flowrule",
 		Consumer:   "flowrule-worker",
-		Subjects:   []string{"events.>"},
+		Subjects:   []string{"events"},
 		AckWait:    30 * time.Second,
 		MaxDeliver: 10,
+		NumShards:  numShards,
 	})
 	if err != nil {
 		log.Fatalf("nats consumer: %v", err)
 	}
 	defer consumer.Close()
-	publisher, err := nats.NewPublisher(nats.Config{NatsURL: natsURL, Stream: "flowrule"})
+	publisher, err := nats.NewPublisher(nats.Config{NatsURL: natsURL, Stream: "flowrule", NumShards: numShards})
 	if err != nil {
 		log.Fatalf("nats publisher: %v", err)
 	}
@@ -104,7 +108,6 @@ func main() {
 		hostname, _ := os.Hostname()
 		workerID = hostname + "-" + strconv.Itoa(os.Getpid())
 	}
-	numShards := uint32(envInt("NUM_SHARDS", 4096))
 	leaseTTL := envDuration("LEASE_TTL_MS", 30000)
 
 	shardLeaseRepo := sql.NewShardLeaseRepository(pool)
@@ -150,5 +153,12 @@ func main() {
 	}
 	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, batchSvc, batchInterval, clock, leaseManager, workerID, numShards, workerConfig)
 	log.Printf("worker started (id=%s, shards=%d), fetching events... (batch mode: %s, max: %d, window: %v, interval: %v)", workerID, numShards, batchMode, batchCfg.MaxBatch, batchCfg.Window, batchInterval)
+
+	// Start scheduler
+	schedRepo := sql.NewScheduledEventRepository(pool)
+	sched := scheduler.NewScheduler(schedRepo, publisher, clock, envDuration("SCHEDULER_POLL_MS", 5000), envInt("SCHEDULER_BATCH_SIZE", 100))
+	sched.Start(ctx)
+	defer sched.Stop()
+
 	worker.Run(ctx)
 }

@@ -27,11 +27,19 @@ func DefaultWorkerConfig() WorkerConfig {
 	}
 }
 
+// ShardedConsumer extends BrokerConsumer with shard management.
+type ShardedConsumer interface {
+	EnsureShardConsumer(ctx context.Context, shard uint32) error
+	RemoveShardConsumer(ctx context.Context, shard uint32) error
+	FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error)
+	OwnedShards() []uint32
+}
+
 // Worker owns the runtime loop for a broker-backed rules worker.
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
 type Worker struct {
-	consumer       ports.BrokerConsumer
+	consumer       ShardedConsumer
 	events         ports.EventProcessor
 	effects        ports.EffectPublisher
 	batches        ports.BatchProcessor
@@ -42,10 +50,11 @@ type Worker struct {
 	workerID       string
 	numShards      uint32
 	config         WorkerConfig
+	lastOwnedShards []uint32
 }
 
 func NewWorker(
-	consumer ports.BrokerConsumer,
+	consumer ShardedConsumer,
 	events ports.EventProcessor,
 	effects ports.EffectPublisher,
 	batches ports.BatchProcessor,
@@ -101,6 +110,15 @@ func (w *Worker) Run(ctx context.Context) {
 		go w.batchLoop(ctx)
 	}
 
+	// Ensure consumers for initially owned shards
+	ownedShards := w.leaseManager.OwnedShards()
+	for _, shard := range ownedShards {
+		if err := w.consumer.EnsureShardConsumer(ctx, shard); err != nil {
+			log.Printf("ensure consumer for shard %d: %v", shard, err)
+		}
+	}
+	w.lastOwnedShards = ownedShards
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -109,7 +127,16 @@ func (w *Worker) Run(ctx context.Context) {
 		default:
 		}
 
-		deliveries, err := w.consumer.Fetch(ctx, 10)
+		// Sync consumers with current owned shards
+		w.syncConsumers(ctx)
+
+		ownedShards := w.consumer.OwnedShards()
+		if len(ownedShards) == 0 {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		deliveries, err := w.consumer.FetchShards(ctx, 10, ownedShards)
 		if err != nil {
 			log.Printf("fetch: %v", err)
 			time.Sleep(1 * time.Second)
@@ -153,6 +180,44 @@ func (w *Worker) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (w *Worker) syncConsumers(ctx context.Context) {
+	currentOwned := w.leaseManager.OwnedShards()
+
+	// Add new shards
+	for _, shard := range currentOwned {
+		found := false
+		for _, old := range w.lastOwnedShards {
+			if old == shard {
+				found = true
+				break
+			}
+		}
+		if !found {
+			if err := w.consumer.EnsureShardConsumer(ctx, shard); err != nil {
+				log.Printf("ensure consumer for shard %d: %v", shard, err)
+			}
+		}
+	}
+
+	// Remove old shards
+	for _, shard := range w.lastOwnedShards {
+		found := false
+		for _, current := range currentOwned {
+			if current == shard {
+				found = true
+				break
+			}
+		}
+		if !found {
+			if err := w.consumer.RemoveShardConsumer(ctx, shard); err != nil {
+				log.Printf("remove consumer for shard %d: %v", shard, err)
+			}
+		}
+	}
+
+	w.lastOwnedShards = currentOwned
 }
 
 func (w *Worker) publishLoop(ctx context.Context) {

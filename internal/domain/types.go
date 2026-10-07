@@ -18,6 +18,7 @@ type EventEnvelope struct {
 	Type         string            `json:"type"`
 	TenantID     string            `json:"tenant_id"`
 	PartitionKey string            `json:"partition_key"`
+	WorkflowID   string            `json:"workflow_id,omitempty"`
 	OccurredAt   time.Time         `json:"occurred_at"`
 	Data         json.RawMessage   `json:"data"`
 	Headers      map[string]string `json:"headers,omitempty"`
@@ -419,4 +420,18 @@ func ComputeChildEventID(parentEventID, ruleID string, actionIndex int) string {
 	raw := fmt.Sprintf("child|%s|%s|%d", parentEventID, ruleID, actionIndex)
 	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h)
+}
+
+type ScheduledEvent struct {
+	EventID       string            `json:"event_id"`
+	TenantID      string            `json:"tenant_id"`
+	EventType     string            `json:"event_type"`
+	PartitionKey  string            `json:"partition_key"`
+	WorkflowID    string            `json:"workflow_id,omitempty"`
+	Payload       json.RawMessage   `json:"payload"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	ScheduledAt   time.Time         `json:"scheduled_at"`
+	Status        string            `json:"status"`
+	CreatedAt     time.Time         `json:"created_at"`
+	ReleasedAt    *time.Time        `json:"released_at,omitempty"`
 }

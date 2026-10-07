@@ -3,6 +3,8 @@ package effects
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,12 @@ type testPublisher struct {
 
 func (p *testPublisher) Publish(_ context.Context, subject string, data []byte) error {
 	p.subject = subject
+	p.payload = append([]byte(nil), data...)
+	return nil
+}
+
+func (p *testPublisher) PublishToShard(_ context.Context, baseSubject string, shard uint32, data []byte) error {
+	p.subject = fmt.Sprintf("%s.shard.%d", baseSubject, shard)
 	p.payload = append([]byte(nil), data...)
 	return nil
 }
@@ -49,8 +57,12 @@ func TestRouterPublishesChildEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	if publisher.subject != "events.payment.requested" || len(publisher.payload) == 0 {
+	// Subject should be shard-specific: events.payment.requested.shard.<shard>
+	if len(publisher.subject) == 0 || len(publisher.payload) == 0 {
 		t.Fatalf("publisher = %#v", publisher)
+	}
+	if !strings.HasPrefix(publisher.subject, "events.payment.requested.shard.") {
+		t.Fatalf("expected shard-specific subject, got %s", publisher.subject)
 	}
 	if external.sent {
 		t.Fatal("external destination received an internal event")

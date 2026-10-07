@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
@@ -34,7 +35,11 @@ func (r *Router) Send(ctx context.Context, effect *domain.Effect) error {
 	if err := child.Validate(); err != nil {
 		return fmt.Errorf("validate child event: %w", err)
 	}
-	return r.publisher.Publish(ctx, effect.Destination, effect.Payload)
+
+	// Use shard-specific publishing for proper routing
+	shard := child.VirtualShard(4096)
+	baseSubject := strings.TrimSuffix(effect.Destination, fmt.Sprintf(".shard.%d", shard))
+	return r.publisher.PublishToShard(ctx, baseSubject, shard, effect.Payload)
 }
 
 var _ ports.EffectSender = (*Router)(nil)

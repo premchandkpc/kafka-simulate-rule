@@ -22,6 +22,7 @@ type Delivery interface {
 
 type BrokerPublisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error
+	PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error
 }
 
 type RuleRepository interface {
@@ -71,6 +72,14 @@ type QuarantineRepository interface {
 	Save(ctx context.Context, entry *domain.QuarantineEntry) error
 	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
 	Replay(ctx context.Context, id string) error
+}
+
+type ScheduledEventRepository interface {
+	Save(ctx context.Context, event *domain.ScheduledEvent) error
+	GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error)
+	MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error
+	MarkFailed(ctx context.Context, eventID string, errMsg string) error
+	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)
 }
 
 type ShardLeaseRepository interface {
