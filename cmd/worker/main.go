@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,9 +16,36 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	"github.com/flowrule/flowrule/internal/runtime/shard"
+	"github.com/flowrule/flowrule/internal/services/batches"
 	svceffects "github.com/flowrule/flowrule/internal/services/effects"
 	svcevents "github.com/flowrule/flowrule/internal/services/events"
 )
+
+func envDuration(name string, defaultMs int) time.Duration {
+	if v := os.Getenv(name); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return time.Duration(defaultMs) * time.Millisecond
+}
+
+func envInt(name string, defaultVal int) int {
+	if v := os.Getenv(name); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return defaultVal
+}
+
+func envBatchMode(name string) domain.BatchMode {
+	if v := os.Getenv(name); v != "" {
+		return domain.BatchMode(v)
+	}
+	return domain.BatchModeNone
+}
 
 func main() {
 	dsn := os.Getenv("DATABASE_URL")
@@ -58,6 +86,11 @@ func main() {
 		log.Fatalf("nats consumer: %v", err)
 	}
 	defer consumer.Close()
+	publisher, err := nats.NewPublisher(nats.Config{NatsURL: natsURL, Stream: "flowrule"})
+	if err != nil {
+		log.Fatalf("nats publisher: %v", err)
+	}
+	defer publisher.Close()
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
@@ -65,6 +98,17 @@ func main() {
 	effectSender := effects.NewFakeDestination()
 	pool := db.Pool()
 	quarantineRepo := sql.NewQuarantineRepository(pool)
+
+	workerID := os.Getenv("WORKER_ID")
+	if workerID == "" {
+		hostname, _ := os.Hostname()
+		workerID = hostname + "-" + strconv.Itoa(os.Getpid())
+	}
+	numShards := uint32(envInt("NUM_SHARDS", 4096))
+	leaseTTL := envDuration("LEASE_TTL_MS", 30000)
+
+	shardLeaseRepo := sql.NewShardLeaseRepository(pool)
+	leaseManager := shard.NewLeaseManager(shardLeaseRepo, clock, workerID, numShards, leaseTTL)
 
 	beginTx := func(ctx context.Context) (ports.Tx, error) {
 		pgxTx, err := pool.Begin(ctx)
@@ -81,6 +125,7 @@ func main() {
 			RuleRepo:    sql.NewRuleRepository(q),
 			Executions:  sql.NewExecutionRepository(q),
 			Outbox:      sql.NewOutboxRepository(q),
+			ShardLeases: sql.NewShardLeaseRepository(q),
 		}
 	}
 
@@ -88,7 +133,22 @@ func main() {
 	outboxRepo := sql.NewOutboxRepository(pool)
 	effectsSvc := svceffects.NewService(outboxRepo, effectSender, quarantineRepo, clock)
 
-	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, clock)
-	log.Println("worker started, fetching events...")
+	batchMode := envBatchMode("BATCH_MODE")
+	batchCfg := domain.BatchConfig{
+		Mode:     batchMode,
+		MaxBatch: envInt("BATCH_MAX", 100),
+		Window:   envDuration("BATCH_WINDOW_MS", 30000),
+	}
+	batchRepo := sql.NewBatchRepository(pool)
+	batchSvc := batches.NewService(batchRepo, eventsSvc, clock, batchCfg)
+	batchInterval := envDuration("BATCH_INTERVAL_MS", 5000)
+
+	workerConfig := application.WorkerConfig{
+		MaxGlobalInFlight: envInt("MAX_GLOBAL_IN_FLIGHT", 100),
+		MaxPerKeyQueue:    envInt("MAX_PER_KEY_QUEUE", 100),
+		KeyQueueWorkers:   envInt("KEY_QUEUE_WORKERS", 1),
+	}
+	worker := application.NewWorker(consumer, eventsSvc, effectsSvc, batchSvc, batchInterval, clock, leaseManager, workerID, numShards, workerConfig)
+	log.Printf("worker started (id=%s, shards=%d), fetching events... (batch mode: %s, max: %d, window: %v, interval: %v)", workerID, numShards, batchMode, batchCfg.MaxBatch, batchCfg.Window, batchInterval)
 	worker.Run(ctx)
 }

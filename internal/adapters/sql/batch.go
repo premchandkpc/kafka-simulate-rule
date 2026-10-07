@@ -3,7 +3,6 @@ package sql
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -61,7 +60,6 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 }
 
 func (r *BatchRepository) SaveBatchRun(ctx context.Context, run *domain.BatchRun) error {
-	now := time.Now().UTC()
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO batch_runs (batch_id, tenant_id, partition_key, rule_set, status, member_count,
 		                        execution_id, decision_hash, window_from, window_to, created_at)

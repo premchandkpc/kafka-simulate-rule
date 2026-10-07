@@ -13,9 +13,9 @@ flowchart LR
     NotifyRules[customer.notification rules]:::rule
 
     Order --> OrderRules
-    OrderRules -. proposed emit-event action .-> Payment --> PaymentRules
-    OrderRules -. proposed emit-event action .-> Restaurant --> RestaurantRules
-    OrderRules -. proposed emit-event action .-> Notify --> NotifyRules
+    OrderRules -->|emit_event action| Payment --> PaymentRules
+    OrderRules -->|emit_event action| Restaurant --> RestaurantRules
+    OrderRules -->|emit_event action| Notify --> NotifyRules
     Same[Same key: ordering can be enforced only after<br/>per-key sequencing and shard ownership are implemented.]:::target
     Different[Different keys: flows may run concurrently<br/>and may be handled by different workers.]:::target
     Payment -.-> Same

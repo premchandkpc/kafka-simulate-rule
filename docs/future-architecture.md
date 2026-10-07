@@ -9,6 +9,7 @@ FlowRule is intentionally evolving as **one deployable application with clear in
 - Inbox deduplication, execution, and durable outbox effects commit in one SQL transaction.
 - A broker fetch batch retrieves up to ten deliveries, but each delivery is evaluated, acknowledged, or retried independently.
 - An effect-publisher batch claims up to ten outbox effects. It is a publication batch, not a rule-evaluation batch.
+- `emit_event` creates a durable child event with an explicit literal partition key and publishes it to `events.{type}` from the outbox.
 - Virtual-shard and lease types exist, but worker-side shard ownership and strict per-key sequencing are not enforced yet.
 
 ## Target event model
@@ -24,13 +25,13 @@ scheduled_at   optional future eligibility time
 
 These fields are independent. An order event can retain `workflow_id = order-123` while a notification emitted from it uses `partition_key = customer-55`.
 
-## Rule chaining: proposed Phase 2
+## Rule chaining: Phase 2 baseline
 
-Add a first-class `emit_event` action that creates a complete child event envelope, including a new event ID, type, partition key, and payload. Persist it as a durable outbox record in the same transaction as the parent execution.
+`emit_event` creates a complete child event envelope, including a new event ID, type, partition key, and payload. It is persisted as a durable outbox record in the same transaction as the parent execution.
 
 The parent completes when that transaction commits, not when a child finishes. The worker then ACKs the parent. An outbox publisher makes the child visible to NATS, where it follows ordinary inbox deduplication and rule-set resolution.
 
-The child action should require an explicit partition-key policy: `inherit`, `from_data`, or `literal`. Missing or invalid derived keys must reject the action instead of silently picking a key.
+The child action currently requires a literal partition key. Future routing policies may add `inherit` and `from_data`; missing or invalid derived keys must reject the action instead of silently picking a key.
 
 ## Ordering and concurrency: proposed Phase 3–4
 
@@ -50,8 +51,7 @@ Kafka can route a message key to a partition. NATS needs equivalent application-
 
 ## Delivery order
 
-1. Durable child-event action and NATS publication.
-2. Explicit partition-key propagation and validation.
-3. Shard ownership, fencing, bounded per-key queues, and backpressure.
-4. Scheduled events and partition-key accumulation.
-5. Workflow instances, timers, and compensation.
+1. Explicit partition-key inheritance and data-path derivation.
+2. Shard ownership, fencing, bounded per-key queues, and backpressure.
+3. Scheduled events and partition-key accumulation.
+4. Workflow instances, timers, and compensation.

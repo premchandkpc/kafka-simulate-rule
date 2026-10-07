@@ -218,6 +218,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 			RuleRepo:    ruleRepo,
 			Executions:  executions,
 			Outbox:      outbox,
+			ShardLeases: newMockShardLease(),
 		}
 	}
 
@@ -283,6 +284,34 @@ func (m *mockTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row 
 
 func (m *mockTx) Commit(ctx context.Context) error   { return nil }
 func (m *mockTx) Rollback(ctx context.Context) error { return nil }
+func (m *mockTx) FencingToken() int64                { return 0 }
+func (m *mockTx) SetFencingToken(token int64)        {}
+
+type mockShardLease struct{}
+
+func newMockShardLease() *mockShardLease {
+	return &mockShardLease{}
+}
+
+func (m *mockShardLease) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
+	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: 1}, nil
+}
+
+func (m *mockShardLease) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
+	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: fencingToken}, nil
+}
+
+func (m *mockShardLease) Release(ctx context.Context, shard uint32, owner string) error {
+	return nil
+}
+
+func (m *mockShardLease) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
+	return &domain.ShardLease{VirtualShard: shard, Owner: "test", FencingToken: 1}, nil
+}
+
+func (m *mockShardLease) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+	return nil
+}
 
 func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 	uc, _, executions, _ := setupTestUseCase(t)
@@ -296,7 +325,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 1500, "id": "order-1"}`),
 	}
 
-	exec1, err := uc.Process(context.Background(), env)
+	exec1, err := uc.Process(context.Background(), env, 0, 0, "")
 	if err != nil {
 		t.Fatalf("first process: %v", err)
 	}
@@ -304,7 +333,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 		t.Fatal("expected execution from first process")
 	}
 
-	exec2, err := uc.Process(context.Background(), env)
+	exec2, err := uc.Process(context.Background(), env, 0, 0, "")
 	if err != nil {
 		t.Fatalf("second process: %v", err)
 	}
@@ -339,10 +368,10 @@ func TestDeterministicHashConsistency(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 2000, "id": "order-2"}`),
 	}
 
-	exec1, _ := uc.Process(context.Background(), env)
+	exec1, _ := uc.Process(context.Background(), env, 0, 0, "")
 
 	// Process same event again - should get same execution and hash
-	exec2, _ := uc.Process(context.Background(), env)
+	exec2, _ := uc.Process(context.Background(), env, 0, 0, "")
 
 	if exec1.DecisionHash == "" {
 		t.Error("expected non-empty decision hash")
@@ -407,7 +436,7 @@ func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *te
 		Data:         json.RawMessage(`{"total": 1500, "id": "order-42"}`),
 	}
 
-	exec, err := uc.Process(context.Background(), env)
+	exec, err := uc.Process(context.Background(), env, 0, 0, "")
 	if err != nil {
 		t.Fatalf("process event: %v", err)
 	}

@@ -60,6 +60,85 @@ func TestEvaluateSimpleEq(t *testing.T) {
 	}
 }
 
+func TestEvaluateEmitEventCreatesChildEnvelope(t *testing.T) {
+	compiler := NewCompiler(DefaultLimits())
+	revision, err := compiler.Compile(json.RawMessage(`{
+		"rule_set":"order.created", "revision":1, "mode":"first_match",
+		"rules":[{"id":"request-payment", "priority":1,
+			"when":{"path":"$.total", "op":"gte", "value":1},
+			"then":[{"emit_event":{"type":"payment.requested", "partition_key":"order-42", "data":{"order_id":"order-42"}}}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	decision, err := NewEvaluator().Evaluate(revision, &domain.EventEnvelope{
+		ID: "evt-parent", Type: "order.created", TenantID: "acme", PartitionKey: "order-42",
+		Data: json.RawMessage(`{"total": 42}`),
+	}, nil)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(decision.Effects) != 1 {
+		t.Fatalf("effects = %d, want 1", len(decision.Effects))
+	}
+	effect := decision.Effects[0]
+	if effect.EffectType != domain.EffectTypeEmitEvent || effect.Destination != "events.payment.requested" {
+		t.Fatalf("unexpected effect: %#v", effect)
+	}
+	var child domain.EventEnvelope
+	if err := json.Unmarshal(effect.Payload, &child); err != nil {
+		t.Fatalf("decode child: %v", err)
+	}
+	if child.ID == "" || child.ID == "evt-parent" || child.Type != "payment.requested" || child.TenantID != "acme" || child.PartitionKey != "order-42" {
+		t.Fatalf("unexpected child: %#v", child)
+	}
+	if child.Headers["flowrule_parent_event_id"] != "evt-parent" {
+		t.Fatalf("parent header = %q", child.Headers["flowrule_parent_event_id"])
+	}
+	if child.Headers["flowrule_child_event_id"] != child.ID {
+		t.Fatalf("child_event_id header missing or mismatched: %q", child.Headers["flowrule_child_event_id"])
+	}
+}
+
+func TestEvaluateEmitEventDeterministicChildID(t *testing.T) {
+	compiler := NewCompiler(DefaultLimits())
+	revision, err := compiler.Compile(json.RawMessage(`{
+		"rule_set":"order.created", "revision":1, "mode":"first_match",
+		"rules":[{"id":"request-payment", "priority":1,
+			"when":{"path":"$.total", "op":"gte", "value":1},
+			"then":[{"emit_event":{"type":"payment.requested", "partition_key":"order-42", "data":{"order_id":"order-42"}}}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	env := &domain.EventEnvelope{
+		ID:           "evt-parent",
+		Type:         "order.created",
+		TenantID:     "acme",
+		PartitionKey: "order-42",
+		Data:         json.RawMessage(`{"total": 42}`),
+	}
+
+	decision1, _ := NewEvaluator().Evaluate(revision, env, nil)
+	var child1 domain.EventEnvelope
+	json.Unmarshal(decision1.Effects[0].Payload, &child1)
+
+	decision2, _ := NewEvaluator().Evaluate(revision, env, nil)
+	var child2 domain.EventEnvelope
+	json.Unmarshal(decision2.Effects[0].Payload, &child2)
+
+	if child1.ID != child2.ID {
+		t.Errorf("child event ID not deterministic: %s != %s", child1.ID, child2.ID)
+	}
+	if child1.ID != domain.ComputeChildEventID("evt-parent", "request-payment", 0) {
+		t.Errorf("child event ID doesn't match ComputeChildEventID: %s", child1.ID)
+	}
+}
+
 func TestEvaluateNoMatch(t *testing.T) {
 	compiler := NewCompiler(DefaultLimits())
 	source := json.RawMessage(`{

@@ -78,6 +78,7 @@ type ShardLeaseRepository interface {
 	Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error)
 	Release(ctx context.Context, shard uint32, owner string) error
 	GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error)
+	ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error
 }
 
 type ContractRegistry interface {
@@ -103,6 +104,8 @@ type Clock interface {
 type Tx interface {
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
+	FencingToken() int64
+	SetFencingToken(int64)
 }
 
 // TxFactory creates a new transaction.
@@ -120,7 +123,7 @@ type RuleEvaluator interface {
 
 // EventProcessor processes incoming events through the rules engine.
 type EventProcessor interface {
-	Process(ctx context.Context, envelope *domain.EventEnvelope) (*domain.Execution, error)
+	Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error)
 	QuarantineEvent(ctx context.Context, sourceID string, eventID string, tenantID string, errClass domain.ErrorClass, errMsg string) error
 }
 

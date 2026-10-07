@@ -15,6 +15,7 @@ type TxRepos struct {
 	RuleRepo    ports.RuleRepository
 	Executions  ports.ExecutionRepository
 	Outbox      ports.OutboxRepository
+	ShardLeases ports.ShardLeaseRepository
 }
 
 // RepoFactory creates transaction-scoped repositories from a database querier.
@@ -49,7 +50,7 @@ func NewService(
 }
 
 // Process processes an incoming event through the rules engine.
-func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope) (*domain.Execution, error) {
+func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
 	if err := envelope.Validate(); err != nil {
 		return nil, err
 	}
@@ -59,6 +60,10 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope) (
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	if fencingToken > 0 {
+		tx.SetFencingToken(fencingToken)
+	}
 
 	repos := s.newRepos(tx)
 
@@ -173,6 +178,12 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope) (
 
 	if err := repos.Executions.UpdateStatus(ctx, executionID, domain.ExecutionStatusCompleted, ""); err != nil {
 		return nil, fmt.Errorf("mark execution completed: %w", err)
+	}
+
+	if fencingToken > 0 && shard > 0 && workerID != "" {
+		if err := repos.ShardLeases.ValidateFencingToken(ctx, shard, workerID, fencingToken); err != nil {
+			return nil, fmt.Errorf("fencing token validation failed: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

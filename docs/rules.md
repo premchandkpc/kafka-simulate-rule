@@ -231,6 +231,25 @@ Pushes to an external workflow layer. Not executed by the rule engine.
 }
 ```
 
+### Emit Event (Rule Chaining)
+
+`emit_event` creates a new FlowRule event after the parent execution commits.
+It is stored in the transactional outbox and then published to NATS as
+`events.{type}`. The child has a new event ID; its `type` selects its rule set.
+
+```json
+{
+  "emit_event": {
+    "type": "payment.requested",
+    "partition_key": "order-4821",
+    "data": { "order_id": "order-4821", "amount": 1500 }
+  }
+}
+```
+
+The child partition key is explicit in this version. Key inheritance and
+data-path-derived keys are planned routing policies, not implicit behavior.
+
 ## Evaluation Modes
 
 ### first_match

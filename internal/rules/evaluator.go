@@ -40,7 +40,10 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 			matched = append(matched, rule.ID)
 			actions := make([]string, 0, len(rule.Then))
 			for i, action := range rule.Then {
-				effect := e.buildEffect(revision, event, rule.ID, i, action)
+				effect, err := e.buildEffect(revision, event, rule.ID, i, action)
+				if err != nil {
+					return nil, fmt.Errorf("rule %s action %d: %w", rule.ID, i, err)
+				}
 				effects = append(effects, effect)
 				actions = append(actions, describeAction(action))
 			}
@@ -53,7 +56,10 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 		} else {
 			actions := make([]string, 0, len(rule.Otherwise))
 			for i, action := range rule.Otherwise {
-				effect := e.buildEffect(revision, event, rule.ID, i, action)
+				effect, err := e.buildEffect(revision, event, rule.ID, i, action)
+				if err != nil {
+					return nil, fmt.Errorf("rule %s otherwise action %d: %w", rule.ID, i, err)
+				}
 				effects = append(effects, effect)
 				actions = append(actions, describeAction(action))
 			}
@@ -275,7 +281,7 @@ func compareIn(val interface{}, list interface{}) bool {
 	return false
 }
 
-func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) domain.Effect {
+func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {
 	effectType := domain.EffectTypeEmit
 	var dest, name string
 	var payload json.RawMessage
@@ -284,6 +290,28 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		dest = action.Emit.Topic
 		name = action.Emit.Topic
 		payload = action.Emit.Data
+	} else if action.EmitEvent != nil {
+		childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
+		child := domain.EventEnvelope{
+			ID:           childID,
+			Type:         action.EmitEvent.Type,
+			TenantID:     event.TenantID,
+			PartitionKey: action.EmitEvent.PartitionKey,
+			OccurredAt:   domain.SystemClock{}.Now(),
+			Data:         action.EmitEvent.Data,
+			Headers: map[string]string{
+				"flowrule_parent_event_id": event.ID,
+				"flowrule_child_event_id":  childID,
+			},
+		}
+		encoded, err := json.Marshal(child)
+		if err != nil {
+			return domain.Effect{}, fmt.Errorf("marshal child event: %w", err)
+		}
+		effectType = domain.EffectTypeEmitEvent
+		dest = "events." + child.Type
+		name = child.Type
+		payload = encoded
 	} else if action.Command != nil {
 		effectType = domain.EffectTypeCommand
 		dest = action.Command.Destination
@@ -301,12 +329,15 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		Payload:     payload,
 		EffectType:  effectType,
 		CreatedAt:   domain.SystemClock{}.Now(),
-	}
+	}, nil
 }
 
 func describeAction(action domain.Action) string {
 	if action.Emit != nil {
 		return "emit:" + action.Emit.Topic
+	}
+	if action.EmitEvent != nil {
+		return "emit_event:" + action.EmitEvent.Type
 	}
 	if action.Command != nil {
 		return "command:" + action.Command.Destination + "/" + action.Command.Name

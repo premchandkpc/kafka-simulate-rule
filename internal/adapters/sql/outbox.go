@@ -179,3 +179,18 @@ func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*dom
 	}
 	return lease, nil
 }
+
+func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+	var currentToken int64
+	err := r.db.QueryRow(ctx, `
+		SELECT fencing_token FROM shard_leases
+		WHERE virtual_shard = $1 AND owner = $2 AND expires_at > NOW()
+	`, shard, owner).Scan(&currentToken)
+	if err != nil {
+		return fmt.Errorf("validate fencing token: %w", err)
+	}
+	if currentToken != fencingToken {
+		return domain.ErrFencingTokenMismatch
+	}
+	return nil
+}

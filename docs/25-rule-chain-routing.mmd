@@ -15,8 +15,8 @@ flowchart TB
     R3[Notification rule set]:::rule
 
     E1 --> R1 --> Decision --> Tx
-    Tx -. proposed: emit-event action .-> Same
-    Tx -. proposed: emit-event action .-> Different
+    Tx -->|emit_event action| Same
+    Tx -->|emit_event action| Different
     Same --> Router --> R2
     Different --> Router --> R3
-    Note[Rule chaining chooses the next event type.<br/>Partition routing independently chooses its key and worker/shard.<br/>The current runtime persists effects; first-class next-event envelopes are proposed.]:::target
+    Note[Rule chaining chooses the next event type.<br/>Partition routing independently chooses its explicit key and worker/shard.<br/>Child events are durable outbox effects; strict shard sequencing is still proposed.]:::target

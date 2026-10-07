@@ -45,10 +45,10 @@ func NewCompiler(limits Limits) *Compiler {
 }
 
 type rawRuleSet struct {
-	RuleSet       string          `json:"rule_set"`
-	Revision      int64           `json:"revision"`
-	Mode          string          `json:"mode"`
-	Rules         json.RawMessage `json:"rules"`
+	RuleSet       string              `json:"rule_set"`
+	Revision      int64               `json:"revision"`
+	Mode          string              `json:"mode"`
+	Rules         json.RawMessage     `json:"rules"`
 	InputContract *domain.ContractRef `json:"input_contract,omitempty"`
 }
 
@@ -238,11 +238,12 @@ func (c *Compiler) validatePredicate(p domain.Predicate, depth int) error {
 
 func (c *Compiler) validateAction(a domain.Action) error {
 	hasEmit := a.Emit != nil
+	hasEmitEvent := a.EmitEvent != nil
 	hasCommand := a.Command != nil
-	if hasEmit && hasCommand {
+	if (hasEmit && hasEmitEvent) || (hasEmit && hasCommand) || (hasEmitEvent && hasCommand) {
 		return domain.ErrInvalidAction
 	}
-	if !hasEmit && !hasCommand {
+	if !hasEmit && !hasEmitEvent && !hasCommand {
 		return domain.ErrInvalidAction
 	}
 	if hasEmit {
@@ -251,6 +252,14 @@ func (c *Compiler) validateAction(a domain.Action) error {
 		}
 		data, _ := json.Marshal(a.Emit.Data)
 		if len(data) > c.limits.MaxPayloadBytes {
+			return domain.ErrRuleExceedsLimits
+		}
+	}
+	if hasEmitEvent {
+		if a.EmitEvent.Type == "" || strings.ContainsAny(a.EmitEvent.Type, "*>") || a.EmitEvent.PartitionKey == "" || !json.Valid(a.EmitEvent.Data) {
+			return domain.ErrInvalidAction
+		}
+		if len(a.EmitEvent.Data) > c.limits.MaxPayloadBytes {
 			return domain.ErrRuleExceedsLimits
 		}
 	}

@@ -75,11 +75,11 @@ type ContractRef struct {
 }
 
 type ContractSchema struct {
-	Name       string                      `json:"name"`
-	Version    string                      `json:"version"`
-	Fields     map[string]ContractField    `json:"fields"`
-	Owner      string                      `json:"owner,omitempty"`
-	Deprecated bool                        `json:"deprecated,omitempty"`
+	Name       string                   `json:"name"`
+	Version    string                   `json:"version"`
+	Fields     map[string]ContractField `json:"fields"`
+	Owner      string                   `json:"owner,omitempty"`
+	Deprecated bool                     `json:"deprecated,omitempty"`
 }
 
 type ContractField struct {
@@ -133,13 +133,23 @@ func ValidOp(op Operator) bool {
 }
 
 type Action struct {
-	Emit    *EmitAction    `json:"emit,omitempty"`
-	Command *CommandAction `json:"command,omitempty"`
+	Emit      *EmitAction      `json:"emit,omitempty"`
+	EmitEvent *EmitEventAction `json:"emit_event,omitempty"`
+	Command   *CommandAction   `json:"command,omitempty"`
 }
 
 type EmitAction struct {
 	Topic string          `json:"topic"`
 	Data  json.RawMessage `json:"data"`
+}
+
+// EmitEventAction creates a new FlowRule event after the parent execution
+// commits. PartitionKey is deliberately required and explicit for now: a
+// later routing policy may add inheritance and data-path derivation.
+type EmitEventAction struct {
+	Type         string          `json:"type"`
+	PartitionKey string          `json:"partition_key"`
+	Data         json.RawMessage `json:"data"`
 }
 
 type CommandAction struct {
@@ -161,8 +171,9 @@ type Effect struct {
 type EffectType string
 
 const (
-	EffectTypeEmit    EffectType = "emit"
-	EffectTypeCommand EffectType = "command"
+	EffectTypeEmit      EffectType = "emit"
+	EffectTypeEmitEvent EffectType = "emit_event"
+	EffectTypeCommand   EffectType = "command"
 )
 
 type Decision struct {
@@ -173,12 +184,12 @@ type Decision struct {
 }
 
 type RuleExplanation struct {
-	RuleID    string   `json:"rule_id"`
-	RuleName  string   `json:"rule_name,omitempty"`
-	Matched   bool     `json:"matched"`
-	Priority  int      `json:"priority"`
-	Reason    string   `json:"reason"`
-	Actions   []string `json:"actions,omitempty"`
+	RuleID   string   `json:"rule_id"`
+	RuleName string   `json:"rule_name,omitempty"`
+	Matched  bool     `json:"matched"`
+	Priority int      `json:"priority"`
+	Reason   string   `json:"reason"`
+	Actions  []string `json:"actions,omitempty"`
 }
 
 type Execution struct {
@@ -401,5 +412,11 @@ func ComputeDecisionHash(revisionHash, eventID, factsHash string, matched []stri
 
 func ComputeSourceHash(source json.RawMessage) string {
 	h := sha256.Sum256(source)
+	return fmt.Sprintf("%x", h)
+}
+
+func ComputeChildEventID(parentEventID, ruleID string, actionIndex int) string {
+	raw := fmt.Sprintf("child|%s|%s|%d", parentEventID, ruleID, actionIndex)
+	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h)
 }
