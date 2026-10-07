@@ -144,13 +144,23 @@ type EmitAction struct {
 	Data  json.RawMessage `json:"data"`
 }
 
+// PartitionKeyPolicy defines how to derive the partition key for child events.
+type PartitionKeyPolicy string
+
+const (
+	PartitionKeyPolicyExplicit  PartitionKeyPolicy = "explicit"  // Use literal PartitionKey value
+	PartitionKeyPolicyInherit   PartitionKeyPolicy = "inherit"   // Inherit from parent event
+	PartitionKeyPolicyFromData  PartitionKeyPolicy = "from_data" // Derive from JSON path in parent data
+)
+
 // EmitEventAction creates a new FlowRule event after the parent execution
-// commits. PartitionKey is deliberately required and explicit for now: a
-// later routing policy may add inheritance and data-path derivation.
+// commits. Supports explicit, inherit, and from_data partition key policies.
 type EmitEventAction struct {
-	Type         string          `json:"type"`
-	PartitionKey string          `json:"partition_key"`
-	Data         json.RawMessage `json:"data"`
+	Type              string               `json:"type"`
+	PartitionKey      string               `json:"partition_key,omitempty"`
+	PartitionKeyPolicy PartitionKeyPolicy  `json:"partition_key_policy,omitempty"`
+	PartitionKeyPath  string               `json:"partition_key_path,omitempty"` // JSON path for from_data policy
+	Data              json.RawMessage      `json:"data"`
 }
 
 type CommandAction struct {

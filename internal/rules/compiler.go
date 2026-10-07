@@ -256,7 +256,31 @@ func (c *Compiler) validateAction(a domain.Action) error {
 		}
 	}
 	if hasEmitEvent {
-		if a.EmitEvent.Type == "" || strings.ContainsAny(a.EmitEvent.Type, "*>") || a.EmitEvent.PartitionKey == "" || !json.Valid(a.EmitEvent.Data) {
+		policy := a.EmitEvent.PartitionKeyPolicy
+		if policy == "" {
+			policy = domain.PartitionKeyPolicyExplicit
+		}
+		validPolicy := policy == domain.PartitionKeyPolicyExplicit ||
+			policy == domain.PartitionKeyPolicyInherit ||
+			policy == domain.PartitionKeyPolicyFromData
+		if !validPolicy {
+			return domain.ErrInvalidAction
+		}
+
+		switch policy {
+		case domain.PartitionKeyPolicyExplicit:
+			if a.EmitEvent.PartitionKey == "" {
+				return domain.ErrInvalidAction
+			}
+		case domain.PartitionKeyPolicyInherit:
+			// PartitionKey will be inherited from parent, no validation needed
+		case domain.PartitionKeyPolicyFromData:
+			if a.EmitEvent.PartitionKeyPath == "" || !strings.HasPrefix(a.EmitEvent.PartitionKeyPath, "$.") {
+				return domain.ErrInvalidAction
+			}
+		}
+
+		if a.EmitEvent.Type == "" || strings.ContainsAny(a.EmitEvent.Type, "*>") || !json.Valid(a.EmitEvent.Data) {
 			return domain.ErrInvalidAction
 		}
 		if len(a.EmitEvent.Data) > c.limits.MaxPayloadBytes {

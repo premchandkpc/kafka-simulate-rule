@@ -292,11 +292,36 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		payload = action.Emit.Data
 	} else if action.EmitEvent != nil {
 		childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
+
+		// Resolve partition key based on policy
+		partitionKey := action.EmitEvent.PartitionKey
+		policy := action.EmitEvent.PartitionKeyPolicy
+		if policy == "" {
+			policy = domain.PartitionKeyPolicyExplicit
+		}
+
+		switch policy {
+		case domain.PartitionKeyPolicyInherit:
+			partitionKey = event.PartitionKey
+		case domain.PartitionKeyPolicyFromData:
+			if action.EmitEvent.PartitionKeyPath != "" {
+				val, err := resolvePath(action.EmitEvent.PartitionKeyPath, event.Data, nil)
+				if err != nil || val == nil {
+					return domain.Effect{}, fmt.Errorf("resolve partition key from path %s: %w", action.EmitEvent.PartitionKeyPath, err)
+				}
+				partitionKey = fmt.Sprintf("%v", val)
+			}
+		}
+
+		if partitionKey == "" {
+			return domain.Effect{}, fmt.Errorf("partition key resolution resulted in empty value for policy %s", policy)
+		}
+
 		child := domain.EventEnvelope{
 			ID:           childID,
 			Type:         action.EmitEvent.Type,
 			TenantID:     event.TenantID,
-			PartitionKey: action.EmitEvent.PartitionKey,
+			PartitionKey: partitionKey,
 			OccurredAt:   domain.SystemClock{}.Now(),
 			Data:         action.EmitEvent.Data,
 			Headers: map[string]string{
