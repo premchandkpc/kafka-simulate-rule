@@ -76,11 +76,16 @@ type ContractRef struct {
 }
 
 type ContractSchema struct {
-	Name       string                   `json:"name"`
-	Version    string                   `json:"version"`
-	Fields     map[string]ContractField `json:"fields"`
-	Owner      string                   `json:"owner,omitempty"`
-	Deprecated bool                     `json:"deprecated,omitempty"`
+	Name            string                   `json:"name"`
+	Version         string                   `json:"version"`
+	Namespace       string                   `json:"namespace,omitempty"`
+	Description     string                   `json:"description,omitempty"`
+	Fields          map[string]ContractField `json:"fields"`
+	Compatibility   string                   `json:"compatibility,omitempty"`
+	Owner           string                   `json:"owner,omitempty"`
+	Deprecated      bool                     `json:"deprecated,omitempty"`
+	CreatedAt       time.Time                `json:"created_at,omitempty"`
+	UpdatedAt       time.Time                `json:"updated_at,omitempty"`
 }
 
 type ContractField struct {
@@ -498,4 +503,37 @@ func (w *WorkflowInstance) Transition(to string) error {
 		w.CompletedAt = &now
 	}
 	return nil
+}
+
+type WorkflowStateType string
+
+const (
+	WorkflowStateTypeStart       WorkflowStateType = "start"
+	WorkflowStateTypeEnd         WorkflowStateType = "end"
+	WorkflowStateTypeIntermediate WorkflowStateType = "intermediate"
+)
+
+type WorkflowState struct {
+	Name        string                 `json:"name"`
+	Type        WorkflowStateType      `json:"type"`
+	RuleSets    []string               `json:"rule_sets,omitempty"`
+	OnEnter     []Action               `json:"on_enter,omitempty"`
+	OnExit      []Action               `json:"on_exit,omitempty"`
+}
+
+type WorkflowTransition struct {
+	From      string      `json:"from"`
+	To        string      `json:"to"`
+	EventType string      `json:"event_type"`
+	Condition *Predicate  `json:"condition,omitempty"`
+}
+
+type WorkflowDefinition struct {
+	WorkflowType string               `json:"workflow_type"`
+	Version      int64                `json:"version"`
+	States       []WorkflowState      `json:"states"`
+	Transitions  []WorkflowTransition `json:"transitions"`
+	Rules        map[string]string    `json:"rules,omitempty"`
+	CreatedAt    time.Time            `json:"created_at"`
+	UpdatedAt    time.Time            `json:"updated_at"`
 }

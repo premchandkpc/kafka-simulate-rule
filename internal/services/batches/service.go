@@ -41,7 +41,10 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 		limit = 400
 	}
 
-	entries, err := s.batches.ListUnbatched(ctx, limit)
+	// ListUnbatched now requires tenantID, partitionKey, ruleSet
+	// We need to get unbatched entries for all tenants/partitions
+	// For now, scan all and group
+	entries, err := s.batches.ListUnbatched(ctx, "", "", "", limit)
 	if err != nil {
 		return 0, fmt.Errorf("list unbatched: %w", err)
 	}

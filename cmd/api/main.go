@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
+	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
 )
 
 func main() {
@@ -52,8 +54,16 @@ func main() {
 		clock,
 	)
 
+	workflowSvc := svcworkflow.NewService(
+		sql.NewWorkflowRepository(pool),
+		clock,
+	)
+
+	workflowDefRepo := sql.NewWorkflowDefinitionRepository(pool)
+
 	mux := http.NewServeMux()
 
+	// Rule endpoints
 	mux.HandleFunc("POST /v1/rules/{ruleSet}/revisions", func(w http.ResponseWriter, r *http.Request) {
 		ruleSet := r.PathValue("ruleSet")
 		var body json.RawMessage
@@ -85,6 +95,180 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(exec)
+	})
+
+	// Workflow instance endpoints
+	mux.HandleFunc("POST /v1/workflows", func(w http.ResponseWriter, r *http.Request) {
+		var workflow domain.WorkflowInstance
+		if err := json.NewDecoder(r.Body).Decode(&workflow); err != nil {
+			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			return
+		}
+
+		if workflow.TenantID == "" {
+			http.Error(w, `{"error":"tenant_id is required"}`, http.StatusBadRequest)
+			return
+		}
+		if workflow.WorkflowType == "" {
+			http.Error(w, `{"error":"workflow_type is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := workflowSvc.Create(r.Context(), &workflow); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(workflow)
+	})
+
+	mux.HandleFunc("GET /v1/workflows/{workflowID}", func(w http.ResponseWriter, r *http.Request) {
+		workflowID := r.PathValue("workflowID")
+		workflow, err := workflowSvc.Get(r.Context(), workflowID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		if workflow == nil {
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(workflow)
+	})
+
+	mux.HandleFunc("POST /v1/workflows/{workflowID}/transition", func(w http.ResponseWriter, r *http.Request) {
+		workflowID := r.PathValue("workflowID")
+		var req struct {
+			FromState string `json:"from_state"`
+			ToState   string `json:"to_state"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			return
+		}
+
+		if req.FromState == "" || req.ToState == "" {
+			http.Error(w, `{"error":"from_state and to_state are required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := workflowSvc.Transition(r.Context(), workflowID, req.FromState, req.ToState); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		workflow, _ := workflowSvc.Get(r.Context(), workflowID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(workflow)
+	})
+
+	mux.HandleFunc("GET /v1/workflows", func(w http.ResponseWriter, r *http.Request) {
+		tenantID := r.URL.Query().Get("tenant_id")
+		state := r.URL.Query().Get("state")
+		limitStr := r.URL.Query().Get("limit")
+
+		limit := 100
+		if limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+				limit = l
+			}
+		}
+
+		workflows, err := workflowSvc.GetByTenantAndState(r.Context(), tenantID, state, limit)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(workflows)
+	})
+
+	// Workflow definition endpoints
+	mux.HandleFunc("POST /v1/workflow-definitions", func(w http.ResponseWriter, r *http.Request) {
+		var def domain.WorkflowDefinition
+		if err := json.NewDecoder(r.Body).Decode(&def); err != nil {
+			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			return
+		}
+
+		if def.WorkflowType == "" {
+			http.Error(w, `{"error":"workflow_type is required"}`, http.StatusBadRequest)
+			return
+		}
+		if def.Version <= 0 {
+			http.Error(w, `{"error":"version must be > 0"}`, http.StatusBadRequest)
+			return
+		}
+
+		now := clock.Now()
+		def.CreatedAt = now
+		def.UpdatedAt = now
+
+		if err := workflowDefRepo.Save(r.Context(), &def); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(def)
+	})
+
+	mux.HandleFunc("GET /v1/workflow-definitions/{workflowType}", func(w http.ResponseWriter, r *http.Request) {
+		workflowType := r.PathValue("workflowType")
+		versionStr := r.URL.Query().Get("version")
+
+		var def *domain.WorkflowDefinition
+		var err error
+
+		if versionStr != "" {
+			version, parseErr := strconv.ParseInt(versionStr, 10, 64)
+			if parseErr != nil {
+				http.Error(w, `{"error":"invalid version"}`, http.StatusBadRequest)
+				return
+			}
+			def, err = workflowDefRepo.Get(r.Context(), workflowType, version)
+		} else {
+			defs, listErr := workflowDefRepo.List(r.Context(), "")
+			if listErr != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, listErr.Error()), http.StatusInternalServerError)
+				return
+			}
+			// Return latest version
+			for _, d := range defs {
+				if d.WorkflowType == workflowType {
+					def = d
+					break
+				}
+			}
+		}
+
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		if def == nil {
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(def)
+	})
+
+	mux.HandleFunc("GET /v1/workflow-definitions", func(w http.ResponseWriter, r *http.Request) {
+		defs, err := workflowDefRepo.List(r.Context(), "")
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(defs)
 	})
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

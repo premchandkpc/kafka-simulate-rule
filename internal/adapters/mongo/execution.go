@@ -1,0 +1,133 @@
+package mongo
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
+)
+
+type ExecutionRepository struct {
+	querier Querier
+}
+
+func NewExecutionRepository(q Querier) *ExecutionRepository {
+	return &ExecutionRepository{querier: q}
+}
+
+func (r *ExecutionRepository) collection(name string) *mongo.Collection {
+	return r.querier.Collection(name)
+}
+
+func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execution) error {
+	coll := r.collection("executions")
+	doc := ExecutionDocFromDomain(execution)
+	_, err := coll.InsertOne(ctx, doc)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return nil
+		}
+		return fmt.Errorf("save execution: %w", err)
+	}
+	return nil
+}
+
+func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
+	coll := r.collection("executions")
+	var doc ExecutionDoc
+	err := coll.FindOne(ctx, bson.M{
+		"execution_id": executionID,
+	}).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get execution: %w", err)
+	}
+	return doc.ToDomain(), nil
+}
+
+func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
+	coll := r.collection("executions")
+	now := time.Now().UTC()
+	
+	update := bson.M{
+		"$set": bson.M{
+			"status": status,
+			"error":  errMsg,
+		},
+	}
+	
+	if status == domain.ExecutionStatusCompleted || 
+	   status == domain.ExecutionStatusFailed || 
+	   status == domain.ExecutionStatusQuarantined {
+		update["$set"].(bson.M)["completed_at"] = now
+	}
+
+	result, err := coll.UpdateOne(ctx,
+		bson.M{
+			"execution_id": executionID,
+			"status":       domain.ExecutionStatusPending,
+		},
+		bson.M{"$set": update["$set"]},
+	)
+	if err != nil {
+		return fmt.Errorf("update execution status: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("%w: execution not found or not in pending state", domain.ErrInvalidExecutionStatus)
+	}
+	return nil
+}
+
+type ExecutionDoc struct {
+	ExecutionID  string     `bson:"execution_id"`
+	EventID      string     `bson:"event_id"`
+	TenantID     string     `bson:"tenant_id"`
+	RuleSet      string     `bson:"rule_set"`
+	Revision     int64      `bson:"revision"`
+	DecisionHash string     `bson:"decision_hash"`
+	Status       string     `bson:"status"`
+	Error        string     `bson:"error,omitempty"`
+	TraceID      string     `bson:"trace_id,omitempty"`
+	CreatedAt    time.Time  `bson:"created_at"`
+	CompletedAt  *time.Time `bson:"completed_at,omitempty"`
+}
+
+func ExecutionDocFromDomain(exec *domain.Execution) *ExecutionDoc {
+	return &ExecutionDoc{
+		ExecutionID:  exec.ID,
+		EventID:      exec.EventID,
+		TenantID:     exec.TenantID,
+		RuleSet:      exec.RuleSet,
+		Revision:     exec.Revision,
+		DecisionHash: exec.DecisionHash,
+		Status:       string(exec.Status),
+		Error:        exec.Error,
+		TraceID:      exec.TraceID,
+		CreatedAt:    exec.CreatedAt,
+		CompletedAt:  exec.CompletedAt,
+	}
+}
+
+func (d *ExecutionDoc) ToDomain() *domain.Execution {
+	return &domain.Execution{
+		ID:           d.ExecutionID,
+		EventID:      d.EventID,
+		TenantID:     d.TenantID,
+		RuleSet:      d.RuleSet,
+		Revision:     d.Revision,
+		DecisionHash: d.DecisionHash,
+		Status:       domain.ExecutionStatus(d.Status),
+		Error:        d.Error,
+		TraceID:      d.TraceID,
+		CreatedAt:    d.CreatedAt,
+		CompletedAt:  d.CompletedAt,
+	}
+}

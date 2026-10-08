@@ -8,124 +8,40 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
-type BrokerConsumer interface {
-	Fetch(ctx context.Context, maxMessages int) ([]Delivery, error)
-}
-
-type Delivery interface {
-	Event() (*domain.EventEnvelope, error)
-	Ack(ctx context.Context) error
-	Nak(ctx context.Context) error
-	Retry(ctx context.Context, delay time.Duration) error
-	Raw() []byte
-}
-
-type BrokerPublisher interface {
-	Publish(ctx context.Context, subject string, data []byte) error
-	PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error
-}
-
-type RuleRepository interface {
-	GetActive(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error)
-	Save(ctx context.Context, tenantScope string, revision *domain.RuleRevision) error
-}
-
-type ActivationRepository interface {
-	Get(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleActivation, error)
-	Set(ctx context.Context, activation *domain.RuleActivation) error
-}
-
-type InboxRepository interface {
-	Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error)
-	Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error)
-	MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error
-}
-
-// BatchRepository handles batch scheduling and tracking.
-type BatchRepository interface {
-	ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error)
-	MarkBatched(ctx context.Context, tenantID string, eventID string, batchID string) error
-	SaveBatchRun(ctx context.Context, run *domain.BatchRun) error
-	GetBatchRun(ctx context.Context, batchID string) (*domain.BatchRun, error)
-}
-
-// BatchProcessor processes accumulated or scheduled batches.
-type BatchProcessor interface {
-	Tick(ctx context.Context) (int, error)
-}
-
-type ExecutionRepository interface {
-	Save(ctx context.Context, execution *domain.Execution) error
-	Get(ctx context.Context, executionID string) (*domain.Execution, error)
-	UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error
-}
-
-type OutboxRepository interface {
-	Insert(ctx context.Context, effects []domain.OutboxEffect) error
-	ClaimPending(ctx context.Context, batchSize int, owner string) ([]domain.OutboxEffect, error)
-	MarkDelivered(ctx context.Context, effectID string) error
-	ScheduleRetry(ctx context.Context, effectID string, availableAt time.Duration, attempts int, errMsg string) error
-	Quarantine(ctx context.Context, effectID string, errMsg string) error
-}
-
-type QuarantineRepository interface {
-	Save(ctx context.Context, entry *domain.QuarantineEntry) error
-	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
-	Replay(ctx context.Context, id string) error
-}
-
-type ScheduledEventRepository interface {
-	Save(ctx context.Context, event *domain.ScheduledEvent) error
-	GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error)
-	MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error
-	MarkFailed(ctx context.Context, eventID string, errMsg string) error
-	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)
-}
-
-type WorkflowRepository interface {
-	Save(ctx context.Context, workflow *domain.WorkflowInstance) error
-	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
-	Update(ctx context.Context, workflow *domain.WorkflowInstance) error
-	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
-}
-
-type ShardLeaseRepository interface {
-	Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error)
-	Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error)
-	Release(ctx context.Context, shard uint32, owner string) error
-	GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error)
-	ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error
-}
-
-type ContractRegistry interface {
-	Get(ctx context.Context, name string, version string) (*domain.ContractSchema, error)
-	Register(ctx context.Context, schema *domain.ContractSchema) error
-	List(ctx context.Context, name string) ([]domain.ContractSchema, error)
-}
-
-type EffectSender interface {
-	Send(ctx context.Context, effect *domain.Effect) error
-}
-
-type Logger interface {
-	Printf(format string, args ...any)
-}
-
-type Clock interface {
-	Now() time.Time
-}
-
-// Tx is a pure transaction abstraction. The SQL adapter wraps pgx.Tx
-// and implements this interface for the application layer.
-type Tx interface {
+// Transaction represents a database transaction
+type Transaction interface {
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
+	Context() context.Context
 	FencingToken() int64
 	SetFencingToken(int64)
 }
 
-// TxFactory creates a new transaction.
-type TxFactory func(ctx context.Context) (Tx, error)
+// TransactionManager manages database transactions
+type TransactionManager interface {
+	Begin(ctx context.Context) (Transaction, error)
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// TxRepos holds repository instances scoped to a single transaction.
+type TxRepos struct {
+	Inbox            InboxRepository
+	Activations      ActivationRepository
+	RuleRepo         RuleRepository
+	Executions       ExecutionRepository
+	Outbox           OutboxRepository
+	ShardLeases      ShardLeaseRepository
+	Workflow         WorkflowRepository
+	ScheduledEvents  ScheduledEventRepository
+	Batches          BatchRepository
+	Quarantine       QuarantineRepository
+}
+
+// Transaction factory
+type TransactionFactory func(ctx context.Context) (Transaction, error)
+
+// Repository factory
+type RepositoryFactory func(Transaction) TxRepos
 
 // RuleCompiler compiles raw rule source into an immutable revision.
 type RuleCompiler interface {
@@ -140,10 +56,25 @@ type RuleEvaluator interface {
 // EventProcessor processes incoming events through the rules engine.
 type EventProcessor interface {
 	Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error)
-	QuarantineEvent(ctx context.Context, sourceID string, eventID string, tenantID string, errClass domain.ErrorClass, errMsg string) error
+	QuarantineEvent(ctx context.Context, sourceID, eventID, tenantID string, errClass domain.ErrorClass, errMsg string) error
 }
 
 // EffectPublisher publishes pending effects to their destinations.
 type EffectPublisher interface {
 	PublishBatch(ctx context.Context, batchSize int) error
+}
+
+// EffectSender sends effects to external destinations
+type EffectSender interface {
+	Send(ctx context.Context, effect *domain.Effect) error
+}
+
+// Clock provides time abstraction
+type Clock interface {
+	Now() time.Time
+}
+
+// Logger interface for structured logging
+type Logger interface {
+	Printf(format string, args ...any)
 }

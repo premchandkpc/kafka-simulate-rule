@@ -9,17 +9,13 @@ import (
 )
 
 // TxRepos holds repository instances scoped to a single transaction.
-type TxRepos struct {
-	Inbox       ports.InboxRepository
-	Activations ports.ActivationRepository
-	RuleRepo    ports.RuleRepository
-	Executions  ports.ExecutionRepository
-	Outbox      ports.OutboxRepository
-	ShardLeases ports.ShardLeaseRepository
-}
+type TxRepos = ports.TxRepos
 
-// RepoFactory creates transaction-scoped repositories from a database querier.
-type RepoFactory func(db interface{}) TxRepos
+// TransactionFactory creates a new transaction.
+type TransactionFactory = ports.TransactionFactory
+
+// RepositoryFactory creates transaction-scoped repositories.
+type RepositoryFactory = ports.RepositoryFactory
 
 // Service handles event processing, inbox dedup, rule evaluation, and execution creation.
 type Service struct {
@@ -27,8 +23,8 @@ type Service struct {
 	evaluator  ports.RuleEvaluator
 	quarantine ports.QuarantineRepository
 	clock      ports.Clock
-	beginTx    ports.TxFactory
-	newRepos   RepoFactory
+	beginTx    ports.TransactionManager
+	newRepos   ports.RepositoryFactory
 }
 
 func NewService(
@@ -36,8 +32,8 @@ func NewService(
 	evaluator ports.RuleEvaluator,
 	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
-	beginTx ports.TxFactory,
-	newRepos RepoFactory,
+	beginTx ports.TransactionManager,
+	newRepos ports.RepositoryFactory,
 ) *Service {
 	return &Service{
 		compiler:   compiler,
@@ -55,7 +51,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, err
 	}
 
-	tx, err := s.beginTx(ctx)
+	tx, err := s.beginTx.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}

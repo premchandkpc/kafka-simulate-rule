@@ -34,7 +34,7 @@ func NewService(
 
 // PublishBatch claims pending effects and publishes them.
 func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
-	effects, err := s.outbox.ClaimPending(ctx, batchSize, "publisher")
+	effects, err := s.outbox.ClaimPending(ctx, batchSize, "publisher", 1*time.Minute)
 	if err != nil {
 		return fmt.Errorf("claim pending: %w", err)
 	}
@@ -76,7 +76,7 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 			continue
 		}
 
-		if err := s.outbox.MarkDelivered(ctx, ef.ID); err != nil {
+		if err := s.outbox.MarkDelivered(ctx, []string{ef.ID}); err != nil {
 			log.Printf("error marking delivered: %v", err)
 		}
 	}

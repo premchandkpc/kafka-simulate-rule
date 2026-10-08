@@ -41,8 +41,9 @@ func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet stri
 		return nil, err
 	}
 	revision.RuleID = ruleSet
+	revision.TenantScope = tenantScope
 
-	if err := s.ruleRepo.Save(ctx, tenantScope, revision); err != nil {
+	if err := s.ruleRepo.Save(ctx, revision); err != nil {
 		return nil, fmt.Errorf("save revision: %w", err)
 	}
 

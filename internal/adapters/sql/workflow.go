@@ -97,3 +97,107 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	}
 	return workflows, nil
 }
+
+func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at
+		FROM workflow_instances
+		WHERE (context->>'correlation_id') = $1
+		ORDER BY updated_at
+	`, correlationID)
+	if err != nil {
+		return nil, fmt.Errorf("get workflows by correlation: %w", err)
+	}
+	defer rows.Close()
+
+	var workflows []*domain.WorkflowInstance
+	for rows.Next() {
+		w := &domain.WorkflowInstance{}
+		var completedAt *time.Time
+		if err := rows.Scan(
+			&w.WorkflowID, &w.TenantID, &w.WorkflowType, &w.State, &w.Version,
+			&w.CurrentRevision, &w.Context, &w.CreatedAt, &w.UpdatedAt, &completedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan workflow: %w", err)
+		}
+		w.CompletedAt = completedAt
+		workflows = append(workflows, w)
+	}
+	return workflows, nil
+}
+
+type WorkflowDefinitionRepository struct {
+	db Querier
+}
+
+func NewWorkflowDefinitionRepository(db Querier) *WorkflowDefinitionRepository {
+	return &WorkflowDefinitionRepository{db: db}
+}
+
+func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.WorkflowDefinition) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO workflow_definitions (workflow_type, version, states, transitions, rules, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (workflow_type, version) DO UPDATE SET
+			states = EXCLUDED.states,
+			transitions = EXCLUDED.transitions,
+			rules = EXCLUDED.rules,
+			updated_at = EXCLUDED.updated_at
+	`, def.WorkflowType, def.Version, def.States, def.Transitions, def.Rules, def.CreatedAt, def.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("save workflow definition: %w", err)
+	}
+	return nil
+}
+
+func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
+	def := &domain.WorkflowDefinition{}
+	err := r.db.QueryRow(ctx, `
+		SELECT workflow_type, version, states, transitions, rules, created_at, updated_at
+		FROM workflow_definitions
+		WHERE workflow_type = $1 AND version = $2
+	`, workflowType, version).Scan(
+		&def.WorkflowType, &def.Version, &def.States, &def.Transitions, &def.Rules, &def.CreatedAt, &def.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get workflow definition: %w", err)
+	}
+	return def, nil
+}
+
+func (r *WorkflowDefinitionRepository) List(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT workflow_type, version, states, transitions, rules, created_at, updated_at
+		FROM workflow_definitions
+		ORDER BY workflow_type, version DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow definitions: %w", err)
+	}
+	defer rows.Close()
+
+	var defs []*domain.WorkflowDefinition
+	for rows.Next() {
+		def := &domain.WorkflowDefinition{}
+		if err := rows.Scan(
+			&def.WorkflowType, &def.Version, &def.States, &def.Transitions, &def.Rules, &def.CreatedAt, &def.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan workflow definition: %w", err)
+		}
+		defs = append(defs, def)
+	}
+	return defs, nil
+}
+
+func (r *WorkflowDefinitionRepository) Delete(ctx context.Context, workflowType string, version int64) error {
+	_, err := r.db.Exec(ctx, `
+		DELETE FROM workflow_definitions WHERE workflow_type = $1 AND version = $2
+	`, workflowType, version)
+	if err != nil {
+		return fmt.Errorf("delete workflow definition: %w", err)
+	}
+	return nil
+}
