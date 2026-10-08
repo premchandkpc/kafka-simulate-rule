@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -31,7 +32,7 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 	return nil
 }
 
-func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string) ([]domain.OutboxEffect, error) {
+func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	rows, err := r.db.Query(ctx, `
 		WITH candidates AS (
 			SELECT effect_id
@@ -46,13 +47,13 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 		SET status = 'claimed',
 			claimed_by = $2,
 			claimed_at = NOW(),
-			claim_expires_at = NOW() + INTERVAL '1 minute',
+			claim_expires_at = NOW() + $3,
 			updated_at = NOW()
 		FROM candidates
 		WHERE o.effect_id = candidates.effect_id
 		RETURNING o.effect_id, o.execution_id, o.destination, o.name, o.payload, o.effect_type,
 		          o.status, o.attempts, o.max_attempts, o.available_at, o.last_error, o.created_at, o.updated_at
-	`, batchSize, owner)
+	`, batchSize, owner, claimTTL)
 	if err != nil {
 		return nil, fmt.Errorf("claim pending: %w", err)
 	}
@@ -72,13 +73,28 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 	return effects, nil
 }
 
-func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectID string) error {
+func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string) error {
+	if len(effectIDs) == 0 {
+		return nil
+	}
 	now := time.Now().UTC()
-	_, err := r.db.Exec(ctx, `
+	
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(effectIDs))
+	args := make([]interface{}, len(effectIDs)+1)
+	args[0] = now
+	for i, id := range effectIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args[i+1] = id
+	}
+	
+	query := fmt.Sprintf(`
 		UPDATE outbox_effects
-		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $2
-		WHERE effect_id = $1
-	`, effectID, now)
+		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
+		WHERE effect_id IN (%s)
+	`, strings.Join(placeholders, ","))
+	
+	_, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("mark delivered: %w", err)
 	}
@@ -193,4 +209,28 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 		return domain.ErrFencingTokenMismatch
 	}
 	return nil
+}
+
+func (r *ShardLeaseRepository) ListOwned(ctx context.Context, owner string) ([]*domain.ShardLease, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT virtual_shard, owner, fencing_token, expires_at, routing_epoch
+		FROM shard_leases
+		WHERE owner = $1
+	`, owner)
+	if err != nil {
+		return nil, fmt.Errorf("list owned leases: %w", err)
+	}
+	defer rows.Close()
+
+	var leases []*domain.ShardLease
+	for rows.Next() {
+		lease := &domain.ShardLease{}
+		if err := rows.Scan(
+			&lease.VirtualShard, &lease.Owner, &lease.FencingToken, &lease.ExpiresAt, &lease.RoutingEpoch,
+		); err != nil {
+			return nil, fmt.Errorf("scan lease: %w", err)
+		}
+		leases = append(leases, lease)
+	}
+	return leases, nil
 }

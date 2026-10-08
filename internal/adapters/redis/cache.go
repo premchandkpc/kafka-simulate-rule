@@ -179,7 +179,6 @@ func (l *Lock) renewLoop() {
 		case <-l.watchCtx.Done():
 			return
 		case <-ticker.C:
-			ctx := context.Background()
 			script := redis.NewScript(`
 				if redis.call("get", KEYS[1]) == ARGV[1] then
 					return redis.call("expire", KEYS[1], ARGV[2])

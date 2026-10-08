@@ -186,8 +186,9 @@ func (c *Consumer) OwnedShards() []uint32 {
 	return shards
 }
 
-func (c *Consumer) Close() {
+func (c *Consumer) Close() error {
 	c.conn.Close()
+	return nil
 }
 
 type jetstreamDelivery struct {
@@ -216,6 +217,20 @@ func (d *jetstreamDelivery) Nak(ctx context.Context) error {
 
 func (d *jetstreamDelivery) Retry(ctx context.Context, delay time.Duration) error {
 	return d.msg.NakWithDelay(delay)
+}
+
+func (d *jetstreamDelivery) Headers() map[string]string {
+	h := make(map[string]string)
+	for k, v := range d.msg.Headers() {
+		if len(v) > 0 {
+			h[k] = v[0]
+		}
+	}
+	return h
+}
+
+func (d *jetstreamDelivery) Subject() string {
+	return d.msg.Subject()
 }
 
 type Publisher struct {

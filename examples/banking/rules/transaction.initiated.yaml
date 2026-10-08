@@ -1,0 +1,72 @@
+rule_set: transaction.initiated
+revision: 1
+mode: all_matches
+rules:
+  - id: high_value_compliance
+    name: "High Value Transaction Compliance"
+    description: "Trigger compliance check for transactions over $10,000"
+    priority: 100
+    when:
+      all:
+        - path: "$.amount"
+          op: "gte"
+          value: 1000000
+        - path: "$.transaction_type"
+          op: "in"
+          value: ["transfer", "payment"]
+    then:
+      - emit_event:
+          type: "compliance.check"
+          partition_key_policy: "inherit"
+          data:
+            check_id: "{{new_id}}"
+            transaction_id: "{{$.transaction_id}}"
+            account_id: "{{$.account_id}}"
+            amount: "{{$.amount}}"
+            currency: "{{$.currency}}"
+            transaction_type: "{{$.transaction_type}}"
+            risk_factors: ["high_value"]
+            initiated_at: "{{now}}"
+  - id: international_compliance
+    name: "International Transaction Compliance"
+    description: "Trigger compliance for international transactions"
+    priority: 90
+    when:
+      all:
+        - path: "$.transaction_type"
+          op: "eq"
+          value: "transfer"
+        - path: "$.counterparty_country"
+          op: "neq"
+          value: "US"
+    then:
+      - emit_event:
+          type: "compliance.check"
+          partition_key_policy: "inherit"
+          data:
+            check_id: "{{new_id}}"
+            transaction_id: "{{$.transaction_id}}"
+            account_id: "{{$.account_id}}"
+            amount: "{{$.amount}}"
+            currency: "{{$.currency}}"
+            transaction_type: "{{$.transaction_type}}"
+            risk_factors: ["international"]
+            initiated_at: "{{now}}"
+  - id: standard_processing
+    name: "Standard Processing"
+    description: "Direct settlement for low-risk transactions"
+    priority: 50
+    when:
+      path: "$.amount"
+      op: "lt"
+      value: 1000000
+    then:
+      - emit_event:
+          type: "transaction.settled"
+          partition_key_policy: "inherit"
+          data:
+            transaction_id: "{{$.transaction_id}}"
+            account_id: "{{$.account_id}}"
+            amount: "{{$.amount}}"
+            currency: "{{$.currency}}"
+            settled_at: "{{now}}"

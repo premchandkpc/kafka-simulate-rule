@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type Repository struct {
@@ -56,15 +56,66 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 	return revision.ToDomain(), nil
 }
 
-func (r *Repository) Save(ctx context.Context, tenantScope string, revision *domain.RuleRevision) error {
+func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string, revisionNum int64) (*domain.RuleRevision, error) {
 	coll := r.collection("rule_revisions")
 
-	doc := RevisionDocFromDomain(tenantScope, revision)
+	var revision RevisionDoc
+	err := coll.FindOne(ctx, bson.M{
+		"tenant_scope": tenantScope,
+		"rule_id":      ruleSet,
+		"revision":     revisionNum,
+	}).Decode(&revision)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get revision: %w", err)
+	}
+
+	return revision.ToDomain(), nil
+}
+
+func (r *Repository) Save(ctx context.Context, revision *domain.RuleRevision) error {
+	coll := r.collection("rule_revisions")
+
+	doc := RevisionDocFromDomain(revision.TenantScope, revision)
 	_, err := coll.InsertOne(ctx, doc)
 	if mongo.IsDuplicateKeyError(err) {
 		return nil
 	}
 	return err
+}
+
+func (r *Repository) List(ctx context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
+	coll := r.collection("rule_revisions")
+	cursor, err := coll.Find(ctx, bson.M{"tenant_scope": tenantScope})
+	if err != nil {
+		return nil, fmt.Errorf("list revisions: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var revisions []*domain.RuleRevision
+	for cursor.Next(ctx) {
+		var doc RevisionDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode revision: %w", err)
+		}
+		revisions = append(revisions, doc.ToDomain())
+	}
+	return revisions, nil
+}
+
+func (r *Repository) Delete(ctx context.Context, tenantScope string, ruleSet string, revision int64) error {
+	coll := r.collection("rule_revisions")
+	_, err := coll.DeleteOne(ctx, bson.M{
+		"tenant_scope": tenantScope,
+		"rule_id":      ruleSet,
+		"revision":     revision,
+	})
+	if err != nil {
+		return fmt.Errorf("delete revision: %w", err)
+	}
+	return nil
 }
 
 type ActivationDoc struct {
@@ -97,7 +148,7 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 		TenantScope:     d.TenantScope,
 		RuleID:          d.RuleID,
 		Revision:        d.Revision,
-		Source:          d.Source,
+		Source:          json.RawMessage(d.Source),
 		Compiled:        compiled,
 		ContentHash:     d.ContentHash,
 		CompilerVersion: d.CompilerVersion,
@@ -106,7 +157,7 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 		CreatedAt:       d.CreatedAt,
 	}
 }
-
+ 
 func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *RevisionDoc {
 	compiled, _ := bson.Marshal(revision.Compiled)
 	source, _ := bson.Marshal(revision.Source)

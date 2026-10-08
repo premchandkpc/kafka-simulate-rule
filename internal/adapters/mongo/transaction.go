@@ -6,6 +6,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	"github.com/flowrule/flowrule/internal/ports"
 )
@@ -24,9 +26,11 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 		return nil, fmt.Errorf("start session: %w", err)
 	}
 
-	err = session.StartTransaction(options.Transaction().
-		SetReadConcern(options.ReadConcern().SetLevel("majority")).
-		SetWriteConcern(options.WriteConcern().SetW("majority")))
+	txOpts := options.Transaction().
+		SetReadConcern(readconcern.Majority()).
+		SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+
+	err = session.StartTransaction(txOpts)
 	if err != nil {
 		session.EndSession(context.Background())
 		return nil, fmt.Errorf("start transaction: %w", err)
@@ -36,22 +40,41 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 }
 
 func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	return mongo.WithSession(ctx, m.client, func(sessCtx mongo.SessionContext) error {
-		return fn(sessCtx)
-	})
+	session, err := m.client.StartSession()
+	if err != nil {
+		return fmt.Errorf("start session: %w", err)
+	}
+	defer session.EndSession(context.Background())
+
+	txOpts := options.Transaction().
+		SetReadConcern(readconcern.Majority()).
+		SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+
+	err = session.StartTransaction(txOpts)
+	if err != nil {
+		return fmt.Errorf("start transaction: %w", err)
+	}
+
+	e := fn(ctx)
+	if e != nil {
+		session.AbortTransaction(ctx)
+		return e
+	}
+
+	return session.CommitTransaction(ctx)
 }
 
 type Transaction struct {
-	session     *mongo.Session
+	session     mongo.Session
 	fencingToken int64
 }
 
 func (t *Transaction) Commit(ctx context.Context) error {
-	return (*t.session).CommitTransaction(ctx)
+	return t.session.CommitTransaction(ctx)
 }
 
 func (t *Transaction) Rollback(ctx context.Context) error {
-	return (*t.session).AbortTransaction(ctx)
+	return t.session.AbortTransaction(ctx)
 }
 
 func (t *Transaction) Context() context.Context {
@@ -66,32 +89,38 @@ func (t *Transaction) SetFencingToken(token int64) {
 	t.fencingToken = token
 }
 
+// Session returns the underlying MongoDB session
+func (t *Transaction) Session() mongo.Session {
+	return t.session
+}
+
+// Querier interface for repositories
 type Querier interface {
-	Collection(name string) *mongo.Collection
-	Session() *mongo.Session
+	Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection
+	Session() mongo.Session
 }
 
 type dbQuerier struct {
 	db *mongo.Database
 }
 
-func (q *dbQuerier) Collection(name string) *mongo.Collection {
-	return q.db.Collection(name)
+func (q *dbQuerier) Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection {
+	return q.db.Collection(name, opts...)
 }
 
-func (q *dbQuerier) Session() *mongo.Session {
+func (q *dbQuerier) Session() mongo.Session {
 	return nil
 }
 
 type txQuerier struct {
-	session *mongo.Session
+	session mongo.Session
 }
 
-func (q *txQuerier) Collection(name string) *mongo.Collection {
-	return q.session.Client().Database("flowrule").Collection(name)
+func (q *txQuerier) Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection {
+	return q.session.Client().Database("flowrule").Collection(name, opts...)
 }
 
-func (q *txQuerier) Session() *mongo.Session {
+func (q *txQuerier) Session() mongo.Session {
 	return q.session
 }
 
@@ -99,7 +128,7 @@ func NewQuerier(db *mongo.Database) Querier {
 	return &dbQuerier{db: db}
 }
 
-func NewTxQuerier(session *mongo.Session) Querier {
+func NewTxQuerier(session mongo.Session) Querier {
 	return &txQuerier{session: session}
 }
 
@@ -107,11 +136,11 @@ type TxWrapper struct {
 	*Transaction
 }
 
-func (t *TxWrapper) Collection(name string) *mongo.Collection {
-	return t.session.Client().Database("flowrule").Collection(name)
+func (t *TxWrapper) Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection {
+	return t.session.Client().Database("flowrule").Collection(name, opts...)
 }
 
-func (t *TxWrapper) Session() *mongo.Session {
+func (t *TxWrapper) Session() mongo.Session {
 	return t.session
 }
 

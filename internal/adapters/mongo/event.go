@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type EventRepository struct {
@@ -145,7 +145,6 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 		PartitionKey:  event.PartitionKey,
 		WorkflowID:    event.WorkflowID,
 		OccurredAt:    event.OccurredAt,
-		ScheduledAt:   event.ScheduledAt,
 		Data:          data,
 		Headers:       headers,
 		Processed:     false,
@@ -154,12 +153,13 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 }
 
 func (d *EventDoc) ToDomain() *domain.EventEnvelope {
-	var data, headers bson.Raw
+	var data json.RawMessage
+	var headers map[string]string
 	if d.Data != nil {
-		data = d.Data
+		data = json.RawMessage(d.Data)
 	}
 	if d.Headers != nil {
-		headers = d.Headers
+		json.Unmarshal(d.Headers, &headers)
 	}
 	
 	return &domain.EventEnvelope{
@@ -169,7 +169,6 @@ func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 		PartitionKey: d.PartitionKey,
 		WorkflowID:   d.WorkflowID,
 		OccurredAt:   d.OccurredAt,
-		ScheduledAt:  d.ScheduledAt,
 		Data:         data,
 		Headers:      headers,
 	}

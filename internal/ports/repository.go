@@ -23,7 +23,6 @@ type InboxRepository interface {
 	Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error)
 	Get(ctx context.Context, tenantID, eventID string) (*domain.InboxEntry, error)
 	MarkCommitted(ctx context.Context, tenantID, eventID, executionID string) error
-	GetByBatch(ctx context.Context, batchID string) ([]*domain.InboxEntry, error)
 }
 
 // ExecutionRepository handles execution records
@@ -31,8 +30,6 @@ type ExecutionRepository interface {
 	Save(ctx context.Context, execution *domain.Execution) error
 	Get(ctx context.Context, executionID string) (*domain.Execution, error)
 	UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error
-	GetByEvent(ctx context.Context, eventID string) (*domain.Execution, error)
-	GetPending(ctx context.Context, limit int) ([]*domain.Execution, error)
 }
 
 // OutboxRepository handles outbox pattern for reliable messaging
@@ -59,7 +56,6 @@ type RuleRepository interface {
 type ActivationRepository interface {
 	Get(ctx context.Context, tenantScope, ruleSet string) (*domain.RuleActivation, error)
 	Set(ctx context.Context, activation *domain.RuleActivation) error
-	List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error)
 }
 
 // WorkflowRepository handles workflow instances
@@ -86,14 +82,13 @@ type ScheduledEventRepository interface {
 	MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error
 	MarkFailed(ctx context.Context, eventID, errMsg string) error
 	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)
-	Cancel(ctx context.Context, eventID string) error
 }
 
 // BatchRepository handles batch processing
 type BatchRepository interface {
 	SaveRun(ctx context.Context, run *domain.BatchRun) error
 	GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error)
-	ListUnbatched(ctx context.Context, tenantID, partitionKey, ruleSet string, limit int) ([]*domain.InboxEntry, error)
+	ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error)
 	MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error
 }
 
@@ -104,7 +99,6 @@ type ShardLeaseRepository interface {
 	Release(ctx context.Context, shard uint32, owner string) error
 	GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error)
 	ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error
-	ListOwned(ctx context.Context, owner string) ([]*domain.ShardLease, error)
 }
 
 // QuarantineRepository handles failed items
@@ -116,6 +110,7 @@ type QuarantineRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// QuarantineFilter for filtering quarantine entries
 type QuarantineFilter struct {
 	TenantID   string
 	SourceType string
@@ -131,5 +126,4 @@ type ContractRegistry interface {
 	Register(ctx context.Context, schema *domain.ContractSchema) error
 	Get(ctx context.Context, name, version string) (*domain.ContractSchema, error)
 	List(ctx context.Context, name string) ([]*domain.ContractSchema, error)
-	Delete(ctx context.Context, name, version string) error
 }

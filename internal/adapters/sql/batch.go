@@ -59,7 +59,7 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 	return nil
 }
 
-func (r *BatchRepository) SaveBatchRun(ctx context.Context, run *domain.BatchRun) error {
+func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO batch_runs (batch_id, tenant_id, partition_key, rule_set, status, member_count,
 		                        execution_id, decision_hash, window_from, window_to, created_at)
@@ -80,7 +80,7 @@ func (r *BatchRepository) SaveBatchRun(ctx context.Context, run *domain.BatchRun
 	return nil
 }
 
-func (r *BatchRepository) GetBatchRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	run := &domain.BatchRun{}
 	err := r.db.QueryRow(ctx, `
 		SELECT batch_id, tenant_id, partition_key, rule_set, status, member_count,

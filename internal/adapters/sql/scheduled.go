@@ -104,3 +104,13 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*do
 	evt.ReleasedAt = releasedAt
 	return evt, nil
 }
+
+func (r *ScheduledEventRepository) Cancel(ctx context.Context, eventID string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE scheduled_events SET status = 'cancelled' WHERE event_id = $1
+	`, eventID)
+	if err != nil {
+		return fmt.Errorf("cancel scheduled event: %w", err)
+	}
+	return nil
+}

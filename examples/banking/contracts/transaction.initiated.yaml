@@ -1,0 +1,42 @@
+name: transaction.initiated
+version: "1.0"
+namespace: com.example.banking
+description: Event emitted when a financial transaction is initiated
+fields:
+  transaction_id:
+    type: string
+    description: Unique transaction identifier
+    required: true
+  account_id:
+    type: string
+    description: Source account identifier
+    required: true
+  amount:
+    type: number
+    description: Transaction amount in cents
+    required: true
+  currency:
+    type: string
+    description: Currency code
+    required: true
+    default: "USD"
+  transaction_type:
+    type: string
+    description: Type of transaction (transfer, payment, withdrawal)
+    required: true
+  counterparty_account:
+    type: string
+    description: Destination account for transfers
+    required: false
+  description:
+    type: string
+    description: Transaction description
+    required: false
+  initiated_at:
+    type: string
+    format: date-time
+    description: Initiation timestamp
+    required: true
+compatibility: BACKWARD
+owner: banking-team
+deprecated: false

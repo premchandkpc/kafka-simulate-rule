@@ -10,7 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type BatchRepository struct {
@@ -18,7 +17,11 @@ type BatchRepository struct {
 }
 
 func NewBatchRepository(querier Querier) *BatchRepository {
-	return &BatchRepository{db: db}
+	return &BatchRepository{querier: querier}
+}
+
+func (r *BatchRepository) collection(name string) *mongo.Collection {
+	return r.querier.Collection(name)
 }
 
 func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
@@ -29,8 +32,8 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 	}
 	
 	filter := bson.M{
-		"status":     "committed",
-		"batch_id":    bson.M{"$exists": false},
+		"status":   "committed",
+		"batch_id": bson.M{"$exists": false},
 	}
 	
 	cursor, err := coll.Find(ctx, filter, options.Find().
@@ -74,7 +77,7 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 	return nil
 }
 
-func (r *BatchRepository) SaveBatchRun(ctx context.Context, run *domain.BatchRun) error {
+func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	coll := r.collection("batch_runs")
 	doc := BatchRunDocFromDomain(run)
 	
@@ -95,7 +98,7 @@ func (r *BatchRepository) SaveBatchRun(ctx context.Context, run *domain.BatchRun
 	return nil
 }
 
-func (r *BatchRepository) GetBatchRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection("batch_runs")
 	var doc BatchRunDoc
 	err := coll.FindOne(ctx, bson.M{"batch_id": batchID}).Decode(&doc)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Querier abstracts the common query interface shared by *pgxpool.Pool and *pgx.Tx.
@@ -50,4 +51,20 @@ func (t *Tx) FencingToken() int64 {
 
 func (t *Tx) SetFencingToken(token int64) {
 	t.fencingToken = token
+}
+
+func (t *Tx) Context() context.Context {
+	return context.Background()
+}
+
+func (t *Tx) Querier() Querier {
+	return t
+}
+
+func NewTxFromPool(ctx context.Context, pool *pgxpool.Pool) (*Tx, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return NewTx(tx), nil
 }

@@ -18,7 +18,11 @@ type QuarantineRepository struct {
 }
 
 func NewQuarantineRepository(querier Querier) *QuarantineRepository {
-	return &QuarantineRepository{db: db}
+	return &QuarantineRepository{querier: querier}
+}
+
+func (r *QuarantineRepository) collection(name string) *mongo.Collection {
+	return r.querier.Collection(name)
 }
 
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
@@ -44,6 +48,56 @@ func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.Quar
 		return nil, fmt.Errorf("get quarantine entry: %w", err)
 	}
 	return doc.ToDomain(), nil
+}
+
+func (r *QuarantineRepository) Delete(ctx context.Context, id string) error {
+	coll := r.collection("quarantine")
+	_, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id})
+	if err != nil {
+		return fmt.Errorf("delete quarantine entry: %w", err)
+	}
+	return nil
+}
+
+func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	coll := r.collection("quarantine")
+	
+	f := bson.M{}
+	if filter.TenantID != "" {
+		f["tenant_id"] = filter.TenantID
+	}
+	if filter.SourceType != "" {
+		f["source_type"] = filter.SourceType
+	}
+	if filter.ErrorClass != "" {
+		f["error_class"] = filter.ErrorClass
+	}
+	if !filter.From.IsZero() {
+		f["created_at"] = bson.M{"$gte": filter.From}
+	}
+	if !filter.To.IsZero() {
+		f["created_at"] = bson.M{"$lte": filter.To}
+	}
+	
+	cursor, err := coll.Find(ctx, f, options.Find().
+		SetLimit(int64(filter.Limit)).
+		SetSkip(int64(filter.Offset)).
+		SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return nil, fmt.Errorf("list quarantine: %w", err)
+	}
+	defer cursor.Close(ctx)
+	
+	var entries []*domain.QuarantineEntry
+	for cursor.Next(ctx) {
+		var doc QuarantineDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode quarantine: %w", err)
+		}
+		entries = append(entries, doc.ToDomain())
+	}
+	
+	return entries, nil
 }
 
 func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {

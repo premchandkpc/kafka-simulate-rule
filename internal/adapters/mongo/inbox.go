@@ -2,15 +2,14 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type InboxRepository struct {
@@ -98,7 +97,7 @@ func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
 	return &InboxDoc{
 		TenantID:     entry.TenantID,
 		EventID:      entry.EventID,
-		Status:       entry.Status,
+		Status:       string(entry.Status),
 		ExecutionID:  entry.ExecutionID,
 		FirstSeenAt:  entry.FirstSeenAt,
 		CommittedAt:  entry.CommittedAt,
@@ -110,14 +109,14 @@ func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
 }
 
 func (d *InboxDoc) ToDomain() *domain.InboxEntry {
-	var payload bson.Raw
+	var payload json.RawMessage
 	if d.Payload != nil {
-		payload = d.Payload
+		payload = json.RawMessage(d.Payload)
 	}
 	return &domain.InboxEntry{
 		TenantID:     d.TenantID,
 		EventID:      d.EventID,
-		Status:       d.Status,
+		Status:       domain.InboxStatus(d.Status),
 		ExecutionID:  d.ExecutionID,
 		FirstSeenAt:  d.FirstSeenAt,
 		CommittedAt:  d.CommittedAt,

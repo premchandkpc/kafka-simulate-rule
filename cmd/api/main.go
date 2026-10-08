@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flowrule/flowrule/cmd/api/handlers"
 	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
@@ -270,6 +271,15 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(defs)
 	})
+
+	// Contract endpoints
+	contractHandler := handlers.NewContractHandler(db)
+	mux.HandleFunc("POST /v1/contracts", contractHandler.CreateContract)
+	mux.HandleFunc("GET /v1/contracts", contractHandler.ListContracts)
+	mux.HandleFunc("GET /v1/contracts/{name}", contractHandler.GetContract)
+	mux.HandleFunc("GET /v1/contracts/{name}/{version}", contractHandler.GetContractVersion)
+	mux.HandleFunc("DELETE /v1/contracts/{name}/{version}", contractHandler.DeleteContract)
+	mux.HandleFunc("POST /v1/contracts/{name}/{version}/generate", contractHandler.GenerateContract)
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -41,10 +41,7 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 		limit = 400
 	}
 
-	// ListUnbatched now requires tenantID, partitionKey, ruleSet
-	// We need to get unbatched entries for all tenants/partitions
-	// For now, scan all and group
-	entries, err := s.batches.ListUnbatched(ctx, "", "", "", limit)
+	entries, err := s.batches.ListUnbatched(ctx, limit)
 	if err != nil {
 		return 0, fmt.Errorf("list unbatched: %w", err)
 	}
@@ -127,7 +124,7 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 
 	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
 
-	existing, err := s.batches.GetBatchRun(ctx, batchID)
+	existing, err := s.batches.GetRun(ctx, batchID)
 	if err != nil {
 		return 0, fmt.Errorf("check existing batch: %w", err)
 	}
@@ -190,7 +187,7 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		CreatedAt:    now,
 	}
 
-	if err := s.batches.SaveBatchRun(ctx, run); err != nil {
+	if err := s.batches.SaveRun(ctx, run); err != nil {
 		return 0, fmt.Errorf("save batch run: %w", err)
 	}
 

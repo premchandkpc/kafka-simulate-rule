@@ -1,0 +1,44 @@
+name: compliance.check
+version: "1.0"
+namespace: com.example.banking
+description: Event emitted to trigger compliance check
+fields:
+  check_id:
+    type: string
+    description: Unique compliance check identifier
+    required: true
+  transaction_id:
+    type: string
+    description: Transaction being checked
+    required: true
+  account_id:
+    type: string
+    description: Account involved
+    required: true
+  amount:
+    type: number
+    description: Transaction amount in cents
+    required: true
+  currency:
+    type: string
+    description: Currency code
+    required: true
+    default: "USD"
+  transaction_type:
+    type: string
+    description: Transaction type
+    required: true
+  risk_factors:
+    type: array
+    description: Known risk factors
+    required: false
+    items:
+      type: string
+  initiated_at:
+    type: string
+    format: date-time
+    description: Check initiation timestamp
+    required: true
+compatibility: BACKWARD
+owner: compliance-team
+deprecated: false

@@ -89,9 +89,14 @@ type ContractSchema struct {
 }
 
 type ContractField struct {
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required,omitempty"`
+	Type        string                 `json:"type"`
+	Description string                 `json:"description,omitempty"`
+	Required    bool                   `json:"required,omitempty"`
+	Default     interface{}            `json:"default,omitempty"`
+	Enum        []interface{}          `json:"enum,omitempty"`
+	Format      string                 `json:"format,omitempty"`
+	Items       *ContractField         `json:"items,omitempty"`
+	Properties  map[string]ContractField `json:"properties,omitempty"`
 }
 
 type CompiledRule struct {
@@ -264,19 +269,22 @@ func (e *Execution) Quarantine(now time.Time, errMsg string) error {
 }
 
 type OutboxEffect struct {
-	ID          string          `json:"id"`
-	ExecutionID string          `json:"execution_id"`
-	Destination string          `json:"destination"`
-	Name        string          `json:"name"`
-	Payload     json.RawMessage `json:"payload"`
-	EffectType  EffectType      `json:"effect_type"`
-	Status      OutboxStatus    `json:"status"`
-	Attempts    int             `json:"attempts"`
-	MaxAttempts int             `json:"max_attempts"`
-	AvailableAt time.Time       `json:"available_at"`
-	LastError   string          `json:"last_error,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID            string          `json:"id"`
+	ExecutionID   string          `json:"execution_id"`
+	Destination   string          `json:"destination"`
+	Name          string          `json:"name"`
+	Payload       json.RawMessage `json:"payload"`
+	EffectType    EffectType      `json:"effect_type"`
+	Status        OutboxStatus    `json:"status"`
+	Attempts      int             `json:"attempts"`
+	MaxAttempts   int             `json:"max_attempts"`
+	AvailableAt   time.Time       `json:"available_at"`
+	ClaimedBy     string          `json:"claimed_by,omitempty"`
+	ClaimedAt     *time.Time      `json:"claimed_at,omitempty"`
+	ClaimExpiresAt *time.Time     `json:"claim_expires_at,omitempty"`
+	LastError     string          `json:"last_error,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
 type OutboxStatus string

@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type WorkflowRepository struct {
@@ -116,6 +116,32 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	return workflows, nil
 }
 
+func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error) {
+	coll := r.collection("workflow_instances")
+	
+	filter := bson.M{
+		"correlation_id": correlationID,
+	}
+	
+	cursor, err := coll.Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: 1}}))
+	if err != nil {
+		return nil, fmt.Errorf("get workflows by correlation: %w", err)
+	}
+	defer cursor.Close(ctx)
+	
+	var workflows []*domain.WorkflowInstance
+	for cursor.Next(ctx) {
+		var doc WorkflowDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode workflow: %w", err)
+		}
+		workflows = append(workflows, doc.ToDomain())
+	}
+	
+	return workflows, nil
+}
+
 type WorkflowDoc struct {
 	WorkflowID      string     `bson:"workflow_id"`
 	TenantID        string     `bson:"tenant_id"`
@@ -130,6 +156,10 @@ type WorkflowDoc struct {
 }
 
 func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
+	var context bson.Raw
+	if w.Context != nil {
+		context, _ = bson.Marshal(w.Context)
+	}
 	return &WorkflowDoc{
 		WorkflowID:      w.WorkflowID,
 		TenantID:        w.TenantID,
@@ -137,7 +167,7 @@ func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
 		State:           w.State,
 		Version:         w.Version,
 		CurrentRevision: w.CurrentRevision,
-		Context:         w.Context,
+		Context:         context,
 		CreatedAt:       w.CreatedAt,
 		UpdatedAt:       w.UpdatedAt,
 		CompletedAt:     w.CompletedAt,
@@ -145,6 +175,10 @@ func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
 }
 
 func (d *WorkflowDoc) ToDomain() *domain.WorkflowInstance {
+	var context json.RawMessage
+	if d.Context != nil {
+		context, _ = json.Marshal(d.Context)
+	}
 	return &domain.WorkflowInstance{
 		WorkflowID:      d.WorkflowID,
 		TenantID:        d.TenantID,
@@ -152,7 +186,7 @@ func (d *WorkflowDoc) ToDomain() *domain.WorkflowInstance {
 		State:           d.State,
 		Version:         d.Version,
 		CurrentRevision: d.CurrentRevision,
-		Context:         d.Context,
+		Context:         context,
 		CreatedAt:       d.CreatedAt,
 		UpdatedAt:       d.UpdatedAt,
 		CompletedAt:     d.CompletedAt,

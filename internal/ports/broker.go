@@ -132,3 +132,12 @@ const (
 	StreamStateActive   StreamState = "active"
 	StreamStateDeleted  StreamState = "deleted"
 )
+
+// ShardedConsumer extends BrokerConsumer with shard management capabilities
+type ShardedConsumer interface {
+	BrokerConsumer
+	EnsureShardConsumer(ctx context.Context, shard uint32) error
+	RemoveShardConsumer(ctx context.Context, shard uint32) error
+	FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
+	OwnedShards() []uint32
+}

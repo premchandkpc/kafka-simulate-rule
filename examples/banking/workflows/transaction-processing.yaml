@@ -1,0 +1,46 @@
+workflow_type: transaction-processing
+version: 1
+states:
+  - name: initiated
+    type: start
+    rule_sets:
+      - transaction.initiated
+    on_enter: []
+    on_exit: []
+  - name: compliance_check
+    type: intermediate
+    rule_sets:
+      - compliance.check
+    on_enter: []
+    on_exit: []
+  - name: settled
+    type: end
+    rule_sets:
+      - transaction.settled
+    on_enter: []
+    on_exit: []
+  - name: blocked
+    type: end
+    rule_sets:
+      - transaction.blocked
+    on_enter: []
+    on_exit: []
+transitions:
+  - from: initiated
+    to: compliance_check
+    event_type: compliance.check
+  - from: initiated
+    to: settled
+    event_type: transaction.settled
+  - from: compliance_check
+    to: settled
+    event_type: transaction.settled
+  - from: compliance_check
+    to: blocked
+    event_type: transaction.blocked
+rules:
+  transaction.initiated: transaction.initiated
+  compliance.check: compliance.check
+  compliance.result: compliance.result
+  transaction.settled: transaction.settled
+  transaction.blocked: transaction.blocked

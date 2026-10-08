@@ -10,7 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type ShardLeaseRepository struct {
@@ -18,7 +17,11 @@ type ShardLeaseRepository struct {
 }
 
 func NewShardLeaseRepository(querier Querier) *ShardLeaseRepository {
-	return &ShardLeaseRepository{db: db}
+	return &ShardLeaseRepository{querier: querier}
+}
+
+func (r *ShardLeaseRepository) collection(name string) *mongo.Collection {
+	return r.querier.Collection(name)
 }
 
 func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {

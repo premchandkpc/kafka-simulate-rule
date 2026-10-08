@@ -46,7 +46,7 @@ func (r *RuleRepository) GetActive(ctx context.Context, tenantScope string, rule
 	return rev, nil
 }
 
-func (r *RuleRepository) Save(ctx context.Context, tenantScope string, revision *domain.RuleRevision) error {
+func (r *RuleRepository) Save(ctx context.Context, revision *domain.RuleRevision) error {
 	compiled, err := json.Marshal(revision.Compiled)
 	if err != nil {
 		return fmt.Errorf("marshal compiled: %w", err)
@@ -55,10 +55,78 @@ func (r *RuleRepository) Save(ctx context.Context, tenantScope string, revision 
 		INSERT INTO rule_revisions (tenant_scope, rule_id, revision, source, compiled, content_hash, compiler_version, match_mode, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (tenant_scope, rule_id, revision) DO NOTHING
-	`, tenantScope, revision.RuleID, revision.Revision, revision.Source, compiled,
+	`, revision.TenantScope, revision.RuleID, revision.Revision, revision.Source, compiled,
 		revision.ContentHash, revision.CompilerVersion, revision.MatchMode, revision.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save revision: %w", err)
+	}
+	return nil
+}
+
+func (r *RuleRepository) Get(ctx context.Context, tenantScope string, ruleSet string, revision int64) (*domain.RuleRevision, error) {
+	row := r.db.QueryRow(ctx, `
+		SELECT tenant_scope, rule_id, revision, source, compiled, content_hash, compiler_version, match_mode, created_at
+		FROM rule_revisions
+		WHERE tenant_scope = $1 AND rule_id = $2 AND revision = $3
+	`, tenantScope, ruleSet, revision)
+
+	rev := &domain.RuleRevision{}
+	var source, compiled []byte
+	err := row.Scan(
+		&rev.TenantScope, &rev.RuleID, &rev.Revision, &source, &compiled,
+		&rev.ContentHash, &rev.CompilerVersion, &rev.MatchMode, &rev.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get revision: %w", err)
+	}
+
+	rev.Source = source
+	if err := json.Unmarshal(compiled, &rev.Compiled); err != nil {
+		return nil, fmt.Errorf("unmarshal compiled: %w", err)
+	}
+	return rev, nil
+}
+
+func (r *RuleRepository) List(ctx context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT tenant_scope, rule_id, revision, source, compiled, content_hash, compiler_version, match_mode, created_at
+		FROM rule_revisions
+		WHERE tenant_scope = $1
+		ORDER BY rule_id, revision DESC
+	`, tenantScope)
+	if err != nil {
+		return nil, fmt.Errorf("list revisions: %w", err)
+	}
+	defer rows.Close()
+
+	var revisions []*domain.RuleRevision
+	for rows.Next() {
+		rev := &domain.RuleRevision{}
+		var source, compiled []byte
+		if err := rows.Scan(
+			&rev.TenantScope, &rev.RuleID, &rev.Revision, &source, &compiled,
+			&rev.ContentHash, &rev.CompilerVersion, &rev.MatchMode, &rev.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan revision: %w", err)
+		}
+		rev.Source = source
+		if err := json.Unmarshal(compiled, &rev.Compiled); err != nil {
+			return nil, fmt.Errorf("unmarshal compiled: %w", err)
+		}
+		revisions = append(revisions, rev)
+	}
+	return revisions, nil
+}
+
+func (r *RuleRepository) Delete(ctx context.Context, tenantScope string, ruleSet string, revision int64) error {
+	_, err := r.db.Exec(ctx, `
+		DELETE FROM rule_revisions WHERE tenant_scope = $1 AND rule_id = $2 AND revision = $3
+	`, tenantScope, ruleSet, revision)
+	if err != nil {
+		return fmt.Errorf("delete revision: %w", err)
 	}
 	return nil
 }
@@ -104,4 +172,29 @@ func (a *ActivationRepository) Set(ctx context.Context, activation *domain.RuleA
 		return fmt.Errorf("set activation: %w", err)
 	}
 	return nil
+}
+
+func (a *ActivationRepository) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT tenant_scope, rule_set, revision, version, actor, activated_at
+		FROM rule_activations
+		WHERE tenant_scope = $1
+		ORDER BY rule_set
+	`, tenantScope)
+	if err != nil {
+		return nil, fmt.Errorf("list activations: %w", err)
+	}
+	defer rows.Close()
+
+	var activations []*domain.RuleActivation
+	for rows.Next() {
+		act := &domain.RuleActivation{}
+		if err := rows.Scan(
+			&act.TenantScope, &act.RuleSet, &act.Revision, &act.Version, &act.Actor, &act.ActivatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan activation: %w", err)
+		}
+		activations = append(activations, act)
+	}
+	return activations, nil
 }

@@ -1,0 +1,50 @@
+rule_set: compliance.result
+revision: 1
+mode: first_match
+rules:
+  - id: compliance_passed
+    name: "Compliance Passed"
+    description: "Settle transaction when compliance passes"
+    priority: 100
+    when:
+      path: "$.passed"
+      op: "eq"
+      value: true
+    then:
+      - emit_event:
+          type: "transaction.settled"
+          partition_key_policy: "inherit"
+          data:
+            transaction_id: "{{$.transaction_id}}"
+            account_id: "{{$.account_id}}"
+            amount: "{{$.amount}}"
+            currency: "{{$.currency}}"
+            settled_at: "{{now}}"
+  - id: compliance_failed
+    name: "Compliance Failed"
+    description: "Block transaction and alert when compliance fails"
+    priority: 50
+    when:
+      path: "$.passed"
+      op: "eq"
+      value: false
+    then:
+      - emit_event:
+          type: "transaction.blocked"
+          partition_key_policy: "inherit"
+          data:
+            transaction_id: "{{$.transaction_id}}"
+            account_id: "{{$.account_id}}"
+            reason: "compliance_failed"
+            risk_level: "{{$.risk_level}}"
+            flags: "{{$.flags}}"
+            blocked_at: "{{now}}"
+      - emit_event:
+          type: "alert.compliance_failure"
+          partition_key_policy: "inherit"
+          data:
+            transaction_id: "{{$.transaction_id}}"
+            account_id: "{{$.account_id}}"
+            risk_level: "{{$.risk_level}}"
+            flags: "{{$.flags}}"
+            timestamp: "{{now}}"

@@ -118,3 +118,54 @@ func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID stri
 	}
 	return nil
 }
+
+func (r *ExecutionRepository) GetByEvent(ctx context.Context, eventID string) (*domain.Execution, error) {
+	exec := &domain.Execution{}
+	err := r.db.QueryRow(ctx, `
+		SELECT execution_id, event_id, tenant_id, rule_set, revision, decision_hash, status, error, trace_id, created_at, completed_at
+		FROM executions
+		WHERE event_id = $1
+	`, eventID).Scan(
+		&exec.ID, &exec.EventID, &exec.TenantID, &exec.RuleSet, &exec.Revision,
+		&exec.DecisionHash, &exec.Status, &exec.Error, &exec.TraceID, &exec.CreatedAt, &exec.CompletedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get execution by event: %w", err)
+	}
+	return exec, nil
+}
+
+func (r *ExecutionRepository) GetPending(ctx context.Context, limit int) ([]*domain.Execution, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT execution_id, event_id, tenant_id, rule_set, revision, decision_hash, status, error, trace_id, created_at, completed_at
+		FROM executions
+		WHERE status = 'pending'
+		ORDER BY created_at
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get pending executions: %w", err)
+	}
+	defer rows.Close()
+
+	var executions []*domain.Execution
+	for rows.Next() {
+		exec := &domain.Execution{}
+		var completedAt *time.Time
+		if err := rows.Scan(
+			&exec.ID, &exec.EventID, &exec.TenantID, &exec.RuleSet, &exec.Revision,
+			&exec.DecisionHash, &exec.Status, &exec.Error, &exec.TraceID, &exec.CreatedAt, &completedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan execution: %w", err)
+		}
+		exec.CompletedAt = completedAt
+		executions = append(executions, exec)
+	}
+	return executions, nil
+}

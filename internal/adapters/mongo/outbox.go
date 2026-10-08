@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type OutboxRepository struct {
@@ -19,10 +19,6 @@ type OutboxRepository struct {
 
 func NewOutboxRepository(q Querier) *OutboxRepository {
 	return &OutboxRepository{querier: q}
-}
-
-func (r *OutboxRepository) collection(name string) *mongo.Collection {
-	return r.querier.Collection(name)
 }
 
 func (r *OutboxRepository) collection(name string) *mongo.Collection {
@@ -51,7 +47,7 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 	return nil
 }
 
-func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string) ([]domain.OutboxEffect, error) {
+func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 	
@@ -73,7 +69,7 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 			"status":           domain.OutboxStatusClaimed,
 			"claimed_by":       owner,
 			"claimed_at":       now,
-			"claim_expires_at": now.Add(1 * time.Minute),
+			"claim_expires_at": now.Add(claimTTL),
 			"updated_at":       now,
 		},
 	}
@@ -203,7 +199,7 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 		ExecutionID:    ef.ExecutionID,
 		Destination:    ef.Destination,
 		Name:           ef.Name,
-		Payload:        ef.Payload,
+		Payload:        bson.Raw(ef.Payload),
 		EffectType:     string(ef.EffectType),
 		Status:         string(ef.Status),
 		Attempts:       ef.Attempts,
@@ -220,11 +216,11 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 
 func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	return &domain.OutboxEffect{
-		EffectID:       d.EffectID,
+		ID:             d.EffectID,
 		ExecutionID:    d.ExecutionID,
 		Destination:    d.Destination,
 		Name:           d.Name,
-		Payload:        d.Payload,
+		Payload:        json.RawMessage(d.Payload),
 		EffectType:     domain.EffectType(d.EffectType),
 		Status:         domain.OutboxStatus(d.Status),
 		Attempts:       d.Attempts,
@@ -237,4 +233,27 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 		CreatedAt:      d.CreatedAt,
 		UpdatedAt:      d.UpdatedAt,
 	}
+}
+
+func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
+	coll := r.collection("outbox_effects")
+	
+	filter := bson.M{"execution_id": executionID}
+	
+	cursor, err := coll.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("get outbox by execution: %w", err)
+	}
+	defer cursor.Close(ctx)
+	
+	var effects []domain.OutboxEffect
+	for cursor.Next(ctx) {
+		var doc OutboxDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode outbox effect: %w", err)
+		}
+		effects = append(effects, *doc.ToDomain())
+	}
+	
+	return effects, nil
 }

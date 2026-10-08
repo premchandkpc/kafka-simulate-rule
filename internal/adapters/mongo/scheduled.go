@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type ScheduledEventRepository struct {
@@ -133,14 +133,21 @@ type ScheduledDoc struct {
 }
 
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
+	var payload, headers bson.Raw
+	if event.Payload != nil {
+		payload = bson.Raw(event.Payload)
+	}
+	if event.Headers != nil {
+		headers, _ = bson.Marshal(event.Headers)
+	}
 	return &ScheduledDoc{
 		EventID:      event.EventID,
 		TenantID:     event.TenantID,
 		EventType:    event.EventType,
 		PartitionKey: event.PartitionKey,
 		WorkflowID:   event.WorkflowID,
-		Payload:      event.Payload,
-		Headers:      event.Headers,
+		Payload:      payload,
+		Headers:      headers,
 		ScheduledAt:  event.ScheduledAt,
 		Status:       event.Status,
 		CreatedAt:    event.CreatedAt,
@@ -149,12 +156,13 @@ func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 }
 
 func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
-	var payload, headers bson.Raw
+	var payload json.RawMessage
+	var headers map[string]string
 	if d.Payload != nil {
-		payload = d.Payload
+		payload = json.RawMessage(d.Payload)
 	}
 	if d.Headers != nil {
-		headers = d.Headers
+		bson.Unmarshal(d.Headers, &headers)
 	}
 	return &domain.ScheduledEvent{
 		EventID:      d.EventID,
