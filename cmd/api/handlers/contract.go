@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/codegen"
 	"github.com/flowrule/flowrule/internal/domain"
@@ -24,8 +26,8 @@ func NewContractHandler(db *sql.DB) *ContractHandler {
 
 func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request) {
 	var schema domain.ContractSchema
-	if err := json.NewDecoder(r.Body).Decode(&schema); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := decodeRequestBody(r, &schema); err != nil {
+		http.Error(w, `{"error":"invalid request body: ` + err.Error() + `"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -127,8 +129,8 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		Language string `json:"language"`
 		Output   string `json:"output_dir,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := decodeRequestBody(r, &req); err != nil {
+		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -185,4 +187,13 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		"output_dir":      outputDir,
 		"generated_files": generatedFiles,
 	})
+}
+
+// decodeRequestBody decodes the request body as JSON or YAML based on Content-Type header
+func decodeRequestBody(r *http.Request, v interface{}) error {
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "yaml") || strings.Contains(contentType, "yml") {
+		return yaml.NewDecoder(r.Body).Decode(v)
+	}
+	return json.NewDecoder(r.Body).Decode(v)
 }

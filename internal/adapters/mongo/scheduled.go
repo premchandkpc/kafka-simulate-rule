@@ -85,7 +85,49 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 	return nil
 }
 
-func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID string, errMsg string) error {
+func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
+	if len(eventIDs) == 0 {
+		return nil, nil
+	}
+
+	coll := r.collection("scheduled_events")
+	now := time.Now().UTC()
+	expiresAt := now.Add(leaseTTL)
+
+	var events []*domain.ScheduledEvent
+	for _, eventID := range eventIDs {
+		var doc ScheduledDoc
+		err := coll.FindOneAndUpdate(ctx,
+			bson.M{
+				"event_id": eventID,
+				"status":   "pending",
+			},
+			bson.M{
+				"$set": bson.M{
+					"status":           "claimed",
+					"claimant":         claimant,
+					"claimed_at":       now,
+					"claim_expires_at": now.Add(leaseTTL),
+				},
+			},
+			options.FindOneAndUpdate().
+				SetSort(bson.D{{Key: "scheduled_at", Value: 1}}).
+				SetReturnDocument(options.After),
+		).Decode(&doc)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				// Event was already claimed or doesn't exist, skip
+				continue
+			}
+			return nil, fmt.Errorf("claim scheduled event: %w", err)
+		}
+		events = append(events, doc.ToDomain())
+	}
+
+	return events, nil
+}
+
+func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error {
 	coll := r.collection("scheduled_events")
 
 	_, err := coll.UpdateOne(ctx,
@@ -95,16 +137,15 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID strin
 		},
 		bson.M{
 			"$set": bson.M{
-				"status": "failed",
+				"status":      "released",
+				"released_at": releasedAt,
 			},
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("mark failed: %w", err)
+		return fmt.Errorf("mark released: %w", err)
 	}
 	return nil
-}
-
 func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error) {
 	coll := r.collection("scheduled_events")
 	var doc ScheduledDoc

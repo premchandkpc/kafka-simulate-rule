@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -39,6 +40,55 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	`, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get due scheduled events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []*domain.ScheduledEvent
+	for rows.Next() {
+		var evt domain.ScheduledEvent
+		var releasedAt *time.Time
+		if err := rows.Scan(
+			&evt.EventID, &evt.TenantID, &evt.EventType, &evt.PartitionKey,
+			&evt.WorkflowID, &evt.Payload, &evt.Headers, &evt.ScheduledAt,
+			&evt.Status, &evt.CreatedAt, &releasedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan scheduled event: %w", err)
+		}
+		evt.ReleasedAt = releasedAt
+		events = append(events, &evt)
+	}
+	return events, nil
+}
+
+func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
+	if len(eventIDs) == 0 {
+		return nil, nil
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(leaseTTL)
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(eventIDs))
+	args := make([]interface{}, len(eventIDs)+3)
+	args[0] = claimant
+	args[1] = expiresAt
+	args[2] = now
+	for i, id := range eventIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+4)
+		args[i+3] = id
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE scheduled_events
+		SET status = 'claimed', claimant = $1, claim_expires_at = $2, claimed_at = $3
+		WHERE event_id IN (%s) AND status = 'pending'
+		RETURNING event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
+	`, strings.Join(placeholders, ","))
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("claim scheduled events: %w", err)
 	}
 	defer rows.Close()
 

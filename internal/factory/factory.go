@@ -295,7 +295,7 @@ func (f *Factory) EffectService(
 	quarantine *mongo.QuarantineRepository,
 	clock ports.Clock,
 ) *effects.Service {
-	return effects.NewService(outbox, sender, quarantine, clock)
+	return effects.NewService(outbox, sender, quarantine, clock, "mongo-worker")
 }
 
 func (f *Factory) BatchService(

@@ -110,9 +110,21 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 
-	log.Printf("scheduler: releasing %d scheduled events", len(events))
+	// Claim the events with a lease to prevent duplicate processing
+	eventIDs := make([]string, len(events))
+	for i, evt := range events {
+		eventIDs[i] = evt.EventID
+	}
 
-	for _, evt := range events {
+	claimedEvents, err := s.repo.Claim(ctx, eventIDs, "scheduler", 5*time.Minute)
+	if err != nil {
+		log.Printf("scheduler: claim events: %v", err)
+		return
+	}
+
+	log.Printf("scheduler: releasing %d scheduled events", len(claimedEvents))
+
+	for _, evt := range claimedEvents {
 		if err := s.releaseEvent(ctx, evt); err != nil {
 			log.Printf("scheduler: release event %s: %v", evt.EventID, err)
 			// Mark as failed

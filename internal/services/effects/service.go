@@ -16,6 +16,7 @@ type Service struct {
 	effectSender ports.EffectSender
 	quarantine   ports.QuarantineRepository
 	clock        ports.Clock
+	claimant     string
 }
 
 func NewService(
@@ -23,18 +24,23 @@ func NewService(
 	effectSender ports.EffectSender,
 	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
+	claimant string,
 ) *Service {
+	if claimant == "" {
+		claimant = "publisher"
+	}
 	return &Service{
 		outbox:       outbox,
 		effectSender: effectSender,
 		quarantine:   quarantine,
 		clock:        clock,
+		claimant:     claimant,
 	}
 }
 
 // PublishBatch claims pending effects and publishes them.
 func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
-	effects, err := s.outbox.ClaimPending(ctx, batchSize, "publisher", 1*time.Minute)
+	effects, err := s.outbox.ClaimPending(ctx, batchSize, s.claimant, 1*time.Minute)
 	if err != nil {
 		return fmt.Errorf("claim pending: %w", err)
 	}
@@ -76,7 +82,7 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 			continue
 		}
 
-		if err := s.outbox.MarkDelivered(ctx, []string{ef.ID}); err != nil {
+		if err := s.outbox.MarkDelivered(ctx, []string{ef.ID}, s.claimant); err != nil {
 			log.Printf("error marking delivered: %v", err)
 		}
 	}

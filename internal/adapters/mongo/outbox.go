@@ -94,14 +94,15 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 	return effects, nil
 }
 
-func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string) error {
+func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 
 	_, err := coll.UpdateMany(ctx,
 		bson.M{
-			"effect_id": bson.M{"$in": effectIDs},
-			"status":    domain.OutboxStatusClaimed,
+			"effect_id":  bson.M{"$in": effectIDs},
+			"status":     domain.OutboxStatusClaimed,
+			"claimed_by": claimant,
 		},
 		bson.M{
 			"$set": bson.M{

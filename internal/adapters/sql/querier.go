@@ -57,6 +57,10 @@ func (t *Tx) Context() context.Context {
 	return context.Background()
 }
 
+func (t *Tx) Conn() pgx.Tx {
+	return t.tx
+}
+
 func (t *Tx) Querier() Querier {
 	return t
 }
@@ -67,4 +71,8 @@ func NewTxFromPool(ctx context.Context, pool *pgxpool.Pool) (*Tx, error) {
 		return nil, err
 	}
 	return NewTx(tx), nil
+}
+
+func NewTxQuerier(tx *Tx) Querier {
+	return tx
 }

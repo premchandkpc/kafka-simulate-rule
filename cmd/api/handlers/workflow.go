@@ -40,8 +40,8 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var wf domain.WorkflowInstance
-	if err := json.NewDecoder(r.Body).Decode(&wf); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := decodeRequestBody(r, &wf); err != nil {
+		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -101,8 +101,8 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 		FromState string `json:"from_state"`
 		ToState   string `json:"to_state"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := decodeRequestBody(r, &body); err != nil {
+		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -207,8 +207,8 @@ func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http
 
 func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	var def domain.WorkflowDefinition
-	if err := json.NewDecoder(r.Body).Decode(&def); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := decodeRequestBody(r, &def); err != nil {
+		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
 		return
 	}
 

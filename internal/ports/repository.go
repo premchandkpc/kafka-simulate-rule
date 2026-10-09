@@ -36,7 +36,7 @@ type ExecutionRepository interface {
 type OutboxRepository interface {
 	Insert(ctx context.Context, effects []domain.OutboxEffect) error
 	ClaimPending(ctx context.Context, batchSize int, claimant string, claimTTL time.Duration) ([]domain.OutboxEffect, error)
-	MarkDelivered(ctx context.Context, effectIDs []string) error
+	MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error
 	ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error
 	Quarantine(ctx context.Context, effectID, errMsg string) error
 	GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error)
@@ -79,6 +79,7 @@ type WorkflowDefinitionRepository interface {
 type ScheduledEventRepository interface {
 	Save(ctx context.Context, event *domain.ScheduledEvent) error
 	GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error)
+	Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error)
 	MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error
 	MarkFailed(ctx context.Context, eventID, errMsg string) error
 	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)

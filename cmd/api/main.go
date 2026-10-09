@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/flowrule/flowrule/cmd/api/handlers"
 	"github.com/flowrule/flowrule/internal/adapters/sql"
+	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
@@ -21,19 +21,15 @@ import (
 )
 
 func main() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/flowrule?sslmode=disable"
-	}
-	migrationsDir := os.Getenv("MIGRATIONS_DIR")
-	if migrationsDir == "" {
-		migrationsDir = "migrations"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	db, err := sql.New(ctx, dsn, migrationsDir)
+	db, err := sql.New(ctx, cfg.Database.DSN, cfg.Database.MigrationsDir)
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
@@ -287,7 +283,7 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:         ":8080",
+		Addr:         cfg.App.HTTPAddr,
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -303,7 +299,7 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("shutting down...")
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.App.ShutdownTimeout)
 	defer shutdownCancel()
 	server.Shutdown(shutdownCtx)
 }

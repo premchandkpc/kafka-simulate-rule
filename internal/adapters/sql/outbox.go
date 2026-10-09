@@ -73,7 +73,7 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 	return effects, nil
 }
 
-func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string) error {
+func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
 		return nil
 	}
@@ -81,17 +81,18 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 
 	// Build placeholders for IN clause
 	placeholders := make([]string, len(effectIDs))
-	args := make([]interface{}, len(effectIDs)+1)
+	args := make([]interface{}, len(effectIDs)+2)
 	args[0] = now
+	args[1] = claimant
 	for i, id := range effectIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+2)
-		args[i+1] = id
+		placeholders[i] = fmt.Sprintf("$%d", i+3)
+		args[i+2] = id
 	}
 
 	query := fmt.Sprintf(`
 		UPDATE outbox_effects
 		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
-		WHERE effect_id IN (%s)
+		WHERE effect_id IN (%s) AND claimed_by = $2
 	`, strings.Join(placeholders, ","))
 
 	_, err := r.db.Exec(ctx, query, args...)
@@ -128,6 +129,61 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errM
 		return fmt.Errorf("quarantine effect: %w", err)
 	}
 	return nil
+}
+
+func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT effect_id, execution_id, destination, name, payload, effect_type,
+		       status, attempts, max_attempts, available_at, last_error, created_at, updated_at
+		FROM outbox_effects
+		WHERE status = 'pending' AND available_at <= NOW()
+		ORDER BY available_at, created_at
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get pending: %w", err)
+	}
+	defer rows.Close()
+
+	var effects []domain.OutboxEffect
+	for rows.Next() {
+		var ef domain.OutboxEffect
+		if err := rows.Scan(
+			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan outbox: %w", err)
+		}
+		effects = append(effects, ef)
+	}
+	return effects, nil
+}
+
+func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT effect_id, execution_id, destination, name, payload, effect_type,
+		       status, attempts, max_attempts, available_at, last_error, created_at, updated_at
+		FROM outbox_effects
+		WHERE execution_id = $1
+		ORDER BY created_at
+	`, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("get by execution: %w", err)
+	}
+	defer rows.Close()
+
+	var effects []domain.OutboxEffect
+	for rows.Next() {
+		var ef domain.OutboxEffect
+		if err := rows.Scan(
+			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan outbox: %w", err)
+		}
+		effects = append(effects, ef)
+	}
+	return effects, nil
 }
 
 type ShardLeaseRepository struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
@@ -281,6 +282,77 @@ func compareIn(val interface{}, list interface{}) bool {
 	return false
 }
 
+// interpolateTemplates replaces template placeholders in the JSON data with actual values
+// Supports: {{new_id}}, {{now}}, {{$.path}}
+func interpolateTemplates(data json.RawMessage, parentEvent *domain.EventEnvelope, childID string) (json.RawMessage, error) {
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(data, &dataMap); err != nil {
+		return nil, err
+	}
+
+	interpolated := interpolateMap(dataMap, dataMap, nil, childID)
+	result, err := json.Marshal(interpolated)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(result), nil
+}
+
+func interpolateMap(m map[string]interface{}, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string) map[string]interface{} {
+	result := make(map[string]interface{})
+	for k, v := range m {
+		result[k] = interpolateValue(v, m, nil, childID)
+	}
+	return result
+}
+
+func interpolateValue(v interface{}, m map[string]interface{}, parentEvent *domain.EventEnvelope, childID string) interface{} {
+	switch val := v.(type) {
+	case string:
+		return interpolateString(val, m, nil, childID)
+	case map[string]interface{}:
+		return interpolateMap(val, m, nil, childID)
+	case []interface{}:
+		result := make([]interface{}, len(val))
+		for i, item := range val {
+			result[i] = interpolateValue(item, m, nil, childID)
+		}
+		return result
+	default:
+		return val
+	}
+}
+
+func interpolateString(s string, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string) string {
+	// Replace {{new_id}}
+	if strings.Contains(s, "{{new_id}}") {
+		s = strings.ReplaceAll(s, "{{new_id}}", childID)
+	}
+	// Replace {{now}}
+	if strings.Contains(s, "{{now}}") {
+		s = strings.ReplaceAll(s, "{{now}}", time.Now().UTC().Format(time.RFC3339))
+	}
+	// Replace {{$.path}}
+	if strings.Contains(s, "{{$.") && strings.HasSuffix(s, "}}") {
+		key := strings.TrimPrefix(s, "{{$.")
+		key = strings.TrimSuffix(key, "}}")
+		if val, ok := root[key]; ok {
+			return fmt.Sprintf("%v", val)
+		}
+		return ""
+	}
+	// Replace {{field}}
+	if strings.HasPrefix(s, "{{") && strings.HasSuffix(s, "}}") {
+		key := strings.TrimPrefix(s, "{{")
+		key = strings.TrimSuffix(key, "}}")
+		if val, ok := root[key]; ok {
+			return fmt.Sprintf("%v", val)
+		}
+		return ""
+	}
+	return s
+}
+
 func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {
 	effectType := domain.EffectTypeEmit
 	var dest, name string
@@ -317,13 +389,19 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 			return domain.Effect{}, fmt.Errorf("partition key resolution resulted in empty value for policy %s", policy)
 		}
 
+		// Interpolate template values in the effect data
+		interpolatedData, err := interpolateTemplates(action.EmitEvent.Data, event, childID)
+		if err != nil {
+			return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
+		}
+
 		child := domain.EventEnvelope{
 			ID:           childID,
 			Type:         action.EmitEvent.Type,
 			TenantID:     event.TenantID,
 			PartitionKey: partitionKey,
 			OccurredAt:   domain.SystemClock{}.Now(),
-			Data:         action.EmitEvent.Data,
+			Data:         interpolatedData,
 			Headers: map[string]string{
 				"flowrule_parent_event_id": event.ID,
 				"flowrule_child_event_id":  childID,

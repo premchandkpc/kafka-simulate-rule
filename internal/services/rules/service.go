@@ -35,6 +35,7 @@ func NewService(
 }
 
 // Activate compiles and activates a rule revision.
+// The tenantScope should be derived from authenticated user context.
 func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet string, source json.RawMessage, actor string) (*domain.RuleActivation, error) {
 	revision, err := s.compiler.Compile(source)
 	if err != nil {
@@ -47,13 +48,20 @@ func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet stri
 		return nil, fmt.Errorf("save revision: %w", err)
 	}
 
+	// Get current activation version for optimistic concurrency
+	currentActivation, err := s.activations.Get(ctx, tenantScope, ruleSet)
+	version := int64(1)
+	if currentActivation != nil {
+		version = currentActivation.Version + 1
+	}
+
 	activation := &domain.RuleActivation{
-		TenantScope: tenantScope,
-		RuleSet:     ruleSet,
-		Revision:    revision.Revision,
-		Version:     1,
-		Actor:       actor,
-		ActivatedAt: s.clock.Now(),
+		TenantScope:  tenantScope,
+		RuleSet:      ruleSet,
+		Revision:     revision.Revision,
+		Version:      version,
+		Actor:        actor,
+		ActivatedAt:  s.clock.Now(),
 	}
 
 	if err := s.activations.Set(ctx, activation); err != nil {

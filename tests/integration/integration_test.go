@@ -160,7 +160,7 @@ func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner stri
 	return claimed, nil
 }
 
-func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string) error {
+func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	for _, effectID := range effectIDs {
 		if ef, ok := m.effects[effectID]; ok {
 			ef.Status = domain.OutboxStatusDelivered

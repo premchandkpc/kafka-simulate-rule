@@ -78,18 +78,25 @@ func NewWorker(
 		config = DefaultWorkerConfig()
 	}
 
-	return &Worker{
+	w := &Worker{
 		consumer:      consumer,
 		events:        events,
 		effects:       effects,
 		batches:       batches,
-		batchInterval: batchInterval,
-		clock:         clock,
-		leaseManager:  leaseManager,
-		workerID:      workerID,
-		numShards:     numShards,
-		config:        config,
+		batchInterval:  batchInterval,
+		clock:          clock,
+		leaseManager:   leaseManager,
+		workerID:       workerID,
+		numShards:      numShards,
+		config:         config,
 	}
+
+	// Initialize shardedConsumer if the consumer supports shard management
+	if sc, ok := consumer.(shardedConsumer); ok {
+		w.shardedConsumer = sc
+	}
+
+	return w
 }
 
 func (w *Worker) Run(ctx context.Context) {
