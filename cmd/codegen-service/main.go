@@ -13,38 +13,6 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
-type RuleSet struct {
-	RuleSet   string `yaml:"rule_set"`
-	Revision  int    `yaml:"revision"`
-	Mode      string `yaml:"mode"`
-	Rules     []Rule `yaml:"rules"`
-}
-
-type Rule struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Priority    int      `yaml:"priority"`
-	When        Condition `yaml:"when"`
-	Then        []Action `yaml:"then"`
-}
-
-type Condition struct {
-	Path  string `yaml:"path"`
-	Op    string `yaml:"op"`
-	Value any    `yaml:"value"`
-}
-
-type Action struct {
-	EmitEvent *EmitEvent `yaml:"emit_event"`
-}
-
-type EmitEvent struct {
-	Type                 string            `yaml:"type"`
-	PartitionKeyPolicy   string            `yaml:"partition_key_policy"`
-	Data                 map[string]string `yaml:"data"`
-}
-
 func main() {
 	var (
 		contractFile = flag.String("contract", "", "Contract YAML file")
@@ -73,12 +41,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("read rule: %v", err)
 	}
-	var ruleSet RuleSet
+	var ruleSet codegen.RuleSet
 	if err := yaml.Unmarshal(ruleData, &ruleSet); err != nil {
 		log.Fatalf("parse rule YAML: %v", err)
 	}
 
-	generator := codegen.NewGenerator(&schema, &ruleSet)
+	generator := codegen.NewGeneratorWithRules(&schema, &ruleSet)
 
 	files, err := generator.GenerateAll(*outputDir)
 	if err != nil {

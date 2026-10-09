@@ -57,125 +57,19 @@ func NewGeneratorWithRules(schema *domain.ContractSchema, ruleSet *RuleSet) *Gen
 }
 
 func (g *Generator) GenerateGo(outputDir string) ([]string, error) {
-	pkgName := sanitizePackageName(g.schema.Name)
-	dir := filepath.Join(outputDir, "go", pkgName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create output dir: %w", err)
-	}
-
-	fileName := pkgName + ".go"
-	filePath := filepath.Join(dir, fileName)
-
-	f, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("create file: %w", err)
-	}
-	defer f.Close()
-
-	typeName := toPascalCase(g.schema.Name)
-
-	data := struct {
-		Schema      *domain.ContractSchema
-		TypeName    string
-		PackageName string
-		Namespace   string
-		Fields      []FieldInfo
-		NestedTypes []NestedType
-	}{
-		Schema:      g.schema,
-		TypeName:    typeName,
-		PackageName: pkgName,
-		Namespace:   g.schema.Namespace,
-		Fields:      g.buildFields(),
-		NestedTypes: g.buildNestedTypes(),
-	}
-
-	if err := goTemplate.Execute(f, data); err != nil {
-		return nil, fmt.Errorf("execute template: %w", err)
-	}
-
-	return []string{filePath}, nil
+	return g.generate(outputDir, "go", goTemplate, ".go")
 }
 
-type NestedType struct {
-	Name   string
-	Fields []FieldInfo
+func (g *Generator) GenerateJava(outputDir string) ([]string, error) {
+	return g.generate(outputDir, "java", javaTemplate, ".java")
 }
 
-func (g *Generator) buildNestedTypes() []NestedType {
-	var nested []NestedType
-	for name, field := range g.schema.Fields {
-		if field.Type == "object" && field.Properties != nil {
-			typeName := toPascalCase(name)
-			var fields []FieldInfo
-			for propName, prop := range field.Properties {
-				fields = append(fields, FieldInfo{
-					Name:        toPascalCase(propName),
-					JSONName:    propName,
-					GoType:      g.mapGoType(prop.Type),
-					Required:    prop.Required,
-					Description: prop.Description,
-				})
-			}
-			nested = append(nested, NestedType{Name: typeName, Fields: fields})
-		} else if field.Type == "array" && field.Items != nil && field.Items.Type == "object" && field.Items.Properties != nil {
-			typeName := toPascalCase(strings.TrimSuffix(name, "s"))
-			var fields []FieldInfo
-			for propName, prop := range field.Items.Properties {
-				fields = append(fields, FieldInfo{
-					Name:        toPascalCase(propName),
-					JSONName:    propName,
-					GoType:      g.mapGoType(prop.Type),
-					Required:    prop.Required,
-					Description: prop.Description,
-				})
-			}
-			nested = append(nested, NestedType{Name: typeName, Fields: fields})
-		}
-	}
-	return nested
+func (g *Generator) GenerateProtobuf(outputDir string) ([]string, error) {
+	return g.generate(outputDir, "protobuf", protobufTemplate, ".proto")
 }
 
-func (g *Generator) buildFields() []FieldInfo {
-	var fields []FieldInfo
-	for name, field := range g.schema.Fields {
-		goType := g.mapGoType(field.Type)
-		if field.Type == "object" && field.Properties != nil {
-			goType = toPascalCase(name)
-		} else if field.Type == "array" && field.Items != nil && field.Items.Type == "object" && field.Items.Properties != nil {
-			goType = "[]" + toPascalCase(strings.TrimSuffix(name, "s"))
-		}
-		f := FieldInfo{
-			Name:        toPascalCase(name),
-			JSONName:    name,
-			GoType:      goType,
-			JavaType:    g.mapJavaType(field.Type),
-			ProtoType:   g.mapProtoType(field.Type),
-			JSONSchema:  g.mapJSONSchema(field),
-			Required:    field.Required,
-			Description: field.Description,
-		}
-		fields = append(fields, f)
-	}
-	return fields
-}
-
-func (g *Generator) buildFieldsForOther() []FieldInfo {
-	var fields []FieldInfo
-	for name, field := range g.schema.Fields {
-		f := FieldInfo{
-			Name:        name,
-			JSONName:    name,
-			GoType:      g.mapGoType(field.Type),
-			JavaType:    g.mapJavaType(field.Type),
-			ProtoType:   g.mapProtoType(field.Type),
-			JSONSchema:  g.mapJSONSchema(field),
-			Required:    field.Required,
-			Description: field.Description,
-		}
-		fields = append(fields, f)
-	}
-	return fields
+func (g *Generator) GenerateJSONSchema(outputDir string) ([]string, error) {
+	return g.generate(outputDir, "jsonschema", jsonschemaTemplate, ".json")
 }
 
 func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
@@ -212,18 +106,6 @@ func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
 	}
 
 	return allFiles, nil
-}
-
-func (g *Generator) GenerateJava(outputDir string) ([]string, error) {
-	return g.generate(outputDir, "java", javaTemplate, ".java")
-}
-
-func (g *Generator) GenerateProtobuf(outputDir string) ([]string, error) {
-	return g.generate(outputDir, "protobuf", protobufTemplate, ".proto")
-}
-
-func (g *Generator) GenerateJSONSchema(outputDir string) ([]string, error) {
-	return g.generate(outputDir, "jsonschema", jsonschemaTemplate, ".json")
 }
 
 func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
@@ -317,7 +199,7 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	fmt.Fprint(f, "		rules: []CompiledRule{\n")
 
 	compiledRules := g.buildCompiledRules()
-	for i, rule := range compiledRules {
+	for _, rule := range compiledRules {
 		fmt.Fprintf(f, "			{\n")
 		fmt.Fprintf(f, "				ID:       %q,\n", rule.ID)
 		fmt.Fprintf(f, "				Priority: %d,\n", rule.Priority)
@@ -399,7 +281,7 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	fmt.Fprint(f, "	case json.Number:\n")
 	fmt.Fprint(f, "		return v.String(), true\n")
 	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	return fmt.Sprintf(\"%v\", v), true\n")
+	f.WriteString("	return fmt.Sprintf(\"%v\", v), true\n")
 	fmt.Fprint(f, "}\n\n")
 
 	fmt.Fprint(f, "func computePartitionKey(payload map[string]any, policy string) string {\n")
@@ -435,8 +317,8 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	fmt.Fprint(f, "		return time.Now().UTC().Format(time.RFC3339)\n")
 	fmt.Fprint(f, "	}\n")
 	fmt.Fprint(f, "	\n")
- fmt.Fprint(f, "	if strings.HasPrefix(val, "${{$.}") && strings.HasSuffix(val, \"}}\") {\n")
- fmt.Fprint(f, "		key := strings.TrimPrefix(val, "${{$.}")\n")
+	fmt.Fprint(f, "	if strings.HasPrefix(val, \"{{$.\") && strings.HasSuffix(val, \"}}\") {\n")
+	fmt.Fprint(f, "		key := strings.TrimPrefix(val, \"{{$.\")\n")
 	fmt.Fprint(f, "		key = strings.TrimSuffix(key, \"}}\")\n")
 	fmt.Fprint(f, "		if v, ok := payload[key]; ok {\n")
 	fmt.Fprint(f, "			return v\n")
@@ -444,8 +326,8 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	fmt.Fprint(f, "		return nil\n")
 	fmt.Fprint(f, "	}\n")
 	fmt.Fprint(f, "	\n")
-	fmt.Fprint(f, "	if strings.HasPrefix(val, \"{{") && strings.HasSuffix(val, \"}}\") {\n")
-	fmt.Fprint(f, "		key := strings.TrimPrefix(val, \"{{")\n")
+	fmt.Fprint(f, "	if strings.HasPrefix(val, \"{{\") && strings.HasSuffix(val, \"}}\") {\n")
+	fmt.Fprint(f, "		key := strings.TrimPrefix(val, \"{{\")\n")
 	fmt.Fprint(f, "		key = strings.TrimSuffix(key, \"}}\")\n")
 	fmt.Fprint(f, "		if v, ok := payload[key]; ok {\n")
 	fmt.Fprint(f, "			return v\n")
@@ -456,114 +338,11 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	fmt.Fprint(f, "	return val\n")
 	fmt.Fprint(f, "}\n")
 
+	if _, err := f.WriteString(""); err != nil {
+		return nil, fmt.Errorf("write evaluator: %w", err)
+	}
+
 	return []string{filePath}, nil
-}
-
-type CompiledRuleData struct {
-	ID       string
-	Priority int
-	ConditionCode string
-	Effects  []EffectTemplateData
-}
-
-type EffectTemplateData struct {
-	EventType           string
-	PartitionKeyPolicy  string
-	DataTemplate        map[string]string
-}
-
-func (g *Generator) buildCompiledRules() []CompiledRuleData {
-	if g.ruleSet == nil {
-		return nil
-	}
-
-	var compiled []CompiledRuleData
-	for _, rule := range g.ruleSet.Rules {
-		conditionCode := g.buildConditionCode(rule.When)
-		
-		var effects []EffectTemplateData
-		for _, action := range rule.Then {
-			if action.EmitEvent != nil {
-				effects = append(effects, EffectTemplateData{
-					EventType:           action.EmitEvent.Type,
-					PartitionKeyPolicy:  action.EmitEvent.PartitionKeyPolicy,
-					DataTemplate:        action.EmitEvent.Data,
-				})
-			}
-		}
-
-		compiled = append(compiled, CompiledRuleData{
-			ID:           rule.ID,
-			Priority:     rule.Priority,
-			ConditionCode: conditionCode,
-			Effects:      effects,
-		})
-	}
-
-	// Sort by priority descending
-	for i := 0; i < len(compiled)-1; i++ {
-		for j := i + 1; j < len(compiled); j++ {
-			if compiled[i].Priority < compiled[j].Priority {
-				compiled[i], compiled[j] = compiled[j], compiled[i]
-			}
-		}
-	}
-
-	return compiled
-}
-
-func (g *Generator) buildConditionCode(cond Condition) string {
-	// Generate Go code for the condition
-	// Path examples: "$.total_amount", "$.customer_id"
-	// Ops: "gt", "gte", "lt", "lte", "eq", "neq", "contains", "in"
-	
-	path := cond.Path
-	if strings.HasPrefix(path, "$.") {
-		path = path[2:] // Remove "$."
-	}
-
-	var op string
-	switch cond.Op {
-	case "gt":
-		op = ">"
-	case "gte":
-		op = ">="
-	case "lt":
-		op = "<"
-	case "lte":
-		op = "<="
-	case "eq":
-		op = "=="
-	case "neq":
-		op = "!="
-	case "contains":
-		return fmt.Sprintf("strings.Contains(getString(payload, %q), %v)", path, cond.Value)
-	case "in":
-		return fmt.Sprintf("containsString(payload, %q, %v)", path, cond.Value)
-	default:
-		op = "=="
-	}
-
-	// For numeric comparisons
-	if isNumeric(cond.Value) {
-		return fmt.Sprintf("val, ok := getFloat64(payload, %q); ok && val %s %v", path, op, cond.Value)
-	}
-
-	// For string comparisons
-	return fmt.Sprintf("val, ok := getString(payload, %q); ok && val %s %q", path, op, cond.Value)
-}
-
-func isNumeric(v any) bool {
-	switch v.(type) {
-	case int, int64, float64, float32:
-		return true
-	}
-	// Check if string representation is numeric
-	if s, ok := v.(string); ok {
-		_, err := fmt.Sscanf(s, "%f", new(float64))
-		return err == nil
-	}
-	return false
 }
 
 func (g *Generator) GenerateService(outputDir string) ([]string, error) {
@@ -603,15 +382,15 @@ func (g *Generator) GenerateService(outputDir string) ([]string, error) {
 	}
 
 	data := struct {
-		Schema         *domain.ContractSchema
-		TypeName       string
-		PackageName    string
-		EventName      string
-		ContractPkg    string
-		ContractType   string
-		RuleSet        *RuleSet
-		OutputEvents   []string
-		NumShards      uint32
+		Schema        *domain.ContractSchema
+		TypeName      string
+		PackageName   string
+		EventName     string
+		ContractPkg   string
+		ContractType  string
+		RuleSet       *RuleSet
+		OutputEvents  []string
+		NumShards     uint32
 	}{
 		Schema:        g.schema,
 		TypeName:      typeName,
@@ -626,123 +405,6 @@ func (g *Generator) GenerateService(outputDir string) ([]string, error) {
 
 	if err := serviceTemplate.Execute(f, data); err != nil {
 		return nil, fmt.Errorf("execute service template: %w", err)
-	}
-
-	return []string{filePath}, nil
-}
-
-func (g *Generator) generateEnvelope(outputDir string) ([]string, error) {
-	pkgName := sanitizePackageName(g.schema.Name)
-	dir := filepath.Join(outputDir, "go", "runtime")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "envelope.go")
-	f, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("create envelope.go: %w", err)
-	}
-	defer f.Close()
-
-	typeName := toPascalCase(g.schema.Name)
-
-	data := struct {
-		Schema       *domain.ContractSchema
-		TypeName     string
-		PackageName  string
-		EventName    string
-		ContractPkg  string
-		ContractType string
-	}{
-		Schema:       g.schema,
-		TypeName:     typeName,
-		PackageName:  pkgName,
-		EventName:    g.schema.Name,
-		ContractPkg:  pkgName,
-		ContractType: typeName,
-	}
-
-	if err := envelopeTemplate.Execute(f, data); err != nil {
-		return nil, fmt.Errorf("execute envelope template: %w", err)
-	}
-
-	return []string{filePath}, nil
-}
-
-func (g *Generator) generatePublisher(outputDir string) ([]string, error) {
-	pkgName := sanitizePackageName(g.schema.Name)
-	dir := filepath.Join(outputDir, "go", "runtime")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "publisher.go")
-	f, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("create publisher.go: %w", err)
-	}
-	defer f.Close()
-
-	typeName := toPascalCase(g.schema.Name)
-
-	data := struct {
-		Schema       *domain.ContractSchema
-		TypeName     string
-		PackageName  string
-		EventName    string
-		ContractPkg  string
-		ContractType string
-	}{
-		Schema:       g.schema,
-		TypeName:     typeName,
-		PackageName:  pkgName,
-		EventName:    g.schema.Name,
-		ContractPkg:  pkgName,
-		ContractType: typeName,
-	}
-
-	if err := publisherTemplate.Execute(f, data); err != nil {
-		return nil, fmt.Errorf("execute publisher template: %w", err)
-	}
-
-	return []string{filePath}, nil
-}
-
-func (g *Generator) generateConsumer(outputDir string) ([]string, error) {
-	pkgName := sanitizePackageName(g.schema.Name)
-	dir := filepath.Join(outputDir, "go", "runtime")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "consumer.go")
-	f, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("create consumer.go: %w", err)
-	}
-	defer f.Close()
-
-	typeName := toPascalCase(g.schema.Name)
-
-	data := struct {
-		Schema       *domain.ContractSchema
-		TypeName     string
-		PackageName  string
-		EventName    string
-		ContractPkg  string
-		ContractType string
-	}{
-		Schema:       g.schema,
-		TypeName:     typeName,
-		PackageName:  pkgName,
-		EventName:    g.schema.Name,
-		ContractPkg:  pkgName,
-		ContractType: typeName,
-	}
-
-	if err := consumerTemplate.Execute(f, data); err != nil {
-		return nil, fmt.Errorf("execute consumer template: %w", err)
 	}
 
 	return []string{filePath}, nil
@@ -787,13 +449,29 @@ func (g *Generator) generate(outputDir, subdir string, tmpl *template.Template, 
 
 type FieldInfo struct {
 	Name        string
-	JSONName    string
 	GoType      string
 	JavaType    string
 	ProtoType   string
 	JSONSchema  map[string]interface{}
 	Required    bool
 	Description string
+}
+
+func (g *Generator) buildFields() []FieldInfo {
+	var fields []FieldInfo
+	for name, field := range g.schema.Fields {
+		f := FieldInfo{
+			Name:        name,
+			GoType:      g.mapGoType(field.Type),
+			JavaType:    g.mapJavaType(field.Type),
+			ProtoType:   g.mapProtoType(field.Type),
+			JSONSchema:  g.mapJSONSchema(field),
+			Required:    field.Required,
+			Description: field.Description,
+		}
+		fields = append(fields, f)
+	}
+	return fields
 }
 
 func (g *Generator) mapGoType(t string) string {
@@ -892,12 +570,6 @@ func toPascalCase(s string) string {
 		}
 	}
 	return strings.Join(segments, "")
-}
-
-func sanitizePackageName(name string) string {
-	name = strings.ReplaceAll(name, ".", "_")
-	name = strings.ReplaceAll(name, "-", "_")
-	return strings.ToLower(name)
 }
 
 var goTemplate = template.Must(template.New("go").Parse(`// Code generated by FlowRule. DO NOT EDIT.
@@ -1201,7 +873,7 @@ type Service struct {
 	js         jetstream.JetStream
 	stream     string
 	numShards  uint32
-}
+)
 
 // ServiceConfig holds configuration for the service
 type ServiceConfig struct {
@@ -1267,3 +939,229 @@ func (s *Service) handleEvent(ctx context.Context, payload *{{.ContractPkg}}.{{.
 	return nil
 }
 `))
+
+func sanitizePackageName(name string) string {
+	name = strings.ReplaceAll(name, ".", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+	return strings.ToLower(name)
+}
+
+type CompiledRuleData struct {
+	ID            string
+	Priority      int
+	ConditionCode string
+	Effects       []EffectTemplateData
+}
+
+type EffectTemplateData struct {
+	EventType           string
+	PartitionKeyPolicy  string
+	DataTemplate        map[string]string
+}
+
+func (g *Generator) buildCompiledRules() []CompiledRuleData {
+	if g.ruleSet == nil {
+		return nil
+	}
+
+	var compiled []CompiledRuleData
+	for _, rule := range g.ruleSet.Rules {
+		conditionCode := g.buildConditionCode(rule.When)
+
+		var effects []EffectTemplateData
+		for _, action := range rule.Then {
+			if action.EmitEvent != nil {
+				effects = append(effects, EffectTemplateData{
+					EventType:           action.EmitEvent.Type,
+					PartitionKeyPolicy:  action.EmitEvent.PartitionKeyPolicy,
+					DataTemplate:        action.EmitEvent.Data,
+				})
+			}
+		}
+
+		compiled = append(compiled, CompiledRuleData{
+			ID:            rule.ID,
+			Priority:      rule.Priority,
+			ConditionCode: conditionCode,
+			Effects:       effects,
+		})
+	}
+
+	// Sort by priority descending
+	for i := 0; i < len(compiled)-1; i++ {
+		for j := i + 1; j < len(compiled); j++ {
+			if compiled[i].Priority < compiled[j].Priority {
+				compiled[i], compiled[j] = compiled[j], compiled[i]
+			}
+		}
+	}
+
+	return compiled
+}
+
+
+func (g *Generator) buildConditionCode(cond Condition) string {
+	path := cond.Path
+	if strings.HasPrefix(path, "$.") {
+		path = path[2:] // Remove "$."
+	}
+
+	var op string
+	switch cond.Op {
+	case "gt":
+		op = ">"
+	case "gte":
+		op = ">="
+	case "lt":
+		op = "<"
+	case "lte":
+		op = "<="
+	case "eq":
+		op = "=="
+	case "neq":
+		op = "!="
+	case "contains":
+		return fmt.Sprintf("strings.Contains(getString(payload, %q), %v)", path, cond.Value)
+	case "in":
+		return fmt.Sprintf("containsString(payload, %q, %v)", path, cond.Value)
+	default:
+		op = "=="
+	}
+
+	// For numeric comparisons
+	if isNumeric(cond.Value) {
+		return fmt.Sprintf("val, ok := getFloat64(payload, %q); ok && val %s %v", path, op, cond.Value)
+	}
+
+	// For string comparisons
+	return fmt.Sprintf("val, ok := getString(payload, %q); ok && val %s %q", path, op, cond.Value)
+}
+
+func isNumeric(v any) bool {
+	switch v.(type) {
+	case int, int64, float64, float32:
+		return true
+	}
+	if s, ok := v.(string); ok {
+		_, err := fmt.Sscanf(s, "%f", new(float64))
+		return err == nil
+	}
+	return false
+}
+
+func (g *Generator) generateEnvelope(outputDir string) ([]string, error) {
+	pkgName := sanitizePackageName(g.schema.Name)
+	dir := filepath.Join(outputDir, "go", "runtime")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create runtime dir: %w", err)
+	}
+
+	filePath := filepath.Join(dir, "envelope.go")
+	f, err := os.Create(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("create envelope.go: %w", err)
+	}
+	defer f.Close()
+
+	typeName := toPascalCase(g.schema.Name)
+
+	data := struct {
+		Schema       *domain.ContractSchema
+		TypeName     string
+		PackageName  string
+		EventName    string
+		ContractPkg  string
+		ContractType string
+	}{
+		Schema:       g.schema,
+		TypeName:     typeName,
+		PackageName:  pkgName,
+		EventName:    g.schema.Name,
+		ContractPkg:  pkgName,
+		ContractType: typeName,
+	}
+
+	if err := envelopeTemplate.Execute(f, data); err != nil {
+		return nil, fmt.Errorf("execute envelope template: %w", err)
+	}
+
+	return []string{filePath}, nil
+}
+
+func (g *Generator) generatePublisher(outputDir string) ([]string, error) {
+	pkgName := sanitizePackageName(g.schema.Name)
+	dir := filepath.Join(outputDir, "go", "runtime")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create runtime dir: %w", err)
+	}
+
+	filePath := filepath.Join(dir, "publisher.go")
+	f, err := os.Create(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("create publisher.go: %w", err)
+	}
+	defer f.Close()
+
+	typeName := toPascalCase(g.schema.Name)
+
+	data := struct {
+		Schema       *domain.ContractSchema
+		TypeName     string
+		PackageName  string
+		EventName    string
+		ContractPkg  string
+		ContractType string
+	}{
+		Schema:       g.schema,
+		TypeName:     typeName,
+		PackageName:  pkgName,
+		EventName:    g.schema.Name,
+		ContractPkg:  pkgName,
+		ContractType: typeName,
+	}
+
+	if err := publisherTemplate.Execute(f, data); err != nil {
+		return nil, fmt.Errorf("execute publisher template: %w", err)
+	}
+
+	return []string{filePath}, nil
+}
+
+func (g *Generator) generateConsumer(outputDir string) ([]string, error) {
+	pkgName := sanitizePackageName(g.schema.Name)
+	dir := filepath.Join(outputDir, "go", "runtime")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create runtime dir: %w", err)
+	}
+
+	filePath := filepath.Join(dir, "consumer.go")
+	f, err := os.Create(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("create consumer.go: %w", err)
+	}
+	defer f.Close()
+
+	typeName := toPascalCase(g.schema.Name)
+
+	data := struct {
+		Schema       *domain.ContractSchema
+		TypeName     string
+		PackageName  string
+		EventName    string
+		ContractPkg  string
+		ContractType string
+	}{
+		Schema:       g.schema,
+		TypeName:     typeName,
+		PackageName:  pkgName,
+		EventName:    g.schema.Name,
+		ContractPkg:  pkgName,
+		ContractType: typeName,
+	}
+
+	if err := consumerTemplate.Execute(f, data); err != nil {
+		return nil, fmt.Errorf("execute consumer template: %w", err)
+	}
+
+	return []string{filePath}, nil
+}

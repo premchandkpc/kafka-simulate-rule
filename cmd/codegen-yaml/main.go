@@ -16,13 +16,14 @@ import (
 func main() {
 	var (
 		contractFile = flag.String("contract", "", "Contract YAML file")
+		ruleFile     = flag.String("rule", "", "Rule set YAML file")
 		outputDir    = flag.String("output", ".generated", "Output directory")
-		target       = flag.String("target", "go", "Target: go, java, protobuf, jsonschema, runtime, evaluator")
+		target       = flag.String("target", "go", "Target: go, java, protobuf, jsonschema, runtime, evaluator, service, all")
 	)
 	flag.Parse()
 
 	if *contractFile == "" {
-		fmt.Fprintf(os.Stderr, "Usage: %s -contract <file.yaml> [-output dir] [-target go|java|protobuf|jsonschema|runtime|evaluator]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s -contract <file.yaml> [-rule <file.yaml>] [-output dir] [-target go|java|protobuf|jsonschema|runtime|evaluator|service|all]\n", os.Args[0])
 		os.Exit(1)
 	}
 
@@ -33,10 +34,28 @@ func main() {
 
 	var schema domain.ContractSchema
 	if err := yaml.Unmarshal(data, &schema); err != nil {
-		log.Fatalf("parse YAML: %v", err)
+		log.Fatalf("parse contract YAML: %v", err)
 	}
 
-	generator := codegen.NewGenerator(&schema)
+	var ruleSet *codegen.RuleSet
+	if *ruleFile != "" {
+		ruleData, err := os.ReadFile(*ruleFile)
+		if err != nil {
+			log.Fatalf("read rule: %v", err)
+		}
+		var rs codegen.RuleSet
+		if err := yaml.Unmarshal(ruleData, &rs); err != nil {
+			log.Fatalf("parse rule YAML: %v", err)
+		}
+		ruleSet = &rs
+	}
+
+	var generator *codegen.Generator
+	if ruleSet != nil {
+		generator = codegen.NewGeneratorWithRules(&schema, ruleSet)
+	} else {
+		generator = codegen.NewGenerator(&schema)
+	}
 
 	var files []string
 	switch *target {
@@ -52,6 +71,10 @@ func main() {
 		files, err = generator.GenerateRuntime(*outputDir)
 	case "evaluator":
 		files, err = generator.GenerateEvaluator(*outputDir)
+	case "service":
+		files, err = generator.GenerateService(*outputDir)
+	case "all":
+		files, err = generator.GenerateAll(*outputDir)
 	default:
 		log.Fatalf("unknown target: %s", *target)
 	}
