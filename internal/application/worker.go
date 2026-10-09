@@ -95,12 +95,12 @@ func NewWorker(
 		events:        events,
 		effects:       effects,
 		batches:       batches,
-		batchInterval:  batchInterval,
-		clock:          clock,
-		leaseManager:   leaseManager,
-		workerID:       workerID,
-		numShards:      numShards,
-		config:         config,
+		batchInterval: batchInterval,
+		clock:         clock,
+		leaseManager:  leaseManager,
+		workerID:      workerID,
+		numShards:     numShards,
+		config:        config,
 	}
 
 	// Initialize shardedConsumer if the consumer supports shard management

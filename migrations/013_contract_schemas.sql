@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS contract_schemas (
     namespace     TEXT,
     description   TEXT,
     fields        JSONB NOT NULL,
-    compatibility TEXT,
+    compatibility TEXT NOT NULL DEFAULT 'BACKWARD',
     owner         TEXT,
     deprecated    BOOLEAN NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),

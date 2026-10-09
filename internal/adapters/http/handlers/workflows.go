@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -282,9 +280,4 @@ func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *htt
 	}
 
 	responses.WriteOK(w, map[string]string{"status": "deleted"})
-}
-
-// decodeRequestBody decodes the request body as JSON
-func decodeRequestBody(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
 }

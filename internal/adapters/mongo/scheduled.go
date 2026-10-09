@@ -163,21 +163,21 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*do
 }
 
 type ScheduledDoc struct {
-	EventID      string     `bson:"event_id"`
-	TenantID     string     `bson:"tenant_id"`
-	EventType    string     `bson:"event_type"`
-	PartitionKey string     `bson:"partition_key"`
-	WorkflowID   string     `bson:"workflow_id,omitempty"`
-	Payload      bson.Raw   `bson:"payload"`
-	Headers      bson.Raw   `bson:"headers,omitempty"`
-	ScheduledAt  time.Time  `bson:"scheduled_at"`
-	Status       string     `bson:"status"`
-	CreatedAt    time.Time  `bson:"created_at"`
-	ReleasedAt   *time.Time `bson:"released_at,omitempty"`
-	Claimant     string     `bson:"claimant,omitempty"`
-	ClaimedAt    *time.Time `bson:"claimed_at,omitempty"`
+	EventID        string     `bson:"event_id"`
+	TenantID       string     `bson:"tenant_id"`
+	EventType      string     `bson:"event_type"`
+	PartitionKey   string     `bson:"partition_key"`
+	WorkflowID     string     `bson:"workflow_id,omitempty"`
+	Payload        bson.Raw   `bson:"payload"`
+	Headers        bson.Raw   `bson:"headers,omitempty"`
+	ScheduledAt    time.Time  `bson:"scheduled_at"`
+	Status         string     `bson:"status"`
+	CreatedAt      time.Time  `bson:"created_at"`
+	ReleasedAt     *time.Time `bson:"released_at,omitempty"`
+	Claimant       string     `bson:"claimant,omitempty"`
+	ClaimedAt      *time.Time `bson:"claimed_at,omitempty"`
 	ClaimExpiresAt *time.Time `bson:"claim_expires_at,omitempty"`
-	LastError    string     `bson:"last_error,omitempty"`
+	LastError      string     `bson:"last_error,omitempty"`
 }
 
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {

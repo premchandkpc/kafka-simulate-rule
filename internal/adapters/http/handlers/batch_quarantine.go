@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -31,10 +28,10 @@ func (h *BatchHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TenantID      string   `json:"tenant_id"`
-		PartitionKey  string   `json:"partition_key"`
-		RuleSet       string   `json:"rule_set"`
-		EventIDs      []string `json:"event_ids"`
+		TenantID     string   `json:"tenant_id"`
+		PartitionKey string   `json:"partition_key"`
+		RuleSet      string   `json:"rule_set"`
+		EventIDs     []string `json:"event_ids"`
 	}
 	if err := decodeRequestBody(r, &req); err != nil {
 		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
@@ -236,9 +233,4 @@ func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	responses.WriteNoContent(w)
-}
-
-// decodeRequestBody decodes the request body as JSON
-func decodeRequestBody(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
 }

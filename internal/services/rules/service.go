@@ -59,12 +59,12 @@ func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet stri
 	}
 
 	activation := &domain.RuleActivation{
-		TenantScope:  tenantScope,
-		RuleSet:      ruleSet,
-		Revision:     revision.Revision,
-		Version:      version,
-		Actor:        actor,
-		ActivatedAt:  s.clock.Now(),
+		TenantScope: tenantScope,
+		RuleSet:     ruleSet,
+		Revision:    revision.Revision,
+		Version:     version,
+		Actor:       actor,
+		ActivatedAt: s.clock.Now(),
 	}
 
 	if err := s.activations.Set(ctx, activation); err != nil {

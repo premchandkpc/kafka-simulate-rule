@@ -3,21 +3,21 @@ package http
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/handlers"
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
-	"github.com/flowrule/flowrule/internal/services/rules"
-	"github.com/flowrule/flowrule/internal/services/workflow"
+	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/services/batches"
 	"github.com/flowrule/flowrule/internal/services/quarantine"
-	"github.com/flowrule/flowrule/internal/ports"
-	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/services/rules"
+	"github.com/flowrule/flowrule/internal/services/workflow"
 )
 
 // Router holds all HTTP handlers and middleware
 type Router struct {
-	mux *http.ServeMux
+	handler http.Handler
 }
 
 // NewRouter creates a new HTTP router with all routes registered
@@ -46,7 +46,7 @@ func NewRouter(
 	ruleHandler.RegisterRoutes(mux)
 
 	// Workflow handlers
-	workflowHandler := handlers.NewWorkflowHandler(workflowSvc, workflowDefRepo)
+	workflowHandler := handlers.NewWorkflowHandler(workflowSvc, nil, workflowDefRepo)
 	workflowHandler.RegisterRoutes(mux)
 
 	// Contract handlers

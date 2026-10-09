@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -108,9 +105,4 @@ func (h *ScheduledHandler) CancelScheduledEvent(w http.ResponseWriter, r *http.R
 	}
 
 	responses.WriteNoContent(w)
-}
-
-// decodeRequestBody decodes the request body as JSON
-func decodeRequestBody(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
 }

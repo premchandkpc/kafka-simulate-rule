@@ -1,15 +1,10 @@
 package handlers
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/codegen"
@@ -187,7 +182,6 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	}
 
 	if genErr != nil {
-		log.Printf("Code generation failed: %v", genErr)
 		responses.WriteError(w, http.StatusInternalServerError, genErr.Error(), responses.CodeInternalError)
 		return
 	}
@@ -199,13 +193,4 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		"output_dir":      outputDir,
 		"generated_files": generatedFiles,
 	})
-}
-
-// decodeRequestBody decodes the request body as JSON or YAML based on Content-Type header
-func decodeRequestBody(r *http.Request, v interface{}) error {
-	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "yaml") || strings.Contains(contentType, "yml") {
-		return yaml.NewDecoder(r.Body).Decode(v)
-	}
-	return json.NewDecoder(r.Body).Decode(v)
 }

@@ -28,10 +28,10 @@ func (h *BatchHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TenantID      string   `json:"tenant_id"`
-		PartitionKey  string   `json:"partition_key"`
-		RuleSet       string   `json:"rule_set"`
-		EventIDs      []string `json:"event_ids"`
+		TenantID     string   `json:"tenant_id"`
+		PartitionKey string   `json:"partition_key"`
+		RuleSet      string   `json:"rule_set"`
+		EventIDs     []string `json:"event_ids"`
 	}
 	if err := decodeRequestBody(r, &req); err != nil {
 		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)

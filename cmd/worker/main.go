@@ -13,6 +13,7 @@ import (
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/observability"
+	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
@@ -75,7 +76,16 @@ func main() {
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
 	clock := domain.SystemClock{}
-	effectSender := effects.NewFakeDestination()
+
+	// Create effect sender - use HTTP destination in production, fail if not configured
+	var effectSender ports.EffectSender
+	if cfg.Worker.EffectDestinationURL != "" {
+		effectSender = effects.NewHTTPDestination(cfg.Worker.EffectDestinationURL)
+	} else if cfg.App.Env == "development" || cfg.App.Env == "test" {
+		effectSender = effects.NewFakeDestination()
+	} else {
+		log.Fatalf("EFFECT_DESTINATION_URL is required in production environment")
+	}
 
 	// Create repositories
 	// Create services
