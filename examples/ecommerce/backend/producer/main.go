@@ -10,6 +10,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	ordercreated "examples/ecommerce/generated/go/order_created"
 )
 
 type EventEnvelope struct {
@@ -51,31 +53,38 @@ func main() {
 		log.Fatalf("Failed to create stream: %v", err)
 	}
 
-	// Example: Create an order
+	// Create order using generated types
+	order := ordercreated.Created{
+		OrderId:      "order-001",
+		CustomerId:   "customer-123",
+		TotalAmount:  25000,
+		Currency:     "USD",
+		Items: []ordercreated.Item{
+			{ProductId: "prod-001", Quantity: 2, UnitPrice: 10000},
+			{ProductId: "prod-002", Quantity: 1, UnitPrice: 5000},
+		},
+		ShippingAddress: ordercreated.ShippingAddress{
+			Street:      "123 Main St",
+			City:        "San Francisco",
+			State:       "CA",
+			PostalCode:  "94102",
+			Country:     "US",
+		},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	orderData, err := json.Marshal(order)
+	if err != nil {
+		log.Fatalf("Failed to marshal order: %v", err)
+	}
+
 	orderEvent := EventEnvelope{
 		ID:           "order-001",
 		Type:         "order.created",
 		TenantID:     "acme-corp",
 		PartitionKey: "customer-123",
 		OccurredAt:   time.Now().UTC(),
-		Data: json.RawMessage(`{
-			"order_id": "order-001",
-			"customer_id": "customer-123",
-			"total_amount": 25000,
-			"currency": "USD",
-			"items": [
-				{"product_id": "prod-001", "quantity": 2, "unit_price": 10000},
-				{"product_id": "prod-002", "quantity": 1, "unit_price": 5000}
-			],
-			"shipping_address": {
-				"street": "123 Main St",
-				"city": "San Francisco",
-				"state": "CA",
-				"postal_code": "94102",
-				"country": "US"
-			},
-			"created_at": "` + time.Now().UTC().Format(time.RFC3339) + `"
-		}`),
+		Data:         orderData,
 	}
 
 	data, err := json.Marshal(orderEvent)

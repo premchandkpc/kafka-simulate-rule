@@ -12,6 +12,12 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	orderplaced "examples/food-delivery/generated/go/order_placed"
+	restaurantaccepted "examples/food-delivery/generated/go/restaurant_accepted"
+	foodprepared "examples/food-delivery/generated/go/food_prepared"
+	driverassigned "examples/food-delivery/generated/go/driver_assigned"
+	delivered "examples/food-delivery/generated/go/delivered"
 )
 
 type EventEnvelope struct {
@@ -89,7 +95,55 @@ func main() {
 				fmt.Printf("  Type: %s\n", event.Type)
 				fmt.Printf("  Tenant: %s\n", event.TenantID)
 				fmt.Printf("  PartitionKey: %s\n", event.PartitionKey)
-				fmt.Printf("  Data: %s\n", string(event.Data))
+
+				switch event.Type {
+				case "order.placed":
+					var order orderplaced.Placed
+					if err := json.Unmarshal(event.Data, &order); err != nil {
+						log.Printf("Failed to unmarshal order.placed: %v", err)
+					} else {
+						fmt.Printf("  Order ID: %s\n", order.OrderId)
+						fmt.Printf("  Customer: %s\n", order.CustomerId)
+						fmt.Printf("  Restaurant: %s\n", order.RestaurantId)
+						fmt.Printf("  Total: %.2f %s\n", order.TotalAmount/100, order.Currency)
+					}
+				case "restaurant.accepted":
+					var accepted restaurantaccepted.Accepted
+					if err := json.Unmarshal(event.Data, &accepted); err != nil {
+						log.Printf("Failed to unmarshal restaurant.accepted: %v", err)
+					} else {
+						fmt.Printf("  Order ID: %s\n", accepted.OrderId)
+						fmt.Printf("  Restaurant: %s\n", accepted.RestaurantId)
+						fmt.Printf("  Est. Prep Time: %d min\n", accepted.EstimatedPrepTime)
+					}
+				case "food.prepared":
+					var prepared foodprepared.Prepared
+					if err := json.Unmarshal(event.Data, &prepared); err != nil {
+						log.Printf("Failed to unmarshal food.prepared: %v", err)
+					} else {
+						fmt.Printf("  Order ID: %s\n", prepared.OrderId)
+						fmt.Printf("  Restaurant: %s\n", prepared.RestaurantId)
+					}
+				case "driver.assigned":
+					var assigned driverassigned.Assigned
+					if err := json.Unmarshal(event.Data, &assigned); err != nil {
+						log.Printf("Failed to unmarshal driver.assigned: %v", err)
+					} else {
+						fmt.Printf("  Order ID: %s\n", assigned.OrderId)
+						fmt.Printf("  Driver: %s\n", assigned.DriverId)
+					}
+				case "delivered":
+					var del delivered.Delivered
+					if err := json.Unmarshal(event.Data, &del); err != nil {
+						log.Printf("Failed to unmarshal delivered: %v", err)
+					} else {
+						fmt.Printf("  Order ID: %s\n", del.OrderId)
+						fmt.Printf("  Driver: %s\n", del.DriverId)
+						fmt.Printf("  Customer: %s\n", del.CustomerId)
+					}
+				}
+
+				fmt.Printf("  Raw Data: %s\n", string(event.Data))
 
 				if err := msg.Ack(); err != nil {
 					log.Printf("Failed to ack message: %v", err)

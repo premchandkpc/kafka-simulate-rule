@@ -10,6 +10,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	transactioninitiated "examples/banking/generated/go/transaction_initiated"
 )
 
 type EventEnvelope struct {
@@ -50,26 +52,30 @@ func main() {
 		log.Fatalf("Failed to create stream: %v", err)
 	}
 
+	// Create transaction using generated types
+	transaction := transactioninitiated.Initiated{
+		TransactionId:     "txn-001",
+		AccountId:         "account-456",
+		Amount:            2500000,
+		Currency:          "USD",
+		TransactionType:   "wire_transfer",
+		CounterpartyAccount: "INTL-789",
+		Description:       "INV-2024-001",
+		InitiatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+
+	transactionData, err := json.Marshal(transaction)
+	if err != nil {
+		log.Fatalf("Failed to marshal transaction: %v", err)
+	}
+
 	transactionEvent := EventEnvelope{
 		ID:           "txn-001",
 		Type:         "transaction.initiated",
 		TenantID:     "global-bank",
 		PartitionKey: "account-456",
 		OccurredAt:   time.Now().UTC(),
-		Data: json.RawMessage(`{
-			"transaction_id": "txn-001",
-			"account_id": "account-456",
-			"amount": 2500000,
-			"currency": "USD",
-			"type": "wire_transfer",
-			"counterparty": {
-				"name": "International Corp",
-				"account": "INTL-789",
-				"country": "GB"
-			},
-			"reference": "INV-2024-001",
-			"initiated_at": "` + time.Now().UTC().Format(time.RFC3339) + `"
-		}`),
+		Data:         transactionData,
 	}
 
 	data, err := json.Marshal(transactionEvent)

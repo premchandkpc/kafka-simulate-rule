@@ -12,6 +12,11 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	transactioninitiated "examples/banking/generated/go/transaction_initiated"
+	compliancecheck "examples/banking/generated/go/compliance_check"
+	complianceresult "examples/banking/generated/go/compliance_result"
+	transactionsettled "examples/banking/generated/go/transaction_settled"
 )
 
 type EventEnvelope struct {
@@ -89,7 +94,46 @@ func main() {
 				fmt.Printf("  Type: %s\n", event.Type)
 				fmt.Printf("  Tenant: %s\n", event.TenantID)
 				fmt.Printf("  PartitionKey: %s\n", event.PartitionKey)
-				fmt.Printf("  Data: %s\n", string(event.Data))
+
+				switch event.Type {
+				case "transaction.initiated":
+					var txn transactioninitiated.Initiated
+					if err := json.Unmarshal(event.Data, &txn); err != nil {
+						log.Printf("Failed to unmarshal transaction.initiated: %v", err)
+					} else {
+						fmt.Printf("  Transaction ID: %s\n", txn.TransactionId)
+						fmt.Printf("  Account: %s\n", txn.AccountId)
+						fmt.Printf("  Amount: %.2f %s\n", txn.Amount/100, txn.Currency)
+						fmt.Printf("  Type: %s\n", txn.TransactionType)
+					}
+				case "compliance.check":
+					var check compliancecheck.Check
+					if err := json.Unmarshal(event.Data, &check); err != nil {
+						log.Printf("Failed to unmarshal compliance.check: %v", err)
+					} else {
+						fmt.Printf("  Check ID: %s\n", check.CheckId)
+						fmt.Printf("  Transaction: %s\n", check.TransactionId)
+					}
+				case "compliance.result":
+					var result complianceresult.Result
+					if err := json.Unmarshal(event.Data, &result); err != nil {
+						log.Printf("Failed to unmarshal compliance.result: %v", err)
+					} else {
+						fmt.Printf("  Check ID: %s\n", result.CheckId)
+						fmt.Printf("  Passed: %v\n", result.Passed)
+						fmt.Printf("  Risk Level: %s\n", result.RiskLevel)
+					}
+				case "transaction.settled":
+					var settled transactionsettled.Settled
+					if err := json.Unmarshal(event.Data, &settled); err != nil {
+						log.Printf("Failed to unmarshal transaction.settled: %v", err)
+					} else {
+						fmt.Printf("  Transaction ID: %s\n", settled.TransactionId)
+						fmt.Printf("  Settled At: %s\n", settled.SettledAt)
+					}
+				}
+
+				fmt.Printf("  Raw Data: %s\n", string(event.Data))
 
 				if err := msg.Ack(); err != nil {
 					log.Printf("Failed to ack message: %v", err)

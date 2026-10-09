@@ -10,6 +10,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	orderplaced "examples/food-delivery/generated/go/order_placed"
 )
 
 type EventEnvelope struct {
@@ -50,30 +52,38 @@ func main() {
 		log.Fatalf("Failed to create stream: %v", err)
 	}
 
+	// Create order using generated types
+	order := orderplaced.Placed{
+		OrderId:      "order-001",
+		CustomerId:   "customer-789",
+		RestaurantId: "restaurant-001",
+		TotalAmount:  2800,
+		Currency:     "USD",
+		Items: []orderplaced.Item{
+			{MenuItemId: "pizza-margherita", Quantity: 1, UnitPrice: 1800, Name: "Pizza Margherita"},
+			{MenuItemId: "garlic-bread", Quantity: 2, UnitPrice: 500, Name: "Garlic Bread"},
+		},
+		DeliveryAddress: orderplaced.DeliveryAddress{
+			Street:      "456 Oak Ave",
+			City:        "San Francisco",
+			State:       "CA",
+			PostalCode:  "94102",
+		},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	orderData, err := json.Marshal(order)
+	if err != nil {
+		log.Fatalf("Failed to marshal order: %v", err)
+	}
+
 	orderEvent := EventEnvelope{
 		ID:           "order-001",
 		Type:         "order.placed",
 		TenantID:     "food-delivery-platform",
 		PartitionKey: "94102",
 		OccurredAt:   time.Now().UTC(),
-		Data: json.RawMessage(`{
-			"order_id": "order-001",
-			"customer_id": "customer-789",
-			"restaurant_id": "restaurant-001",
-			"items": [
-				{"menu_item_id": "pizza-margherita", "quantity": 1, "unit_price": 1800},
-				{"menu_item_id": "garlic-bread", "quantity": 2, "unit_price": 500}
-			],
-			"total_amount": 2800,
-			"delivery_address": {
-				"street": "456 Oak Ave",
-				"city": "San Francisco",
-				"state": "CA",
-				"postal_code": "94102",
-				"country": "US"
-			},
-			"placed_at": "` + time.Now().UTC().Format(time.RFC3339) + `"
-		}`),
+		Data:         orderData,
 	}
 
 	data, err := json.Marshal(orderEvent)
