@@ -29,3 +29,5 @@ flowrule
 *.dylib
 *.dll
 *.a
+
+.github/

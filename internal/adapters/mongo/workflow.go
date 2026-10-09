@@ -93,7 +93,9 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 
 	filter := bson.M{
 		"tenant_id": tenantID,
-		"state":     state,
+	}
+	if state != "" {
+		filter["state"] = state
 	}
 
 	cursor, err := coll.Find(ctx, filter, options.Find().

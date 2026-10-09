@@ -70,7 +70,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
 			"event_id": eventID,
-			"status":   "pending",
+			"status":   "claimed",
 		},
 		bson.M{
 			"$set": bson.M{
@@ -81,6 +81,28 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 	)
 	if err != nil {
 		return fmt.Errorf("mark released: %w", err)
+	}
+	return nil
+}
+
+func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, errMsg string) error {
+	coll := r.collection("scheduled_events")
+
+	result, err := coll.UpdateOne(ctx,
+		bson.M{"event_id": eventID, "status": "claimed"},
+		bson.M{"$set": bson.M{
+			"status":           "failed",
+			"last_error":       errMsg,
+			"claimant":         "",
+			"claimed_at":       nil,
+			"claim_expires_at": nil,
+		}},
+	)
+	if err != nil {
+		return fmt.Errorf("mark scheduled event failed: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("mark scheduled event failed: event %q is not claimed", eventID)
 	}
 	return nil
 }
@@ -152,6 +174,10 @@ type ScheduledDoc struct {
 	Status       string     `bson:"status"`
 	CreatedAt    time.Time  `bson:"created_at"`
 	ReleasedAt   *time.Time `bson:"released_at,omitempty"`
+	Claimant     string     `bson:"claimant,omitempty"`
+	ClaimedAt    *time.Time `bson:"claimed_at,omitempty"`
+	ClaimExpiresAt *time.Time `bson:"claim_expires_at,omitempty"`
+	LastError    string     `bson:"last_error,omitempty"`
 }
 
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {

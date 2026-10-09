@@ -70,13 +70,19 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.db.Query(ctx, `
+	query := `
 		SELECT workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at
 		FROM workflow_instances
-		WHERE tenant_id = $1 AND state = $2
-		ORDER BY updated_at
-		LIMIT $3
-	`, tenantID, state, limit)
+		WHERE tenant_id = $1`
+	args := []any{tenantID}
+	if state != "" {
+		query += " AND state = $2"
+		args = append(args, state)
+	}
+	query += fmt.Sprintf(" ORDER BY updated_at LIMIT $%d", len(args)+1)
+	args = append(args, limit)
+
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get workflows by tenant and state: %w", err)
 	}
