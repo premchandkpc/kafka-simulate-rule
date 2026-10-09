@@ -156,13 +156,29 @@ func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map
 	case domain.OpNeq:
 		return !compareEq(val, p.Value), nil
 	case domain.OpGt:
-		return compareCmp(val, p.Value) > 0, nil
+		cmp := compareCmp(val, p.Value)
+		if cmp == 2 {
+			return false, fmt.Errorf("cannot compare non-numeric values for gt: %v vs %v", val, p.Value)
+		}
+		return cmp > 0, nil
 	case domain.OpGte:
-		return compareCmp(val, p.Value) >= 0, nil
+		cmp := compareCmp(val, p.Value)
+		if cmp == 2 {
+			return false, fmt.Errorf("cannot compare non-numeric values for gte: %v vs %v", val, p.Value)
+		}
+		return cmp >= 0, nil
 	case domain.OpLt:
-		return compareCmp(val, p.Value) < 0, nil
+		cmp := compareCmp(val, p.Value)
+		if cmp == 2 {
+			return false, fmt.Errorf("cannot compare non-numeric values for lt: %v vs %v", val, p.Value)
+		}
+		return cmp < 0, nil
 	case domain.OpLte:
-		return compareCmp(val, p.Value) <= 0, nil
+		cmp := compareCmp(val, p.Value)
+		if cmp == 2 {
+			return false, fmt.Errorf("cannot compare non-numeric values for lte: %v vs %v", val, p.Value)
+		}
+		return cmp <= 0, nil
 	case domain.OpIn:
 		return compareIn(val, p.Value), nil
 	case domain.OpNotIn:
@@ -184,6 +200,39 @@ func resolvePath(path string, data json.RawMessage, facts map[string]json.RawMes
 	parts := strings.Split(path[2:], ".")
 	var current interface{}
 
+	// If first part is "facts", resolve from facts map
+	if len(parts) > 0 && parts[0] == "facts" {
+		if len(parts) < 2 {
+			return nil, nil
+		}
+		factKey := parts[1]
+		factData, ok := facts[factKey]
+		if !ok {
+			return nil, nil
+		}
+		if err := json.Unmarshal(factData, &current); err != nil {
+			return nil, fmt.Errorf("unmarshal fact %s: %w", factKey, err)
+		}
+		// Process remaining parts
+		for _, part := range parts[2:] {
+			if part == "" {
+				continue
+			}
+			switch v := current.(type) {
+			case map[string]interface{}:
+				val, ok := v[part]
+				if !ok {
+					return nil, nil
+				}
+				current = val
+			default:
+				return nil, nil
+			}
+		}
+		return current, nil
+	}
+
+	// Otherwise resolve from event data
 	if err := json.Unmarshal(data, &current); err != nil {
 		return nil, fmt.Errorf("unmarshal data: %w", err)
 	}
@@ -248,9 +297,10 @@ func compareCmp(actual interface{}, expected interface{}) int {
 		}
 		return 0
 	}
-	sa := fmt.Sprintf("%v", actual)
-	sb := fmt.Sprintf("%v", expected)
-	return strings.Compare(sa, sb)
+	// If either value cannot be converted to a number, return an error indicator
+	// by returning a special value that will cause the comparison to fail
+	// This prevents incorrect lexical comparison like "100" < "20"
+	return 2 // Indicates incompatible types for numeric comparison
 }
 
 func toFloat64(v interface{}) (float64, bool) {

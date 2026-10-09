@@ -19,6 +19,7 @@ type WorkerConfig struct {
 	HotKeyThreshold     int
 	HotKeyCheckInterval time.Duration
 	HotKeyCallback      func(partitionKey string, depth int)
+	RequireSharded      bool // If true, worker requires a sharded consumer and lease manager
 }
 
 // DefaultWorkerConfig returns sensible defaults.
@@ -29,6 +30,7 @@ func DefaultWorkerConfig() WorkerConfig {
 		KeyQueueWorkers:     1,
 		HotKeyThreshold:     1000,
 		HotKeyCheckInterval: 10 * time.Second,
+		RequireSharded:      true, // Production workers require sharded mode
 	}
 }
 
@@ -76,6 +78,16 @@ func NewWorker(
 	}
 	if config.MaxGlobalInFlight == 0 {
 		config = DefaultWorkerConfig()
+	}
+
+	// Validate required dependencies
+	if config.RequireSharded {
+		if leaseManager == nil {
+			panic("LeaseManager is required when RequireSharded is true")
+		}
+		if _, ok := consumer.(shardedConsumer); !ok {
+			panic("Consumer must implement shardedConsumer interface when RequireSharded is true")
+		}
 	}
 
 	w := &Worker{
@@ -127,78 +139,14 @@ func (w *Worker) Run(ctx context.Context) {
 		go w.batchLoop(ctx)
 	}
 
-	// Ensure consumers for initially owned shards
-	ownedShards := w.leaseManager.OwnedShards()
-	for _, shard := range ownedShards {
-		if w.shardedConsumer != nil {
-			if err := w.shardedConsumer.EnsureShardConsumer(ctx, shard); err != nil {
-				log.Printf("ensure consumer for shard %d: %v", shard, err)
-			}
-		}
+	// Sharded mode: sync consumers and fetch from owned shards
+	if w.shardedConsumer != nil {
+		w.runSharded(ctx)
+		return
 	}
-	w.lastOwnedShards = ownedShards
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("worker stopping")
-			return
-		default:
-		}
-
-		// Sync consumers with current owned shards
-		w.syncConsumers(ctx)
-
-		ownedShards := w.shardedConsumer.OwnedShards()
-		if len(ownedShards) == 0 {
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		deliveries, err := w.shardedConsumer.FetchShards(ctx, 10, ownedShards)
-		if err != nil {
-			log.Printf("fetch: %v", err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		for _, delivery := range deliveries {
-			env, err := delivery.Event()
-			if err != nil || env == nil {
-				log.Printf("invalid event: %s", string(delivery.Raw()))
-				if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
-					log.Printf("quarantine invalid event: %v", qErr)
-				}
-				if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
-					log.Printf("retry invalid event: %v", retryErr)
-				}
-				continue
-			}
-
-			vshard := w.leaseManager.VirtualShardForEvent(env)
-			if w.leaseManager != nil && !w.leaseManager.IsOwner(vshard) {
-				if err := delivery.Nak(ctx); err != nil {
-					log.Printf("nak non-owned shard %d: %v", vshard, err)
-				}
-				continue
-			}
-
-			fencingToken := int64(0)
-			if w.leaseManager != nil {
-				if token, ok := w.leaseManager.GetFencingToken(vshard); ok {
-					fencingToken = token
-				}
-			}
-
-			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
-				log.Printf("keyqueue submit failed: %v", err)
-				if err := delivery.Nak(ctx); err != nil {
-					log.Printf("nak failed: %v", err)
-				}
-				continue
-			}
-		}
-	}
+	// Non-sharded mode: fetch from base consumer
+	w.runNonSharded(ctx)
 }
 
 func (w *Worker) syncConsumers(ctx context.Context) {
@@ -315,6 +263,125 @@ func (w *Worker) batchLoop(ctx context.Context) {
 				log.Printf("batch tick: %v", err)
 			} else if n > 0 {
 				log.Printf("batch tick formed %d batch runs", n)
+			}
+		}
+	}
+}
+
+// runSharded runs the worker in sharded mode with lease management.
+func (w *Worker) runSharded(ctx context.Context) {
+	// Ensure consumers for initially owned shards
+	ownedShards := w.leaseManager.OwnedShards()
+	for _, shard := range ownedShards {
+		if err := w.shardedConsumer.EnsureShardConsumer(ctx, shard); err != nil {
+			log.Printf("ensure consumer for shard %d: %v", shard, err)
+		}
+	}
+	w.lastOwnedShards = ownedShards
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("worker stopping")
+			return
+		default:
+		}
+
+		// Sync consumers with current owned shards
+		w.syncConsumers(ctx)
+
+		ownedShards := w.shardedConsumer.OwnedShards()
+		if len(ownedShards) == 0 {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		deliveries, err := w.shardedConsumer.FetchShards(ctx, 10, ownedShards)
+		if err != nil {
+			log.Printf("fetch: %v", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		for _, delivery := range deliveries {
+			env, err := delivery.Event()
+			if err != nil || env == nil {
+				log.Printf("invalid event: %s", string(delivery.Raw()))
+				if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
+					log.Printf("quarantine invalid event: %v", qErr)
+				}
+				if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
+					log.Printf("retry invalid event: %v", retryErr)
+				}
+				continue
+			}
+
+			vshard := w.leaseManager.VirtualShardForEvent(env)
+			if !w.leaseManager.IsOwner(vshard) {
+				if err := delivery.Nak(ctx); err != nil {
+					log.Printf("nak non-owned shard %d: %v", vshard, err)
+				}
+				continue
+			}
+
+			fencingToken := int64(0)
+			if token, ok := w.leaseManager.GetFencingToken(vshard); ok {
+				fencingToken = token
+			}
+
+			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
+				log.Printf("keyqueue submit failed: %v", err)
+				if err := delivery.Nak(ctx); err != nil {
+					log.Printf("nak failed: %v", err)
+				}
+				continue
+			}
+		}
+	}
+}
+
+// runNonSharded runs the worker without shard ownership (single consumer).
+func (w *Worker) runNonSharded(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("worker stopping")
+			return
+		default:
+		}
+
+		deliveries, err := w.consumer.Fetch(ctx, 10)
+		if err != nil {
+			log.Printf("fetch: %v", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		for _, delivery := range deliveries {
+			env, err := delivery.Event()
+			if err != nil || env == nil {
+				log.Printf("invalid event: %s", string(delivery.Raw()))
+				if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
+					log.Printf("quarantine invalid event: %v", qErr)
+				}
+				if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
+					log.Printf("retry invalid event: %v", retryErr)
+				}
+				continue
+			}
+
+			vshard := uint32(0)
+			fencingToken := int64(0)
+			if w.leaseManager != nil {
+				vshard = w.leaseManager.VirtualShardForEvent(env)
+			}
+
+			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
+				log.Printf("keyqueue submit failed: %v", err)
+				if err := delivery.Nak(ctx); err != nil {
+					log.Printf("nak failed: %v", err)
+				}
+				continue
 			}
 		}
 	}

@@ -133,22 +133,58 @@ func (m *LeaseManager) renewOwned(ctx context.Context) {
 		}
 		newLease, err := m.repo.Renew(ctx, shard, m.owner, lease.FencingToken, m.ttl)
 		if err != nil {
-			if err == domain.ErrLeaseExpired || err == domain.ErrFencingTokenMismatch {
-				log.Printf("shard %d: lease lost (%v), re-acquiring", shard, err)
+			// Handle lease loss - remove from owned shards
+			if err == domain.ErrLeaseExpired || err == domain.ErrFencingTokenMismatch || err == domain.ErrLeaseOwnedByOther {
+				log.Printf("shard %d: lease lost (%v), removing from owned shards", shard, err)
 				m.mu.Lock()
 				delete(m.ownedShards, shard)
 				m.mu.Unlock()
-				if err := m.acquireShard(ctx, shard); err != nil {
-					log.Printf("shard %d: re-acquire failed: %v", shard, err)
-				}
+				// Don't immediately re-acquire - let the assignment algorithm handle it
 			} else {
-				log.Printf("shard %d: renew failed: %v", shard, err)
+				// Transient error - log but keep the shard in owned map
+				log.Printf("shard %d: renew failed (transient): %v", shard, err)
 			}
 			continue
 		}
 		m.mu.Lock()
 		m.ownedShards[shard] = newLease
 		m.mu.Unlock()
+	}
+
+	// Attempt to acquire new shards if we have capacity
+	m.rebalanceIfNeeded(ctx)
+}
+
+// rebalanceIfNeeded attempts to acquire more shards if we own fewer than our fair share.
+func (m *LeaseManager) rebalanceIfNeeded(ctx context.Context) {
+	m.mu.RLock()
+	currentOwned := len(m.ownedShards)
+	m.mu.RUnlock()
+
+	// Target: numShards / 3 (same as initial assignment)
+	targetOwned := int(m.numShards / 3)
+	if targetOwned < 1 {
+		targetOwned = 1
+	}
+
+	if currentOwned >= targetOwned {
+		return
+	}
+
+	// Try to acquire shards up to our target
+	needed := targetOwned - currentOwned
+	for i := uint32(0); i < m.numShards && needed > 0; i++ {
+		m.mu.RLock()
+		_, alreadyOwned := m.ownedShards[i]
+		m.mu.RUnlock()
+
+		if alreadyOwned {
+			continue
+		}
+
+		if err := m.acquireShard(ctx, i); err == nil {
+			needed--
+		}
 	}
 }
 

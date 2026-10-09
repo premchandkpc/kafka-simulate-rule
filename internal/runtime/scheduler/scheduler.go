@@ -163,8 +163,8 @@ func (s *Scheduler) releaseEvent(ctx context.Context, evt *domain.ScheduledEvent
 		return fmt.Errorf("marshal event: %w", err)
 	}
 
-	// Publish to shard-specific subject
+	// Publish to shard-specific subject using the shared base subject
 	shard := env.VirtualShard(s.numShards)
-	baseSubject := "events." + evt.EventType
+	baseSubject := "events" // Must match consumer stream subject pattern
 	return s.publisher.PublishToShard(ctx, baseSubject, shard, data)
 }

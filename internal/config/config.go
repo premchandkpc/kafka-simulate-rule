@@ -49,6 +49,7 @@ type WorkerConfig struct {
 	SchedulerBatchSize     int
 	LeaseTTLMS             int
 	LeaseRenewalIntervalMS int
+	EffectDestinationURL   string // HTTP endpoint for effect delivery (required in production)
 }
 
 type GenerationConfig struct {
@@ -106,6 +107,7 @@ func Load() (*Config, error) {
 			SchedulerBatchSize:     getIntEnv("SCHEDULER_BATCH_SIZE", 100),
 			LeaseTTLMS:             getIntEnv("LEASE_TTL_MS", 30000),
 			LeaseRenewalIntervalMS: getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000),
+			EffectDestinationURL:   getEnv("EFFECT_DESTINATION_URL", ""),
 		},
 		Generation: GenerationConfig{
 			ProtocPath:          getEnv("PROTOC_PATH", "protoc"),
