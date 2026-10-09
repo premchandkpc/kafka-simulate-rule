@@ -11,17 +11,17 @@ import (
 )
 
 type LeaseManager struct {
-	repo       ports.ShardLeaseRepository
-	clock      ports.Clock
-	owner      string
-	numShards  uint32
-	ttl        time.Duration
+	repo          ports.ShardLeaseRepository
+	clock         ports.Clock
+	owner         string
+	numShards     uint32
+	ttl           time.Duration
 	renewInterval time.Duration
 
-	mu           sync.RWMutex
-	ownedShards  map[uint32]*domain.ShardLease
-	stopRenew    chan struct{}
-	wg           sync.WaitGroup
+	mu          sync.RWMutex
+	ownedShards map[uint32]*domain.ShardLease
+	stopRenew   chan struct{}
+	wg          sync.WaitGroup
 }
 
 func NewLeaseManager(

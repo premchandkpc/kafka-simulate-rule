@@ -11,7 +11,6 @@ import (
 
 	"github.com/flowrule/flowrule/internal/adapters/effects"
 	"github.com/flowrule/flowrule/internal/adapters/mongo"
-	"github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/factory"
@@ -19,7 +18,6 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
-	"github.com/flowrule/flowrule/internal/runtime/shard"
 	"github.com/flowrule/flowrule/internal/services/batches"
 	svceffects "github.com/flowrule/flowrule/internal/services/effects"
 	svcevents "github.com/flowrule/flowrule/internal/services/events"
@@ -75,20 +73,20 @@ func main() {
 	// Create factory with config
 	fac := factory.NewFactory(factory.Config{
 		MongoDB: factory.MongoConfig{
-			URI:        getEnv("MONGODB_URI", "mongodb://localhost:27017"),
-			Database:   getEnv("MONGODB_DATABASE", "flowrule"),
-			MaxPool:    uint64(envInt("MONGODB_MAX_POOL", 20)),
-			MinPool:    uint64(envInt("MONGODB_MIN_POOL", 2)),
+			URI:         getEnv("MONGODB_URI", "mongodb://localhost:27017"),
+			Database:    getEnv("MONGODB_DATABASE", "flowrule"),
+			MaxPool:     uint64(envInt("MONGODB_MAX_POOL", 20)),
+			MinPool:     uint64(envInt("MONGODB_MIN_POOL", 2)),
 			MaxConnIdle: envDuration("MONGODB_MAX_CONN_IDLE_MS", 300000),
 		},
 		NATS: factory.NATSConfig{
-			URL:         getEnv("NATS_URL", "nats://localhost:4222"),
-			Stream:      "flowrule",
-			Consumer:    "flowrule-worker",
-			Subjects:    []string{"events"},
-			AckWait:     envDuration("NATS_ACK_WAIT_MS", 30000),
-			MaxDeliver:  envInt("NATS_MAX_DELIVER", 10),
-			NumShards:   uint32(envInt("NUM_SHARDS", 4096)),
+			URL:        getEnv("NATS_URL", "nats://localhost:4222"),
+			Stream:     "flowrule",
+			Consumer:   "flowrule-worker",
+			Subjects:   []string{"events"},
+			AckWait:    envDuration("NATS_ACK_WAIT_MS", 30000),
+			MaxDeliver: envInt("NATS_MAX_DELIVER", 10),
+			NumShards:  uint32(envInt("NUM_SHARDS", 4096)),
 		},
 		Redis: factory.RedisConfig{
 			Addr:         getEnv("REDIS_ADDR", "localhost:6379"),
@@ -111,10 +109,10 @@ func main() {
 			BatchSize:    envInt("SCHEDULER_BATCH_SIZE", 100),
 		},
 		KeyQueue: factory.KeyQueueConfig{
-			MaxGlobalInFlight:  envInt("KEYQUEUE_MAX_GLOBAL_IN_FLIGHT", 100),
-			MaxPerKeyQueue:     envInt("KEYQUEUE_MAX_PER_KEY", 100),
-			WorkerCount:        envInt("KEYQUEUE_WORKERS", 1),
-			HotKeyThreshold:    envInt("KEYQUEUE_HOT_KEY_THRESHOLD", 1000),
+			MaxGlobalInFlight:   envInt("KEYQUEUE_MAX_GLOBAL_IN_FLIGHT", 100),
+			MaxPerKeyQueue:      envInt("KEYQUEUE_MAX_PER_KEY", 100),
+			WorkerCount:         envInt("KEYQUEUE_WORKERS", 1),
+			HotKeyThreshold:     envInt("KEYQUEUE_HOT_KEY_THRESHOLD", 1000),
 			HotKeyCheckInterval: envDuration("KEYQUEUE_HOT_KEY_CHECK_MS", 10000),
 		},
 		ShardLease: factory.ShardLeaseConfig{
@@ -180,28 +178,23 @@ func main() {
 		hostname, _ := os.Hostname()
 		workerID = hostname + "-" + strconv.Itoa(os.Getpid())
 	}
-	
-	leaseManager := fac.ShardManager(mongoDB, clock, workerID)
 
-	// Create transaction factory
-	beginTx := func(ctx context.Context) (ports.Transaction, error) {
-		return mongo.NewTx(ctx, mongoDB.Client())
-	}
+	leaseManager := fac.ShardManager(mongoDB, clock, workerID)
 
 	// Create repository factory
 	newRepos := func(tx ports.Transaction) ports.TxRepos {
 		txQuerier := mongo.NewTxQuerier(tx.(*mongo.Transaction).Session())
 		return ports.TxRepos{
-			Inbox:            mongo.NewInboxRepository(txQuerier),
-			Activations:      mongo.NewActivationRepository(txQuerier),
-			RuleRepo:         mongo.NewRepository(txQuerier),
-			Executions:       mongo.NewExecutionRepository(txQuerier),
-			Outbox:           mongo.NewOutboxRepository(txQuerier),
-			ShardLeases:      mongo.NewShardLeaseRepository(txQuerier),
-			Workflow:         mongo.NewWorkflowRepository(txQuerier),
-			ScheduledEvents:  mongo.NewScheduledEventRepository(txQuerier),
-			Batches:          mongo.NewBatchRepository(txQuerier),
-			Quarantine:       mongo.NewQuarantineRepository(txQuerier),
+			Inbox:           mongo.NewInboxRepository(txQuerier),
+			Activations:     mongo.NewActivationRepository(txQuerier),
+			RuleRepo:        mongo.NewRepository(txQuerier),
+			Executions:      mongo.NewExecutionRepository(txQuerier),
+			Outbox:          mongo.NewOutboxRepository(txQuerier),
+			ShardLeases:     mongo.NewShardLeaseRepository(txQuerier),
+			Workflow:        mongo.NewWorkflowRepository(txQuerier),
+			ScheduledEvents: mongo.NewScheduledEventRepository(txQuerier),
+			Batches:         mongo.NewBatchRepository(txQuerier),
+			Quarantine:      mongo.NewQuarantineRepository(txQuerier),
 		}
 	}
 
@@ -221,28 +214,12 @@ func main() {
 	batchSvc := batches.NewService(batchRepo, eventsSvc, clock, batchCfg)
 	batchInterval := envDuration("BATCH_INTERVAL_MS", 5000)
 
-	// Create lease manager
-	leaseManager := fac.ShardManager(mongoDB, clock, workerID)
-
-	// Get NATS consumer and publisher
-	natsConsumer, err := fac.NATSConsumer(ctx)
-	if err != nil {
-		obs.Logger.Error("nats consumer failed", "error", err)
-		return
-	}
-	defer natsConsumer.Close()
-
-	natsPublisher, err := fac.NATSPublisher(ctx)
-	if err != nil {
-		obs.Logger.Error("nats publisher failed", "error", err)
-		return
-	}
-	defer natsPublisher.Close()
-
-	workerConfig := factory.WorkerConfig{
-		MaxGlobalInFlight: envInt("MAX_GLOBAL_IN_FLIGHT", 100),
-		MaxPerKeyQueue:    envInt("MAX_PER_KEY_QUEUE", 100),
-		KeyQueueWorkers:   envInt("KEY_QUEUE_WORKERS", 1),
+	workerConfig := application.WorkerConfig{
+		MaxGlobalInFlight:   envInt("MAX_GLOBAL_IN_FLIGHT", 100),
+		MaxPerKeyQueue:      envInt("MAX_PER_KEY_QUEUE", 100),
+		KeyQueueWorkers:     envInt("KEY_QUEUE_WORKERS", 1),
+		HotKeyThreshold:     envInt("KEYQUEUE_HOT_KEY_THRESHOLD", 1000),
+		HotKeyCheckInterval: envDuration("KEYQUEUE_HOT_KEY_CHECK_MS", 10000),
 	}
 
 	worker := application.NewWorker(
@@ -265,42 +242,10 @@ func main() {
 
 	// Start scheduler
 	schedRepo := mongo.NewScheduledEventRepository(mongo.NewQuerier(database))
-	sched := scheduler.NewScheduler(schedRepo, natsPublisher, clock, envDuration("SCHEDULER_POLL_MS", 5000), envInt("SCHEDULER_BATCH_SIZE", 100))
+	sched := scheduler.NewScheduler(schedRepo, publisher, clock, envDuration("SCHEDULER_POLL_MS", 5000), envInt("SCHEDULER_BATCH_SIZE", 100))
 	sched.Start(ctx)
 	defer sched.Stop()
 
 	// Run worker
 	worker.Run(ctx)
-}
-
-func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	return fallback
-}
-
-func envDuration(name string, defaultMs int) time.Duration {
-	if v := os.Getenv(name); v != "" {
-		if ms, err := strconv.Atoi(v); err == nil {
-			return time.Duration(ms) * time.Millisecond
-		}
-	}
-	return time.Duration(defaultMs) * time.Millisecond
-}
-
-func envInt(name string, defaultVal int) int {
-	if v := os.Getenv(name); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			return i
-		}
-	}
-	return defaultVal
-}
-
-func envBatchMode(name string) domain.BatchMode {
-	if v := os.Getenv(name); v != "" {
-		return domain.BatchMode(v)
-	}
-	return domain.BatchModeNone
 }

@@ -28,7 +28,7 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 	coll := r.collection("shard_leases")
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
-	
+
 	filter := bson.M{
 		"virtual_shard": shard,
 		"$or": []bson.M{
@@ -36,14 +36,14 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 			{"owner": owner},
 		},
 	}
-	
+
 	update := bson.M{
 		"$set": bson.M{
-			"virtual_shard":  shard,
-			"owner":          owner,
-			"fencing_token":  1,
-			"expires_at":     expiresAt,
-			"routing_epoch":  0,
+			"virtual_shard": shard,
+			"owner":         owner,
+			"fencing_token": 1,
+			"expires_at":    expiresAt,
+			"routing_epoch": 0,
 		},
 		"$inc": bson.M{
 			"fencing_token": 1,
@@ -53,21 +53,21 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 			"fencing_token": 1,
 		},
 	}
-	
+
 	opts := options.FindOneAndUpdate().
 		SetUpsert(true).
 		SetReturnDocument(options.After)
-	
+
 	var doc LeaseDoc
 	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&doc)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lease: %w", err)
 	}
-	
+
 	if doc.Owner != owner {
 		return nil, domain.ErrLeaseOwnedByOther
 	}
-	
+
 	return doc.ToDomain(), nil
 }
 
@@ -75,20 +75,20 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 	coll := r.collection("shard_leases")
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
-	
+
 	filter := bson.M{
-		"virtual_shard":  shard,
-		"owner":          owner,
-		"fencing_token":  fencingToken,
-		"expires_at":     bson.M{"$gt": now},
+		"virtual_shard": shard,
+		"owner":         owner,
+		"fencing_token": fencingToken,
+		"expires_at":    bson.M{"$gt": now},
 	}
-	
+
 	update := bson.M{
 		"$set": bson.M{
 			"expires_at": expiresAt,
 		},
 	}
-	
+
 	result, err := coll.UpdateOne(ctx, filter, bson.M{"$set": update["$set"]})
 	if err != nil {
 		return nil, fmt.Errorf("renew lease: %w", err)
@@ -96,7 +96,7 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 	if result.MatchedCount == 0 {
 		return nil, domain.ErrLeaseExpired
 	}
-	
+
 	return r.GetOwner(ctx, shard)
 }
 
@@ -131,10 +131,10 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 	coll := r.collection("shard_leases")
 	var doc LeaseDoc
 	err := coll.FindOne(ctx, bson.M{
-		"virtual_shard":  shard,
-		"owner":          owner,
-		"fencing_token":  fencingToken,
-		"expires_at":     bson.M{"$gt": time.Now().UTC()},
+		"virtual_shard": shard,
+		"owner":         owner,
+		"fencing_token": fencingToken,
+		"expires_at":    bson.M{"$gt": time.Now().UTC()},
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -146,11 +146,11 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 }
 
 type LeaseDoc struct {
-	VirtualShard  uint32    `bson:"virtual_shard"`
-	Owner         string    `bson:"owner"`
-	FencingToken  int64     `bson:"fencing_token"`
-	ExpiresAt     time.Time `bson:"expires_at"`
-	RoutingEpoch  int64     `bson:"routing_epoch"`
+	VirtualShard uint32    `bson:"virtual_shard"`
+	Owner        string    `bson:"owner"`
+	FencingToken int64     `bson:"fencing_token"`
+	ExpiresAt    time.Time `bson:"expires_at"`
+	RoutingEpoch int64     `bson:"routing_epoch"`
 }
 
 func (d *LeaseDoc) ToDomain() *domain.ShardLease {

@@ -11,11 +11,11 @@ import (
 )
 
 type Config struct {
-	ServiceName      string
-	Environment      string
-	OTLPEndpoint     string
-	MetricsPort      int
-	EnableTracing    bool
+	ServiceName   string
+	Environment   string
+	OTLPEndpoint  string
+	MetricsPort   int
+	EnableTracing bool
 }
 
 func DefaultConfig() Config {
@@ -27,19 +27,19 @@ func DefaultConfig() Config {
 	}
 
 	return Config{
-		ServiceName:  os.Getenv("SERVICE_NAME"),
-		Environment:  os.Getenv("ENVIRONMENT"),
-		OTLPEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		MetricsPort:  port,
+		ServiceName:   os.Getenv("SERVICE_NAME"),
+		Environment:   os.Getenv("ENVIRONMENT"),
+		OTLPEndpoint:  os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		MetricsPort:   port,
 		EnableTracing: os.Getenv("ENABLE_TRACING") == "true",
 	}
 }
 
 type Observability struct {
-	Config       Config
-	Logger       *Logger
-	MetricsMux   *http.ServeMux
-	MetricsServer *http.Server
+	Config         Config
+	Logger         *Logger
+	MetricsMux     *http.ServeMux
+	MetricsServer  *http.Server
 	TracerProvider interface{ Shutdown(context.Context) error }
 }
 
@@ -52,8 +52,8 @@ func New(config Config) (*Observability, error) {
 	}
 
 	o := &Observability{
-		Config: config,
-		Logger: NewLogger(config.ServiceName, config.Environment),
+		Config:     config,
+		Logger:     NewLogger(config.ServiceName, config.Environment),
 		MetricsMux: http.NewServeMux(),
 	}
 

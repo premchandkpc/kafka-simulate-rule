@@ -11,9 +11,9 @@ import (
 )
 
 type memBatches struct {
-	mu       sync.Mutex
-	entries  map[string]*domain.InboxEntry
-	runs     map[string]*domain.BatchRun
+	mu      sync.Mutex
+	entries map[string]*domain.InboxEntry
+	runs    map[string]*domain.BatchRun
 }
 
 func newMemBatches() *memBatches {
@@ -52,14 +52,14 @@ func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID
 	return nil
 }
 
-func (m *memBatches) SaveBatchRun(ctx context.Context, run *domain.BatchRun) error {
+func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runs[run.BatchID] = run
 	return nil
 }
 
-func (m *memBatches) GetBatchRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.runs[batchID], nil

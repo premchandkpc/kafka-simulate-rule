@@ -11,16 +11,14 @@ import (
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 )
 
-
-
 // WorkerConfig holds configuration for the worker.
 type WorkerConfig struct {
-	MaxGlobalInFlight      int
-	MaxPerKeyQueue         int
-	KeyQueueWorkers        int
-	HotKeyThreshold        int
-	HotKeyCheckInterval    time.Duration
-	HotKeyCallback         func(partitionKey string, depth int)
+	MaxGlobalInFlight   int
+	MaxPerKeyQueue      int
+	KeyQueueWorkers     int
+	HotKeyThreshold     int
+	HotKeyCheckInterval time.Duration
+	HotKeyCallback      func(partitionKey string, depth int)
 }
 
 // DefaultWorkerConfig returns sensible defaults.
@@ -34,7 +32,6 @@ func DefaultWorkerConfig() WorkerConfig {
 	}
 }
 
-
 // shardedConsumer is an internal interface for consumers that support shard management
 type shardedConsumer interface {
 	EnsureShardConsumer(ctx context.Context, shard uint32) error
@@ -43,24 +40,23 @@ type shardedConsumer interface {
 	OwnedShards() []uint32
 }
 
-
 // Worker owns the runtime loop for a broker-backed rules worker.
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
 type Worker struct {
-	consumer         ports.BrokerConsumer
-	events           ports.EventProcessor
-	effects          ports.EffectPublisher
-	batches          ports.BatchProcessor
-	batchInterval    time.Duration
-	clock            ports.Clock
-	leaseManager     *shard.LeaseManager
-	keyQueue         *keyqueue.KeyQueue
-	workerID         string
-	numShards        uint32
-	config           WorkerConfig
-	lastOwnedShards  []uint32
-	shardedConsumer  shardedConsumer
+	consumer        ports.BrokerConsumer
+	events          ports.EventProcessor
+	effects         ports.EffectPublisher
+	batches         ports.BatchProcessor
+	batchInterval   time.Duration
+	clock           ports.Clock
+	leaseManager    *shard.LeaseManager
+	keyQueue        *keyqueue.KeyQueue
+	workerID        string
+	numShards       uint32
+	config          WorkerConfig
+	lastOwnedShards []uint32
+	shardedConsumer shardedConsumer
 }
 
 func NewWorker(
@@ -81,18 +77,18 @@ func NewWorker(
 	if config.MaxGlobalInFlight == 0 {
 		config = DefaultWorkerConfig()
 	}
-	
+
 	return &Worker{
-		consumer:       consumer,
-		events:         events,
-		effects:        effects,
-		batches:        batches,
-		batchInterval:   batchInterval,
-		clock:           clock,
-		leaseManager:    leaseManager,
-		workerID:        workerID,
-		numShards:       numShards,
-		config:          config,
+		consumer:      consumer,
+		events:        events,
+		effects:       effects,
+		batches:       batches,
+		batchInterval: batchInterval,
+		clock:         clock,
+		leaseManager:  leaseManager,
+		workerID:      workerID,
+		numShards:     numShards,
+		config:        config,
 	}
 }
 
@@ -124,14 +120,14 @@ func (w *Worker) Run(ctx context.Context) {
 		go w.batchLoop(ctx)
 	}
 
-// Ensure consumers for initially owned shards
+	// Ensure consumers for initially owned shards
 	ownedShards := w.leaseManager.OwnedShards()
 	for _, shard := range ownedShards {
 		if w.shardedConsumer != nil {
-		if err := w.shardedConsumer.EnsureShardConsumer(ctx, shard); err != nil {
-			log.Printf("ensure consumer for shard %d: %v", shard, err)
+			if err := w.shardedConsumer.EnsureShardConsumer(ctx, shard); err != nil {
+				log.Printf("ensure consumer for shard %d: %v", shard, err)
+			}
 		}
-	}
 	}
 	w.lastOwnedShards = ownedShards
 

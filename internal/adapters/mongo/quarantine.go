@@ -61,7 +61,7 @@ func (r *QuarantineRepository) Delete(ctx context.Context, id string) error {
 
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	coll := r.collection("quarantine")
-	
+
 	f := bson.M{}
 	if filter.TenantID != "" {
 		f["tenant_id"] = filter.TenantID
@@ -78,7 +78,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	if !filter.To.IsZero() {
 		f["created_at"] = bson.M{"$lte": filter.To}
 	}
-	
+
 	cursor, err := coll.Find(ctx, f, options.Find().
 		SetLimit(int64(filter.Limit)).
 		SetSkip(int64(filter.Offset)).
@@ -87,7 +87,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		return nil, fmt.Errorf("list quarantine: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var entries []*domain.QuarantineEntry
 	for cursor.Next(ctx) {
 		var doc QuarantineDoc
@@ -96,14 +96,14 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		}
 		entries = append(entries, doc.ToDomain())
 	}
-	
+
 	return entries, nil
 }
 
 func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {
 	coll := r.collection("quarantine")
 	now := time.Now().UTC()
-	
+
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"quarantine_id": id,
@@ -124,18 +124,18 @@ func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {
 }
 
 type QuarantineDoc struct {
-	QuarantineID  string     `bson:"quarantine_id"`
-	SourceType    string     `bson:"source_type"`
-	SourceID      string     `bson:"source_id"`
-	ErrorClass    string     `bson:"error_class"`
-	PayloadRef    string     `bson:"payload_ref,omitempty"`
-	EventID       string     `bson:"event_id,omitempty"`
-	TenantID      string     `bson:"tenant_id,omitempty"`
-	Revision      *int64     `bson:"revision,omitempty"`
-	DecisionHash  string     `bson:"decision_hash,omitempty"`
-	ErrorMessage  string     `bson:"error_message,omitempty"`
-	CreatedAt     time.Time  `bson:"created_at"`
-	UpdatedAt     time.Time  `bson:"updated_at"`
+	QuarantineID string    `bson:"quarantine_id"`
+	SourceType   string    `bson:"source_type"`
+	SourceID     string    `bson:"source_id"`
+	ErrorClass   string    `bson:"error_class"`
+	PayloadRef   string    `bson:"payload_ref,omitempty"`
+	EventID      string    `bson:"event_id,omitempty"`
+	TenantID     string    `bson:"tenant_id,omitempty"`
+	Revision     *int64    `bson:"revision,omitempty"`
+	DecisionHash string    `bson:"decision_hash,omitempty"`
+	ErrorMessage string    `bson:"error_message,omitempty"`
+	CreatedAt    time.Time `bson:"created_at"`
+	UpdatedAt    time.Time `bson:"updated_at"`
 }
 
 func QuarantineDocFromDomain(entry *domain.QuarantineEntry) *QuarantineDoc {

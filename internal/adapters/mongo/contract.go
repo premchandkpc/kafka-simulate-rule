@@ -88,45 +88,45 @@ func (r *ContractRegistry) Delete(ctx context.Context, name, version string) err
 }
 
 type ContractSchemaDoc struct {
-	Name            string                           `bson:"name"`
-	Version         string                           `bson:"version"`
-	Namespace       string                           `bson:"namespace,omitempty"`
-	Description     string                           `bson:"description,omitempty"`
-	Fields          map[string]domain.ContractField  `bson:"fields"`
-	Compatibility   string                           `bson:"compatibility,omitempty"`
-	Owner           string                           `bson:"owner,omitempty"`
-	Deprecated      bool                             `bson:"deprecated,omitempty"`
-	CreatedAt       time.Time                        `bson:"created_at"`
-	UpdatedAt       time.Time                        `bson:"updated_at"`
+	Name          string                          `bson:"name"`
+	Version       string                          `bson:"version"`
+	Namespace     string                          `bson:"namespace,omitempty"`
+	Description   string                          `bson:"description,omitempty"`
+	Fields        map[string]domain.ContractField `bson:"fields"`
+	Compatibility string                          `bson:"compatibility,omitempty"`
+	Owner         string                          `bson:"owner,omitempty"`
+	Deprecated    bool                            `bson:"deprecated,omitempty"`
+	CreatedAt     time.Time                       `bson:"created_at"`
+	UpdatedAt     time.Time                       `bson:"updated_at"`
 }
 
 func ContractSchemaDocFromDomain(s *domain.ContractSchema) *ContractSchemaDoc {
 	return &ContractSchemaDoc{
-		Name:            s.Name,
-		Version:         s.Version,
-		Namespace:       s.Namespace,
-		Description:     s.Description,
-		Fields:          s.Fields,
-		Compatibility:   s.Compatibility,
-		Owner:           s.Owner,
-		Deprecated:      s.Deprecated,
-		CreatedAt:       s.CreatedAt,
-		UpdatedAt:       s.UpdatedAt,
+		Name:          s.Name,
+		Version:       s.Version,
+		Namespace:     s.Namespace,
+		Description:   s.Description,
+		Fields:        s.Fields,
+		Compatibility: s.Compatibility,
+		Owner:         s.Owner,
+		Deprecated:    s.Deprecated,
+		CreatedAt:     s.CreatedAt,
+		UpdatedAt:     s.UpdatedAt,
 	}
 }
 
 func (d *ContractSchemaDoc) ToDomain() *domain.ContractSchema {
 	return &domain.ContractSchema{
-		Name:            d.Name,
-		Version:         d.Version,
-		Namespace:       d.Namespace,
-		Description:     d.Description,
-		Fields:          d.Fields,
-		Compatibility:   d.Compatibility,
-		Owner:           d.Owner,
-		Deprecated:      d.Deprecated,
-		CreatedAt:       d.CreatedAt,
-		UpdatedAt:       d.UpdatedAt,
+		Name:          d.Name,
+		Version:       d.Version,
+		Namespace:     d.Namespace,
+		Description:   d.Description,
+		Fields:        d.Fields,
+		Compatibility: d.Compatibility,
+		Owner:         d.Owner,
+		Deprecated:    d.Deprecated,
+		CreatedAt:     d.CreatedAt,
+		UpdatedAt:     d.UpdatedAt,
 	}
 }
 

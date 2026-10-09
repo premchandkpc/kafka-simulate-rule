@@ -17,8 +17,8 @@ type Querier interface {
 
 // Tx wraps pgx.Tx and implements ports.Tx for the application layer.
 type Tx struct {
-	tx            pgx.Tx
-	fencingToken  int64
+	tx           pgx.Tx
+	fencingToken int64
 }
 
 func NewTx(tx pgx.Tx) *Tx {

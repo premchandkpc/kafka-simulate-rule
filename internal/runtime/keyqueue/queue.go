@@ -11,24 +11,24 @@ import (
 )
 
 type KeyQueue struct {
-	mu            sync.Mutex
-	queues        map[string]*keyQueue
-	maxPerKey     int
-	globalSem     chan struct{}
-	workerCount   int
-	stopWorkers   chan struct{}
-	wg            sync.WaitGroup
-	processor     func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
-	clock         func() time.Time
+	mu          sync.Mutex
+	queues      map[string]*keyQueue
+	maxPerKey   int
+	globalSem   chan struct{}
+	workerCount int
+	stopWorkers chan struct{}
+	wg          sync.WaitGroup
+	processor   func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
+	clock       func() time.Time
 
 	// Hot-key detection
-	hotKeyThreshold    int
+	hotKeyThreshold     int
 	hotKeyCheckInterval time.Duration
-	hotKeyCallback     func(partitionKey string, depth int)
-	muHot              sync.Mutex
-	hotKeys            map[string]time.Time // key -> first detected time
-	stopHotKeyCheck    chan struct{}
-	wgHot              sync.WaitGroup
+	hotKeyCallback      func(partitionKey string, depth int)
+	muHot               sync.Mutex
+	hotKeys             map[string]time.Time // key -> first detected time
+	stopHotKeyCheck     chan struct{}
+	wgHot               sync.WaitGroup
 }
 
 type keyQueue struct {
@@ -39,11 +39,11 @@ type keyQueue struct {
 }
 
 type queuedItem struct {
-	env       *domain.EventEnvelope
-	delivery  ports.Delivery
+	env          *domain.EventEnvelope
+	delivery     ports.Delivery
 	fencingToken int64
-	vshard    uint32
-	workerID  string
+	vshard       uint32
+	workerID     string
 }
 
 func NewKeyQueue(

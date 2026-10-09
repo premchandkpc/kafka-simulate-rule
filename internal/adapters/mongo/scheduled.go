@@ -40,18 +40,18 @@ func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.Sched
 
 func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error) {
 	coll := r.collection("scheduled_events")
-	
+
 	filter := bson.M{
-		"status":        "pending",
-		"scheduled_at":  bson.M{"$lte": before},
+		"status":       "pending",
+		"scheduled_at": bson.M{"$lte": before},
 	}
-	
+
 	cursor, err := coll.Find(ctx, filter, options.Find().SetLimit(int64(limit)))
 	if err != nil {
 		return nil, fmt.Errorf("get due scheduled events: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var events []*domain.ScheduledEvent
 	for cursor.Next(ctx) {
 		var doc ScheduledDoc
@@ -60,13 +60,13 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 		}
 		events = append(events, doc.ToDomain())
 	}
-	
+
 	return events, nil
 }
 
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error {
 	coll := r.collection("scheduled_events")
-	
+
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
 			"event_id": eventID,
@@ -74,8 +74,8 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 		},
 		bson.M{
 			"$set": bson.M{
-				"status":       "released",
-				"released_at":  releasedAt,
+				"status":      "released",
+				"released_at": releasedAt,
 			},
 		},
 	)
@@ -87,7 +87,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID string, errMsg string) error {
 	coll := r.collection("scheduled_events")
-	
+
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
 			"event_id": eventID,
@@ -119,17 +119,17 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*do
 }
 
 type ScheduledDoc struct {
-	EventID       string     `bson:"event_id"`
-	TenantID      string     `bson:"tenant_id"`
-	EventType     string     `bson:"event_type"`
-	PartitionKey  string     `bson:"partition_key"`
-	WorkflowID    string     `bson:"workflow_id,omitempty"`
-	Payload       bson.Raw   `bson:"payload"`
-	Headers       bson.Raw   `bson:"headers,omitempty"`
-	ScheduledAt   time.Time  `bson:"scheduled_at"`
-	Status        string     `bson:"status"`
-	CreatedAt     time.Time  `bson:"created_at"`
-	ReleasedAt    *time.Time `bson:"released_at,omitempty"`
+	EventID      string     `bson:"event_id"`
+	TenantID     string     `bson:"tenant_id"`
+	EventType    string     `bson:"event_type"`
+	PartitionKey string     `bson:"partition_key"`
+	WorkflowID   string     `bson:"workflow_id,omitempty"`
+	Payload      bson.Raw   `bson:"payload"`
+	Headers      bson.Raw   `bson:"headers,omitempty"`
+	ScheduledAt  time.Time  `bson:"scheduled_at"`
+	Status       string     `bson:"status"`
+	CreatedAt    time.Time  `bson:"created_at"`
+	ReleasedAt   *time.Time `bson:"released_at,omitempty"`
 }
 
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {

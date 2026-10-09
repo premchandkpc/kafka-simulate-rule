@@ -56,12 +56,12 @@ func (r *WorkflowRepository) Get(ctx context.Context, workflowID string) (*domai
 func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.WorkflowInstance) error {
 	coll := r.collection("workflow_instances")
 	now := time.Now().UTC()
-	
+
 	filter := bson.M{
 		"workflow_id": workflow.WorkflowID,
 		"version":     workflow.Version - 1,
 	}
-	
+
 	update := bson.M{
 		"$set": bson.M{
 			"state":            workflow.State,
@@ -74,7 +74,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 			"version": 1,
 		},
 	}
-	
+
 	result, err := coll.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return fmt.Errorf("update workflow: %w", err)
@@ -82,7 +82,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 	if result.MatchedCount == 0 {
 		return domain.ErrWorkflowConflict
 	}
-	
+
 	workflow.Version++
 	workflow.UpdatedAt = now
 	return nil
@@ -90,12 +90,12 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 
 func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error) {
 	coll := r.collection("workflow_instances")
-	
+
 	filter := bson.M{
 		"tenant_id": tenantID,
 		"state":     state,
 	}
-	
+
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetLimit(int64(limit)).
 		SetSort(bson.D{{Key: "updated_at", Value: 1}}))
@@ -103,7 +103,7 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 		return nil, fmt.Errorf("get workflows by tenant and state: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var workflows []*domain.WorkflowInstance
 	for cursor.Next(ctx) {
 		var doc WorkflowDoc
@@ -112,24 +112,24 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 		}
 		workflows = append(workflows, doc.ToDomain())
 	}
-	
+
 	return workflows, nil
 }
 
 func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error) {
 	coll := r.collection("workflow_instances")
-	
+
 	filter := bson.M{
 		"correlation_id": correlationID,
 	}
-	
+
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: 1}}))
 	if err != nil {
 		return nil, fmt.Errorf("get workflows by correlation: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var workflows []*domain.WorkflowInstance
 	for cursor.Next(ctx) {
 		var doc WorkflowDoc
@@ -138,7 +138,7 @@ func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, correlationID
 		}
 		workflows = append(workflows, doc.ToDomain())
 	}
-	
+
 	return workflows, nil
 }
 
@@ -264,13 +264,13 @@ func (r *WorkflowDefinitionRepository) Delete(ctx context.Context, workflowType 
 }
 
 type WorkflowDefinitionDoc struct {
-	WorkflowType string                 `bson:"workflow_type"`
-	Version      int64                  `bson:"version"`
-	States       []domain.WorkflowState `bson:"states"`
+	WorkflowType string                      `bson:"workflow_type"`
+	Version      int64                       `bson:"version"`
+	States       []domain.WorkflowState      `bson:"states"`
 	Transitions  []domain.WorkflowTransition `bson:"transitions"`
-	Rules        map[string]string      `bson:"rules,omitempty"`
-	CreatedAt    time.Time              `bson:"created_at"`
-	UpdatedAt    time.Time              `bson:"updated_at"`
+	Rules        map[string]string           `bson:"rules,omitempty"`
+	CreatedAt    time.Time                   `bson:"created_at"`
+	UpdatedAt    time.Time                   `bson:"updated_at"`
 }
 
 func WorkflowDefinitionDocFromDomain(d *domain.WorkflowDefinition) *WorkflowDefinitionDoc {

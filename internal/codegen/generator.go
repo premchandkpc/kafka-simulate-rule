@@ -52,11 +52,11 @@ func (g *Generator) generate(outputDir, subdir string, tmpl *template.Template, 
 	defer f.Close()
 
 	data := struct {
-		Schema        *domain.ContractSchema
-		TypeName      string
-		PackageName   string
-		Namespace     string
-		Fields        []FieldInfo
+		Schema      *domain.ContractSchema
+		TypeName    string
+		PackageName string
+		Namespace   string
+		Fields      []FieldInfo
 	}{
 		Schema:      g.schema,
 		TypeName:    typeName,

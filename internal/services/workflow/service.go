@@ -9,8 +9,8 @@ import (
 )
 
 type Service struct {
-	repo   ports.WorkflowRepository
-	clock  ports.Clock
+	repo  ports.WorkflowRepository
+	clock ports.Clock
 }
 
 func NewService(repo ports.WorkflowRepository, clock ports.Clock) *Service {

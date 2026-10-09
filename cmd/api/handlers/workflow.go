@@ -9,8 +9,8 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
-	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
+	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
 )
 
 type WorkflowHandler struct {

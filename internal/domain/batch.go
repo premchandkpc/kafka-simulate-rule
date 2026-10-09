@@ -31,17 +31,17 @@ type BatchConfig struct {
 
 // BatchRun records one synthesized batch evaluation.
 type BatchRun struct {
-	BatchID       string          `json:"batch_id"`
-	TenantID      string          `json:"tenant_id"`
-	PartitionKey  string          `json:"partition_key"`
-	RuleSet       string          `json:"rule_set"`
-	Status        string          `json:"status"`
-	MemberCount   int             `json:"member_count"`
-	ExecutionID   string          `json:"execution_id,omitempty"`
-	DecisionHash  string          `json:"decision_hash,omitempty"`
-	WindowFrom    *time.Time      `json:"window_from,omitempty"`
-	WindowTo      *time.Time      `json:"window_to,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
+	BatchID      string     `json:"batch_id"`
+	TenantID     string     `json:"tenant_id"`
+	PartitionKey string     `json:"partition_key"`
+	RuleSet      string     `json:"rule_set"`
+	Status       string     `json:"status"`
+	MemberCount  int        `json:"member_count"`
+	ExecutionID  string     `json:"execution_id,omitempty"`
+	DecisionHash string     `json:"decision_hash,omitempty"`
+	WindowFrom   *time.Time `json:"window_from,omitempty"`
+	WindowTo     *time.Time `json:"window_to,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 const (

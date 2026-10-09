@@ -25,16 +25,16 @@ type TransactionManager interface {
 
 // TxRepos holds repository instances scoped to a single transaction.
 type TxRepos struct {
-	Inbox            InboxRepository
-	Activations      ActivationRepository
-	RuleRepo         RuleRepository
-	Executions       ExecutionRepository
-	Outbox           OutboxRepository
-	ShardLeases      ShardLeaseRepository
-	Workflow         WorkflowRepository
-	ScheduledEvents  ScheduledEventRepository
-	Batches          BatchRepository
-	Quarantine       QuarantineRepository
+	Inbox           InboxRepository
+	Activations     ActivationRepository
+	RuleRepo        RuleRepository
+	Executions      ExecutionRepository
+	Outbox          OutboxRepository
+	ShardLeases     ShardLeaseRepository
+	Workflow        WorkflowRepository
+	ScheduledEvents ScheduledEventRepository
+	Batches         BatchRepository
+	Quarantine      QuarantineRepository
 }
 
 // Transaction factory

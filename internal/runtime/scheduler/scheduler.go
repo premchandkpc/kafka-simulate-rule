@@ -13,16 +13,16 @@ import (
 )
 
 type Scheduler struct {
-	repo        ports.ScheduledEventRepository
-	publisher   ports.BrokerPublisher
-	clock       ports.Clock
+	repo         ports.ScheduledEventRepository
+	publisher    ports.BrokerPublisher
+	clock        ports.Clock
 	pollInterval time.Duration
-	batchSize   int
+	batchSize    int
 
-	mu        sync.Mutex
-	running   bool
-	stopChan  chan struct{}
-	wg        sync.WaitGroup
+	mu       sync.Mutex
+	running  bool
+	stopChan chan struct{}
+	wg       sync.WaitGroup
 }
 
 func NewScheduler(

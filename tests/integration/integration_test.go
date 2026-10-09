@@ -11,8 +11,6 @@ import (
 	"github.com/flowrule/flowrule/internal/rules"
 	svcevents "github.com/flowrule/flowrule/internal/services/events"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type mockInbox struct {
@@ -80,10 +78,29 @@ func (m *mockRuleRepo) GetActive(ctx context.Context, tenantScope string, ruleSe
 	return m.revisions[key], nil
 }
 
-func (m *mockRuleRepo) Save(ctx context.Context, tenantScope string, revision *domain.RuleRevision) error {
-	key := tenantScope + ":" + revision.RuleID
+func (m *mockRuleRepo) Save(ctx context.Context, revision *domain.RuleRevision) error {
+	key := revision.TenantScope + ":" + revision.RuleID
 	m.revisions[key] = revision
 	return nil
+}
+
+func (m *mockRuleRepo) Delete(ctx context.Context, tenantScope, ruleSet string, revision int64) error {
+	key := tenantScope + ":" + ruleSet
+	delete(m.revisions, key)
+	return nil
+}
+
+func (m *mockRuleRepo) Get(ctx context.Context, tenantScope, ruleSet string, revision int64) (*domain.RuleRevision, error) {
+	key := tenantScope + ":" + ruleSet
+	return m.revisions[key], nil
+}
+
+func (m *mockRuleRepo) List(ctx context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
+	var result []*domain.RuleRevision
+	for _, rev := range m.revisions {
+		result = append(result, rev)
+	}
+	return result, nil
 }
 
 type mockExecutionRepo struct {
@@ -130,7 +147,7 @@ func (m *mockOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) 
 	return nil
 }
 
-func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner string) ([]domain.OutboxEffect, error) {
+func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	var claimed []domain.OutboxEffect
 	for _, ef := range m.effects {
 		if ef.Status == domain.OutboxStatusPending && !ef.AvailableAt.After(time.Now().UTC()) {
@@ -143,9 +160,11 @@ func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner stri
 	return claimed, nil
 }
 
-func (m *mockOutbox) MarkDelivered(ctx context.Context, effectID string) error {
-	if ef, ok := m.effects[effectID]; ok {
-		ef.Status = domain.OutboxStatusDelivered
+func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string) error {
+	for _, effectID := range effectIDs {
+		if ef, ok := m.effects[effectID]; ok {
+			ef.Status = domain.OutboxStatusDelivered
+		}
 	}
 	return nil
 }
@@ -167,6 +186,29 @@ func (m *mockOutbox) Quarantine(ctx context.Context, effectID string, errMsg str
 	return nil
 }
 
+func (m *mockOutbox) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
+	var pending []domain.OutboxEffect
+	for _, ef := range m.effects {
+		if ef.Status == domain.OutboxStatusPending {
+			pending = append(pending, *ef)
+			if len(pending) >= limit {
+				break
+			}
+		}
+	}
+	return pending, nil
+}
+
+func (m *mockOutbox) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
+	var result []domain.OutboxEffect
+	for _, ef := range m.effects {
+		if ef.ExecutionID == executionID {
+			result = append(result, *ef)
+		}
+	}
+	return result, nil
+}
+
 type mockQuarantine struct {
 	entries map[string]*domain.QuarantineEntry
 }
@@ -184,7 +226,23 @@ func (m *mockQuarantine) Get(ctx context.Context, id string) (*domain.Quarantine
 	return m.entries[id], nil
 }
 
+func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	var result []*domain.QuarantineEntry
+	for _, entry := range m.entries {
+		result = append(result, entry)
+		if filter.Limit > 0 && len(result) >= filter.Limit {
+			break
+		}
+	}
+	return result, nil
+}
+
 func (m *mockQuarantine) Replay(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *mockQuarantine) Delete(ctx context.Context, id string) error {
+	delete(m.entries, id)
 	return nil
 }
 
@@ -201,17 +259,16 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	outbox := newMockOutbox()
 	quarantine := newMockQuarantine()
 
-	beginTx := func(ctx context.Context) (ports.Tx, error) {
-		return &mockTx{
-			inbox:       inbox,
-			activations: activations,
-			ruleRepo:    ruleRepo,
-			executions:  executions,
-			outbox:      outbox,
-		}, nil
+	mockTx := &mockTx{
+		inbox:       inbox,
+		activations: activations,
+		ruleRepo:    ruleRepo,
+		executions:  executions,
+		outbox:      outbox,
 	}
+	txManager := newMockTxManager(mockTx)
 
-	newRepos := func(db interface{}) svcevents.TxRepos {
+	newRepos := func(tx ports.Transaction) svcevents.TxRepos {
 		return svcevents.TxRepos{
 			Inbox:       inbox,
 			Activations: activations,
@@ -223,7 +280,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	}
 
 	uc := svcevents.NewService(
-		compiler, evaluator, quarantine, clock, beginTx, newRepos,
+		compiler, evaluator, quarantine, clock, txManager, newRepos,
 	)
 
 	revision, err := compiler.Compile(json.RawMessage(`{
@@ -268,24 +325,31 @@ type mockTx struct {
 	ruleRepo    *mockRuleRepo
 	executions  *mockExecutionRepo
 	outbox      *mockOutbox
-}
-
-func (m *mockTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, nil
-}
-
-func (m *mockTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	return nil, nil
-}
-
-func (m *mockTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return nil
+	ctx         context.Context
 }
 
 func (m *mockTx) Commit(ctx context.Context) error   { return nil }
 func (m *mockTx) Rollback(ctx context.Context) error { return nil }
+func (m *mockTx) Context() context.Context           { return m.ctx }
 func (m *mockTx) FencingToken() int64                { return 0 }
 func (m *mockTx) SetFencingToken(token int64)        {}
+
+type mockTxManager struct {
+	tx *mockTx
+}
+
+func newMockTxManager(tx *mockTx) *mockTxManager {
+	return &mockTxManager{tx: tx}
+}
+
+func (m *mockTxManager) Begin(ctx context.Context) (ports.Transaction, error) {
+	m.tx.ctx = ctx
+	return m.tx, nil
+}
+
+func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
 
 type mockShardLease struct{}
 

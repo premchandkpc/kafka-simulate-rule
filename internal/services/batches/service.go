@@ -11,10 +11,10 @@ import (
 )
 
 type Service struct {
-	batches   ports.BatchRepository
-	events    ports.EventProcessor
-	clock     ports.Clock
-	cfg       domain.BatchConfig
+	batches ports.BatchRepository
+	events  ports.EventProcessor
+	clock   ports.Clock
+	cfg     domain.BatchConfig
 }
 
 func NewService(

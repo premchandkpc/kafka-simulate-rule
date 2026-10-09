@@ -54,17 +54,17 @@ func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*dom
 func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
 	coll := r.collection("executions")
 	now := time.Now().UTC()
-	
+
 	update := bson.M{
 		"$set": bson.M{
 			"status": status,
 			"error":  errMsg,
 		},
 	}
-	
-	if status == domain.ExecutionStatusCompleted || 
-	   status == domain.ExecutionStatusFailed || 
-	   status == domain.ExecutionStatusQuarantined {
+
+	if status == domain.ExecutionStatusCompleted ||
+		status == domain.ExecutionStatusFailed ||
+		status == domain.ExecutionStatusQuarantined {
 		update["$set"].(bson.M)["completed_at"] = now
 	}
 

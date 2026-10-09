@@ -16,10 +16,10 @@ type DB struct {
 }
 
 type Config struct {
-	URI        string
-	Database   string
-	MaxPool    uint64
-	MinPool    uint64
+	URI         string
+	Database    string
+	MaxPool     uint64
+	MinPool     uint64
 	MaxConnIdle time.Duration
 }
 

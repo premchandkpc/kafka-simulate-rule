@@ -76,9 +76,9 @@ func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, 
 		},
 		bson.M{
 			"$set": bson.M{
-				"processed":      true,
-				"execution_id":   executionID,
-				"processed_at":   now,
+				"processed":    true,
+				"execution_id": executionID,
+				"processed_at": now,
 			},
 		},
 	)
@@ -87,12 +87,12 @@ func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, 
 
 func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, limit int) ([]*domain.EventEnvelope, error) {
 	coll := r.collection("events")
-	
+
 	filter := bson.M{
 		"tenant_id": tenantID,
 		"processed": bson.M{"$ne": true},
 	}
-	
+
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetLimit(int64(limit)).
 		SetSort(bson.D{{Key: "occurred_at", Value: 1}}))
@@ -100,7 +100,7 @@ func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, l
 		return nil, fmt.Errorf("get unprocessed events: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var events []*domain.EventEnvelope
 	for cursor.Next(ctx) {
 		var doc EventDoc
@@ -109,24 +109,24 @@ func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, l
 		}
 		events = append(events, doc.ToDomain())
 	}
-	
+
 	return events, nil
 }
 
 type EventDoc struct {
-	EventID       string     `bson:"event_id"`
-	TenantID      string     `bson:"tenant_id"`
-	Type          string     `bson:"type"`
-	PartitionKey  string     `bson:"partition_key"`
-	WorkflowID    string     `bson:"workflow_id,omitempty"`
-	OccurredAt    time.Time  `bson:"occurred_at"`
-	ScheduledAt   *time.Time `bson:"scheduled_at,omitempty"`
-	Data          bson.Raw   `bson:"data"`
-	Headers       bson.Raw   `bson:"headers,omitempty"`
-	Processed     bool       `bson:"processed"`
-	ExecutionID   string     `bson:"execution_id,omitempty"`
-	ProcessedAt   *time.Time `bson:"processed_at,omitempty"`
-	CreatedAt     time.Time  `bson:"created_at"`
+	EventID      string     `bson:"event_id"`
+	TenantID     string     `bson:"tenant_id"`
+	Type         string     `bson:"type"`
+	PartitionKey string     `bson:"partition_key"`
+	WorkflowID   string     `bson:"workflow_id,omitempty"`
+	OccurredAt   time.Time  `bson:"occurred_at"`
+	ScheduledAt  *time.Time `bson:"scheduled_at,omitempty"`
+	Data         bson.Raw   `bson:"data"`
+	Headers      bson.Raw   `bson:"headers,omitempty"`
+	Processed    bool       `bson:"processed"`
+	ExecutionID  string     `bson:"execution_id,omitempty"`
+	ProcessedAt  *time.Time `bson:"processed_at,omitempty"`
+	CreatedAt    time.Time  `bson:"created_at"`
 }
 
 func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
@@ -137,18 +137,18 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 	if event.Headers != nil {
 		headers, _ = bson.Marshal(event.Headers)
 	}
-	
+
 	return &EventDoc{
-		EventID:       event.ID,
-		TenantID:      event.TenantID,
-		Type:          event.Type,
-		PartitionKey:  event.PartitionKey,
-		WorkflowID:    event.WorkflowID,
-		OccurredAt:    event.OccurredAt,
-		Data:          data,
-		Headers:       headers,
-		Processed:     false,
-		CreatedAt:     time.Now().UTC(),
+		EventID:      event.ID,
+		TenantID:     event.TenantID,
+		Type:         event.Type,
+		PartitionKey: event.PartitionKey,
+		WorkflowID:   event.WorkflowID,
+		OccurredAt:   event.OccurredAt,
+		Data:         data,
+		Headers:      headers,
+		Processed:    false,
+		CreatedAt:    time.Now().UTC(),
 	}
 }
 
@@ -161,7 +161,7 @@ func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 	if d.Headers != nil {
 		json.Unmarshal(d.Headers, &headers)
 	}
-	
+
 	return &domain.EventEnvelope{
 		ID:           d.EventID,
 		Type:         d.Type,

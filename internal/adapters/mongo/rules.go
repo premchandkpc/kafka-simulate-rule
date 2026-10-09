@@ -128,16 +128,16 @@ type ActivationDoc struct {
 }
 
 type RevisionDoc struct {
-	TenantScope     string                 `bson:"tenant_scope"`
-	RuleID          string                 `bson:"rule_id"`
-	Revision        int64                  `bson:"revision"`
-	Source          bson.Raw               `bson:"source"`
-	Compiled        bson.Raw               `bson:"compiled"`
-	ContentHash     string                 `bson:"content_hash"`
-	CompilerVersion string                 `bson:"compiler_version"`
-	MatchMode       string                 `bson:"match_mode"`
-	InputContract   *domain.ContractRef    `bson:"input_contract,omitempty"`
-	CreatedAt       time.Time              `bson:"created_at"`
+	TenantScope     string              `bson:"tenant_scope"`
+	RuleID          string              `bson:"rule_id"`
+	Revision        int64               `bson:"revision"`
+	Source          bson.Raw            `bson:"source"`
+	Compiled        bson.Raw            `bson:"compiled"`
+	ContentHash     string              `bson:"content_hash"`
+	CompilerVersion string              `bson:"compiler_version"`
+	MatchMode       string              `bson:"match_mode"`
+	InputContract   *domain.ContractRef `bson:"input_contract,omitempty"`
+	CreatedAt       time.Time           `bson:"created_at"`
 }
 
 func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
@@ -157,7 +157,7 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 		CreatedAt:       d.CreatedAt,
 	}
 }
- 
+
 func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *RevisionDoc {
 	compiled, _ := bson.Marshal(revision.Compiled)
 	source, _ := bson.Marshal(revision.Source)
@@ -208,10 +208,10 @@ func (r *ActivationRepository) Set(ctx context.Context, activation *domain.RuleA
 	filter := bson.M{"tenant_scope": activation.TenantScope, "rule_set": activation.RuleSet}
 	update := bson.M{
 		"$set": bson.M{
-			"revision":      activation.Revision,
-			"version":       activation.Version,
-			"actor":         activation.Actor,
-			"activated_at":  activation.ActivatedAt,
+			"revision":     activation.Revision,
+			"version":      activation.Version,
+			"actor":        activation.Actor,
+			"activated_at": activation.ActivatedAt,
 		},
 		"$setOnInsert": bson.M{
 			"tenant_scope": activation.TenantScope,

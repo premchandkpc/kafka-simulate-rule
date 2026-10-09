@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/flowrule/flowrule/internal/ports"
+	"github.com/redis/go-redis/v9"
 )
 
 type Cache struct {
@@ -93,18 +93,18 @@ func (c *Cache) Flush(ctx context.Context) error {
 }
 
 type Lock struct {
-	client     *redis.Client
-	key        string
-	token      string
-	ttl        time.Duration
-	watchCtx   context.Context
+	client      *redis.Client
+	key         string
+	token       string
+	ttl         time.Duration
+	watchCtx    context.Context
 	watchCancel context.CancelFunc
 }
 
 func (c *Cache) Acquire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	key = "lock:" + key
 	token := fmt.Sprintf("%d", time.Now().UnixNano())
-	
+
 	ok, err := c.client.SetNX(ctx, key, token, ttl).Result()
 	if err != nil {
 		return false, fmt.Errorf("lock acquire: %w", err)
@@ -114,7 +114,7 @@ func (c *Cache) Acquire(ctx context.Context, key string, ttl time.Duration) (boo
 
 func (c *Cache) Release(ctx context.Context, key, token string) (bool, error) {
 	key = "lock:" + key
-	
+
 	script := redis.NewScript(`
 		if redis.call("get", KEYS[1]) == ARGV[1] then
 			return redis.call("del", KEYS[1])
@@ -122,7 +122,7 @@ func (c *Cache) Release(ctx context.Context, key, token string) (bool, error) {
 			return 0
 		end
 	`)
-	
+
 	result, err := script.Run(ctx, c.client, []string{key}, token).Int()
 	if err != nil {
 		return false, fmt.Errorf("lock release: %w", err)
@@ -132,7 +132,7 @@ func (c *Cache) Release(ctx context.Context, key, token string) (bool, error) {
 
 func (c *Cache) Extend(ctx context.Context, key, token string, ttl time.Duration) (bool, error) {
 	key = "lock:" + key
-	
+
 	script := redis.NewScript(`
 		if redis.call("get", KEYS[1]) == ARGV[1] then
 			return redis.call("expire", KEYS[1], ARGV[2])
@@ -140,7 +140,7 @@ func (c *Cache) Extend(ctx context.Context, key, token string, ttl time.Duration
 			return 0
 		end
 	`)
-	
+
 	result, err := script.Run(ctx, c.client, []string{key}, token, int(ttl.Seconds())).Int()
 	if err != nil {
 		return false, fmt.Errorf("lock extend: %w", err)
@@ -150,12 +150,12 @@ func (c *Cache) Extend(ctx context.Context, key, token string, ttl time.Duration
 
 func (c *Cache) Lock(ctx context.Context, key string, ttl time.Duration) (ports.LockGuard, error) {
 	lock := &Lock{
-		client:     c.client,
-		key:        "lock:" + key,
-		token:      fmt.Sprintf("%d", time.Now().UnixNano()),
-		ttl:        ttl,
+		client: c.client,
+		key:    "lock:" + key,
+		token:  fmt.Sprintf("%d", time.Now().UnixNano()),
+		ttl:    ttl,
 	}
-	
+
 	ok, err := lock.client.SetNX(ctx, lock.key, lock.token, ttl).Result()
 	if err != nil {
 		return nil, fmt.Errorf("lock acquire: %w", err)
@@ -163,17 +163,17 @@ func (c *Cache) Lock(ctx context.Context, key string, ttl time.Duration) (ports.
 	if !ok {
 		return nil, fmt.Errorf("lock not acquired")
 	}
-	
+
 	lock.watchCtx, lock.watchCancel = context.WithCancel(ctx)
 	go lock.renewLoop()
-	
+
 	return lock, nil
 }
 
 func (l *Lock) renewLoop() {
 	ticker := time.NewTicker(l.ttl / 3)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-l.watchCtx.Done():
@@ -203,7 +203,7 @@ func (l *Lock) Release(ctx context.Context) error {
 	if l.watchCancel != nil {
 		l.watchCancel()
 	}
-	
+
 	script := redis.NewScript(`
 		if redis.call("get", KEYS[1]) == ARGV[1] then
 			return redis.call("del", KEYS[1])
@@ -211,7 +211,7 @@ func (l *Lock) Release(ctx context.Context) error {
 			return 0
 		end
 	`)
-	
+
 	_, err := script.Run(ctx, l.client, []string{l.key}, l.token).Int()
 	return err
 }
@@ -224,7 +224,7 @@ func (l *Lock) Extend(ctx context.Context, ttl time.Duration) error {
 			return 0
 		end
 	`)
-	
+
 	_, err := script.Run(ctx, l.client, []string{l.key}, l.token, int(ttl.Seconds())).Int()
 	return err
 }
@@ -241,18 +241,18 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int, window t
 	key = "ratelimit:" + key
 	now := time.Now().UnixMilli()
 	windowStart := now - window.Milliseconds()
-	
+
 	pipe := r.client.TxPipeline()
 	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart))
 	pipe.ZAdd(ctx, key, redis.Z{Score: float64(now), Member: fmt.Sprintf("%d", now)})
 	pipe.ZCard(ctx, key)
 	pipe.Expire(ctx, key, window)
-	
+
 	results, err := pipe.Exec(ctx)
 	if err != nil {
 		return false, fmt.Errorf("rate limit check: %w", err)
 	}
-	
+
 	count := results[2].(*redis.IntCmd).Val()
 	return count <= int64(limit), nil
 }

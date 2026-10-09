@@ -76,26 +76,26 @@ type ContractRef struct {
 }
 
 type ContractSchema struct {
-	Name            string                   `json:"name"`
-	Version         string                   `json:"version"`
-	Namespace       string                   `json:"namespace,omitempty"`
-	Description     string                   `json:"description,omitempty"`
-	Fields          map[string]ContractField `json:"fields"`
-	Compatibility   string                   `json:"compatibility,omitempty"`
-	Owner           string                   `json:"owner,omitempty"`
-	Deprecated      bool                     `json:"deprecated,omitempty"`
-	CreatedAt       time.Time                `json:"created_at,omitempty"`
-	UpdatedAt       time.Time                `json:"updated_at,omitempty"`
+	Name          string                   `json:"name"`
+	Version       string                   `json:"version"`
+	Namespace     string                   `json:"namespace,omitempty"`
+	Description   string                   `json:"description,omitempty"`
+	Fields        map[string]ContractField `json:"fields"`
+	Compatibility string                   `json:"compatibility,omitempty"`
+	Owner         string                   `json:"owner,omitempty"`
+	Deprecated    bool                     `json:"deprecated,omitempty"`
+	CreatedAt     time.Time                `json:"created_at,omitempty"`
+	UpdatedAt     time.Time                `json:"updated_at,omitempty"`
 }
 
 type ContractField struct {
-	Type        string                 `json:"type"`
-	Description string                 `json:"description,omitempty"`
-	Required    bool                   `json:"required,omitempty"`
-	Default     interface{}            `json:"default,omitempty"`
-	Enum        []interface{}          `json:"enum,omitempty"`
-	Format      string                 `json:"format,omitempty"`
-	Items       *ContractField         `json:"items,omitempty"`
+	Type        string                   `json:"type"`
+	Description string                   `json:"description,omitempty"`
+	Required    bool                     `json:"required,omitempty"`
+	Default     interface{}              `json:"default,omitempty"`
+	Enum        []interface{}            `json:"enum,omitempty"`
+	Format      string                   `json:"format,omitempty"`
+	Items       *ContractField           `json:"items,omitempty"`
 	Properties  map[string]ContractField `json:"properties,omitempty"`
 }
 
@@ -158,19 +158,19 @@ type EmitAction struct {
 type PartitionKeyPolicy string
 
 const (
-	PartitionKeyPolicyExplicit  PartitionKeyPolicy = "explicit"  // Use literal PartitionKey value
-	PartitionKeyPolicyInherit   PartitionKeyPolicy = "inherit"   // Inherit from parent event
-	PartitionKeyPolicyFromData  PartitionKeyPolicy = "from_data" // Derive from JSON path in parent data
+	PartitionKeyPolicyExplicit PartitionKeyPolicy = "explicit"  // Use literal PartitionKey value
+	PartitionKeyPolicyInherit  PartitionKeyPolicy = "inherit"   // Inherit from parent event
+	PartitionKeyPolicyFromData PartitionKeyPolicy = "from_data" // Derive from JSON path in parent data
 )
 
 // EmitEventAction creates a new FlowRule event after the parent execution
 // commits. Supports explicit, inherit, and from_data partition key policies.
 type EmitEventAction struct {
-	Type              string               `json:"type"`
-	PartitionKey      string               `json:"partition_key,omitempty"`
-	PartitionKeyPolicy PartitionKeyPolicy  `json:"partition_key_policy,omitempty"`
-	PartitionKeyPath  string               `json:"partition_key_path,omitempty"` // JSON path for from_data policy
-	Data              json.RawMessage      `json:"data"`
+	Type               string             `json:"type"`
+	PartitionKey       string             `json:"partition_key,omitempty"`
+	PartitionKeyPolicy PartitionKeyPolicy `json:"partition_key_policy,omitempty"`
+	PartitionKeyPath   string             `json:"partition_key_path,omitempty"` // JSON path for from_data policy
+	Data               json.RawMessage    `json:"data"`
 }
 
 type CommandAction struct {
@@ -269,22 +269,22 @@ func (e *Execution) Quarantine(now time.Time, errMsg string) error {
 }
 
 type OutboxEffect struct {
-	ID            string          `json:"id"`
-	ExecutionID   string          `json:"execution_id"`
-	Destination   string          `json:"destination"`
-	Name          string          `json:"name"`
-	Payload       json.RawMessage `json:"payload"`
-	EffectType    EffectType      `json:"effect_type"`
-	Status        OutboxStatus    `json:"status"`
-	Attempts      int             `json:"attempts"`
-	MaxAttempts   int             `json:"max_attempts"`
-	AvailableAt   time.Time       `json:"available_at"`
-	ClaimedBy     string          `json:"claimed_by,omitempty"`
-	ClaimedAt     *time.Time      `json:"claimed_at,omitempty"`
-	ClaimExpiresAt *time.Time     `json:"claim_expires_at,omitempty"`
-	LastError     string          `json:"last_error,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	ID             string          `json:"id"`
+	ExecutionID    string          `json:"execution_id"`
+	Destination    string          `json:"destination"`
+	Name           string          `json:"name"`
+	Payload        json.RawMessage `json:"payload"`
+	EffectType     EffectType      `json:"effect_type"`
+	Status         OutboxStatus    `json:"status"`
+	Attempts       int             `json:"attempts"`
+	MaxAttempts    int             `json:"max_attempts"`
+	AvailableAt    time.Time       `json:"available_at"`
+	ClaimedBy      string          `json:"claimed_by,omitempty"`
+	ClaimedAt      *time.Time      `json:"claimed_at,omitempty"`
+	ClaimExpiresAt *time.Time      `json:"claim_expires_at,omitempty"`
+	LastError      string          `json:"last_error,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type OutboxStatus string
@@ -446,30 +446,30 @@ func ComputeChildEventID(parentEventID, ruleID string, actionIndex int) string {
 }
 
 type ScheduledEvent struct {
-	EventID       string            `json:"event_id"`
-	TenantID      string            `json:"tenant_id"`
-	EventType     string            `json:"event_type"`
-	PartitionKey  string            `json:"partition_key"`
-	WorkflowID    string            `json:"workflow_id,omitempty"`
-	Payload       json.RawMessage   `json:"payload"`
-	Headers       map[string]string `json:"headers,omitempty"`
-	ScheduledAt   time.Time         `json:"scheduled_at"`
-	Status        string            `json:"status"`
-	CreatedAt     time.Time         `json:"created_at"`
-	ReleasedAt    *time.Time        `json:"released_at,omitempty"`
+	EventID      string            `json:"event_id"`
+	TenantID     string            `json:"tenant_id"`
+	EventType    string            `json:"event_type"`
+	PartitionKey string            `json:"partition_key"`
+	WorkflowID   string            `json:"workflow_id,omitempty"`
+	Payload      json.RawMessage   `json:"payload"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	ScheduledAt  time.Time         `json:"scheduled_at"`
+	Status       string            `json:"status"`
+	CreatedAt    time.Time         `json:"created_at"`
+	ReleasedAt   *time.Time        `json:"released_at,omitempty"`
 }
 
 type WorkflowInstance struct {
-	WorkflowID       string          `json:"workflow_id"`
-	TenantID         string          `json:"tenant_id"`
-	WorkflowType     string          `json:"workflow_type"`
-	State            string          `json:"state"`
-	Version          int64           `json:"version"`
-	CurrentRevision  int64           `json:"current_revision,omitempty"`
-	Context          json.RawMessage `json:"context,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	WorkflowID      string          `json:"workflow_id"`
+	TenantID        string          `json:"tenant_id"`
+	WorkflowType    string          `json:"workflow_type"`
+	State           string          `json:"state"`
+	Version         int64           `json:"version"`
+	CurrentRevision int64           `json:"current_revision,omitempty"`
+	Context         json.RawMessage `json:"context,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
 }
 
 const (
@@ -516,24 +516,24 @@ func (w *WorkflowInstance) Transition(to string) error {
 type WorkflowStateType string
 
 const (
-	WorkflowStateTypeStart       WorkflowStateType = "start"
-	WorkflowStateTypeEnd         WorkflowStateType = "end"
+	WorkflowStateTypeStart        WorkflowStateType = "start"
+	WorkflowStateTypeEnd          WorkflowStateType = "end"
 	WorkflowStateTypeIntermediate WorkflowStateType = "intermediate"
 )
 
 type WorkflowState struct {
-	Name        string                 `json:"name"`
-	Type        WorkflowStateType      `json:"type"`
-	RuleSets    []string               `json:"rule_sets,omitempty"`
-	OnEnter     []Action               `json:"on_enter,omitempty"`
-	OnExit      []Action               `json:"on_exit,omitempty"`
+	Name     string            `json:"name"`
+	Type     WorkflowStateType `json:"type"`
+	RuleSets []string          `json:"rule_sets,omitempty"`
+	OnEnter  []Action          `json:"on_enter,omitempty"`
+	OnExit   []Action          `json:"on_exit,omitempty"`
 }
 
 type WorkflowTransition struct {
-	From      string      `json:"from"`
-	To        string      `json:"to"`
-	EventType string      `json:"event_type"`
-	Condition *Predicate  `json:"condition,omitempty"`
+	From      string     `json:"from"`
+	To        string     `json:"to"`
+	EventType string     `json:"event_type"`
+	Condition *Predicate `json:"condition,omitempty"`
 }
 
 type WorkflowDefinition struct {

@@ -71,7 +71,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	if filter.Limit <= 0 {
 		filter.Limit = 100
 	}
-	
+
 	query := `
 		SELECT quarantine_id, source_type, source_id, error_class, COALESCE(payload_ref, ''),
 		       COALESCE(event_id, ''), COALESCE(tenant_id, ''), COALESCE(error_message, ''), created_at
@@ -79,7 +79,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	`
 	args := []interface{}{}
 	argIdx := 1
-	
+
 	if filter.TenantID != "" {
 		query += fmt.Sprintf(" AND tenant_id = $%d", argIdx)
 		args = append(args, filter.TenantID)
@@ -105,16 +105,16 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		args = append(args, filter.To)
 		argIdx++
 	}
-	
+
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, filter.Limit, filter.Offset)
-	
+
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list quarantine entries: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var entries []*domain.QuarantineEntry
 	for rows.Next() {
 		entry := &domain.QuarantineEntry{}

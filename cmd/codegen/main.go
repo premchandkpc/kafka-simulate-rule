@@ -13,13 +13,13 @@ import (
 
 func main() {
 	var (
-		dsn         = flag.String("dsn", "", "PostgreSQL connection string")
-		contract    = flag.String("contract", "", "Contract name")
-		version     = flag.String("version", "", "Contract version")
-		target      = flag.String("target", "go", "Target language: go, java, protobuf, jsonschema")
-		output      = flag.String("output", "", "Output file (stdout if empty)")
-		list        = flag.Bool("list", false, "List all contracts")
-		migrations  = flag.String("migrations", "migrations", "Path to migrations directory")
+		dsn        = flag.String("dsn", "", "PostgreSQL connection string")
+		contract   = flag.String("contract", "", "Contract name")
+		version    = flag.String("version", "", "Contract version")
+		target     = flag.String("target", "go", "Target language: go, java, protobuf, jsonschema")
+		output     = flag.String("output", "", "Output file (stdout if empty)")
+		list       = flag.Bool("list", false, "List all contracts")
+		migrations = flag.String("migrations", "migrations", "Path to migrations directory")
 	)
 	flag.Parse()
 

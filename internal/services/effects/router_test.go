@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type testPublisher struct {
@@ -22,9 +23,17 @@ func (p *testPublisher) Publish(_ context.Context, subject string, data []byte) 
 	return nil
 }
 
+func (p *testPublisher) PublishBatch(_ context.Context, messages []ports.PublishMessage) error {
+	return nil
+}
+
 func (p *testPublisher) PublishToShard(_ context.Context, baseSubject string, shard uint32, data []byte) error {
 	p.subject = fmt.Sprintf("%s.shard.%d", baseSubject, shard)
 	p.payload = append([]byte(nil), data...)
+	return nil
+}
+
+func (p *testPublisher) Close() error {
 	return nil
 }
 

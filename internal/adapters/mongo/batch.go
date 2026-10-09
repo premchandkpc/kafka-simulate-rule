@@ -26,16 +26,16 @@ func (r *BatchRepository) collection(name string) *mongo.Collection {
 
 func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
 	coll := r.collection("inbox")
-	
+
 	if limit <= 0 {
 		limit = 400
 	}
-	
+
 	filter := bson.M{
 		"status":   "committed",
 		"batch_id": bson.M{"$exists": false},
 	}
-	
+
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetLimit(int64(limit)).
 		SetSort(bson.D{{Key: "first_seen_at", Value: 1}, {Key: "tenant_id", Value: 1}, {Key: "event_id", Value: 1}}))
@@ -43,7 +43,7 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		return nil, fmt.Errorf("list unbatched: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var entries []*domain.InboxEntry
 	for cursor.Next(ctx) {
 		var doc InboxDoc
@@ -52,13 +52,13 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		}
 		entries = append(entries, doc.ToDomain())
 	}
-	
+
 	return entries, nil
 }
 
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	coll := r.collection("inbox")
-	
+
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
 			"tenant_id": tenantID,
@@ -80,14 +80,14 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	coll := r.collection("batch_runs")
 	doc := BatchRunDocFromDomain(run)
-	
+
 	_, err := coll.UpdateOne(ctx,
 		bson.M{"batch_id": run.BatchID},
 		bson.M{
 			"$set": doc,
 			"$setOnInsert": bson.M{
-				"batch_id":    run.BatchID,
-				"created_at":  run.CreatedAt,
+				"batch_id":   run.BatchID,
+				"created_at": run.CreatedAt,
 			},
 		},
 		options.Update().SetUpsert(true),

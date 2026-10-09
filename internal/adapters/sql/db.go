@@ -13,8 +13,8 @@ import (
 )
 
 type DB struct {
-	pool        *pgxpool.Pool
-	migrations  string
+	pool       *pgxpool.Pool
+	migrations string
 }
 
 func New(ctx context.Context, dsn string, migrationsDir string) (*DB, error) {

@@ -16,9 +16,9 @@ import (
 )
 
 type FakeDestination struct {
-	mu       sync.Mutex
-	sent     map[string]bool
-	failOn   map[string]bool
+	mu        sync.Mutex
+	sent      map[string]bool
+	failOn    map[string]bool
 	failCount int
 }
 

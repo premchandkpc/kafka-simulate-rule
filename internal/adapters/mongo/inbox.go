@@ -64,9 +64,9 @@ func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, ev
 		},
 		bson.M{
 			"$set": bson.M{
-				"status":        domain.InboxStatusCommitted,
-				"execution_id":  executionID,
-				"committed_at":  now,
+				"status":       domain.InboxStatusCommitted,
+				"execution_id": executionID,
+				"committed_at": now,
 			},
 		},
 	)
@@ -77,16 +77,16 @@ func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, ev
 }
 
 type InboxDoc struct {
-	TenantID     string    `bson:"tenant_id"`
-	EventID      string    `bson:"event_id"`
-	Status       string    `bson:"status"`
-	ExecutionID  string    `bson:"execution_id,omitempty"`
-	FirstSeenAt  time.Time `bson:"first_seen_at"`
+	TenantID     string     `bson:"tenant_id"`
+	EventID      string     `bson:"event_id"`
+	Status       string     `bson:"status"`
+	ExecutionID  string     `bson:"execution_id,omitempty"`
+	FirstSeenAt  time.Time  `bson:"first_seen_at"`
 	CommittedAt  *time.Time `bson:"committed_at,omitempty"`
-	PartitionKey string    `bson:"partition_key,omitempty"`
-	RuleSet      string    `bson:"rule_set,omitempty"`
-	Payload      bson.Raw  `bson:"payload,omitempty"`
-	BatchID      string    `bson:"batch_id,omitempty"`
+	PartitionKey string     `bson:"partition_key,omitempty"`
+	RuleSet      string     `bson:"rule_set,omitempty"`
+	Payload      bson.Raw   `bson:"payload,omitempty"`
+	BatchID      string     `bson:"batch_id,omitempty"`
 }
 
 func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {

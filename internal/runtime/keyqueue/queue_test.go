@@ -12,11 +12,13 @@ import (
 
 type mockDelivery struct{}
 
-func (m *mockDelivery) Event() (*domain.EventEnvelope, error) { return nil, nil }
-func (m *mockDelivery) Ack(ctx context.Context) error        { return nil }
-func (m *mockDelivery) Nak(ctx context.Context) error        { return nil }
+func (m *mockDelivery) Event() (*domain.EventEnvelope, error)                { return nil, nil }
+func (m *mockDelivery) Ack(ctx context.Context) error                        { return nil }
+func (m *mockDelivery) Nak(ctx context.Context) error                        { return nil }
 func (m *mockDelivery) Retry(ctx context.Context, delay time.Duration) error { return nil }
-func (m *mockDelivery) Raw() []byte                          { return nil }
+func (m *mockDelivery) Raw() []byte                                          { return nil }
+func (m *mockDelivery) Headers() map[string]string                           { return nil }
+func (m *mockDelivery) Subject() string                                      { return "" }
 
 func TestKeyQueue_PerKeySerialization(t *testing.T) {
 	var mu sync.Mutex

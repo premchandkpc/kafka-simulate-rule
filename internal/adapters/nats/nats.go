@@ -15,24 +15,24 @@ import (
 )
 
 type Consumer struct {
-	conn       *nats.Conn
-	js         jetstream.JetStream
-	stream     string
-	consumers  map[uint32]string // shard -> consumer name
-	subjects   []string
+	conn        *nats.Conn
+	js          jetstream.JetStream
+	stream      string
+	consumers   map[uint32]string // shard -> consumer name
+	subjects    []string
 	baseDurable string
-	cfg        Config
-	mu         sync.RWMutex
+	cfg         Config
+	mu          sync.RWMutex
 }
 
 type Config struct {
-	NatsURL      string
-	Stream       string
-	Consumer     string
-	Subjects     []string
-	AckWait      time.Duration
-	MaxDeliver   int
-	NumShards    uint32
+	NatsURL    string
+	Stream     string
+	Consumer   string
+	Subjects   []string
+	AckWait    time.Duration
+	MaxDeliver int
+	NumShards  uint32
 }
 
 func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
@@ -191,6 +191,18 @@ func (c *Consumer) Close() error {
 	return nil
 }
 
+func (c *Consumer) Fetch(ctx context.Context, maxMessages int) ([]ports.Delivery, error) {
+	return c.FetchShards(ctx, maxMessages, c.OwnedShards())
+}
+
+func (c *Consumer) Subscribe(ctx context.Context, subjects []string) error {
+	return nil
+}
+
+func (c *Consumer) Unsubscribe(ctx context.Context) error {
+	return nil
+}
+
 type jetstreamDelivery struct {
 	msg jetstream.Msg
 }
@@ -280,6 +292,17 @@ func (p *Publisher) PublishToShard(ctx context.Context, baseSubject string, shar
 	return nil
 }
 
-func (p *Publisher) Close() {
+func (p *Publisher) PublishBatch(ctx context.Context, messages []ports.PublishMessage) error {
+	for _, msg := range messages {
+		_, err := p.js.Publish(ctx, msg.Subject, msg.Data)
+		if err != nil {
+			return fmt.Errorf("publish batch: %w", err)
+		}
+	}
+	return nil
+}
+
+func (p *Publisher) Close() error {
 	p.conn.Close()
+	return nil
 }

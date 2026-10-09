@@ -78,7 +78,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 		return nil
 	}
 	now := time.Now().UTC()
-	
+
 	// Build placeholders for IN clause
 	placeholders := make([]string, len(effectIDs))
 	args := make([]interface{}, len(effectIDs)+1)
@@ -87,13 +87,13 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 		args[i+1] = id
 	}
-	
+
 	query := fmt.Sprintf(`
 		UPDATE outbox_effects
 		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
 		WHERE effect_id IN (%s)
 	`, strings.Join(placeholders, ","))
-	
+
 	_, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("mark delivered: %w", err)

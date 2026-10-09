@@ -179,10 +179,10 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"contract":       name,
-		"version":        version,
-		"language":       req.Language,
-		"output_dir":     outputDir,
+		"contract":        name,
+		"version":         version,
+		"language":        req.Language,
+		"output_dir":      outputDir,
 		"generated_files": generatedFiles,
 	})
 }

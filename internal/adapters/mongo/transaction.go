@@ -65,7 +65,7 @@ func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx co
 }
 
 type Transaction struct {
-	session     mongo.Session
+	session      mongo.Session
 	fencingToken int64
 }
 

@@ -7,16 +7,16 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/mongo"
 	"github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/adapters/redis"
+	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
+	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
-	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
+	"github.com/flowrule/flowrule/internal/services/batches"
+	"github.com/flowrule/flowrule/internal/services/effects"
 	"github.com/flowrule/flowrule/internal/services/events"
 	"github.com/flowrule/flowrule/internal/services/rules"
-	"github.com/flowrule/flowrule/internal/services/effects"
-	"github.com/flowrule/flowrule/internal/services/batches"
-	"github.com/flowrule/flowrule/internal/application"
 )
 
 type Config struct {
@@ -31,21 +31,21 @@ type Config struct {
 }
 
 type MongoConfig struct {
-	URI        string
-	Database   string
-	MaxPool    uint64
-	MinPool    uint64
+	URI         string
+	Database    string
+	MaxPool     uint64
+	MinPool     uint64
 	MaxConnIdle time.Duration
 }
 
 type NATSConfig struct {
-	URL         string
-	Stream      string
-	Consumer    string
-	Subjects    []string
-	AckWait     time.Duration
-	MaxDeliver  int
-	NumShards   uint32
+	URL        string
+	Stream     string
+	Consumer   string
+	Subjects   []string
+	AckWait    time.Duration
+	MaxDeliver int
+	NumShards  uint32
 }
 
 type RedisConfig struct {
@@ -72,16 +72,16 @@ type SchedulerConfig struct {
 }
 
 type KeyQueueConfig struct {
-	MaxGlobalInFlight  int
-	MaxPerKeyQueue     int
-	WorkerCount        int
-	HotKeyThreshold    int
+	MaxGlobalInFlight   int
+	MaxPerKeyQueue      int
+	WorkerCount         int
+	HotKeyThreshold     int
 	HotKeyCheckInterval time.Duration
 }
 
 type ShardLeaseConfig struct {
-	NumShards      uint32
-	LeaseTTL       time.Duration
+	NumShards       uint32
+	LeaseTTL        time.Duration
 	RenewalInterval time.Duration
 }
 
@@ -92,10 +92,10 @@ type BatchConfig struct {
 }
 
 type Factory struct {
-	config Config
-	mongoDB *mongo.DB
-	redisClient *redis.Client
-	natsConsumer *nats.Consumer
+	config        Config
+	mongoDB       *mongo.DB
+	redisClient   *redis.Client
+	natsConsumer  *nats.Consumer
 	natsPublisher *nats.Publisher
 }
 
@@ -107,12 +107,12 @@ func (f *Factory) MongoDB(ctx context.Context) (*mongo.DB, error) {
 	if f.mongoDB != nil {
 		return f.mongoDB, nil
 	}
-	
+
 	db, err := mongo.New(ctx, mongo.Config{
-		URI:        f.config.MongoDB.URI,
-		Database:   f.config.MongoDB.Database,
-		MaxPool:    f.config.MongoDB.MaxPool,
-		MinPool:    f.config.MongoDB.MinPool,
+		URI:         f.config.MongoDB.URI,
+		Database:    f.config.MongoDB.Database,
+		MaxPool:     f.config.MongoDB.MaxPool,
+		MinPool:     f.config.MongoDB.MinPool,
 		MaxConnIdle: f.config.MongoDB.MaxConnIdle,
 	})
 	if err != nil {
@@ -126,7 +126,7 @@ func (f *Factory) RedisClient(ctx context.Context) (*redis.Client, error) {
 	if f.redisClient != nil {
 		return f.redisClient, nil
 	}
-	
+
 	client, err := redis.New(ctx, redis.Config{
 		Addr:         f.config.Redis.Addr,
 		Password:     f.config.Redis.Password,
@@ -149,7 +149,7 @@ func (f *Factory) NATSConsumer(ctx context.Context) (*nats.Consumer, error) {
 	if f.natsConsumer != nil {
 		return f.natsConsumer, nil
 	}
-	
+
 	consumer, err := nats.NewConsumer(ctx, nats.Config{
 		NatsURL:    f.config.NATS.URL,
 		Stream:     f.config.NATS.Stream,
@@ -170,10 +170,10 @@ func (f *Factory) NATSPublisher(ctx context.Context) (*nats.Publisher, error) {
 	if f.natsPublisher != nil {
 		return f.natsPublisher, nil
 	}
-	
+
 	publisher, err := nats.NewPublisher(nats.Config{
-		NatsURL:  f.config.NATS.URL,
-		Stream:   f.config.NATS.Stream,
+		NatsURL:   f.config.NATS.URL,
+		Stream:    f.config.NATS.Stream,
 		NumShards: f.config.NATS.NumShards,
 	})
 	if err != nil {

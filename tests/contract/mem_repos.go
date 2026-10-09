@@ -60,8 +60,8 @@ func (m *memInbox) MarkCommitted(ctx context.Context, tenantID string, eventID s
 }
 
 type memExecution struct {
-	mu       sync.Mutex
-	entries  map[string]*domain.Execution
+	mu      sync.Mutex
+	entries map[string]*domain.Execution
 }
 
 func newMemExecution() *memExecution {

@@ -54,15 +54,15 @@ type PlacementConfig struct {
 }
 
 type StreamConfig struct {
-	Name        string
-	Subjects    []string
-	Retention   RetentionPolicy
-	Storage     StorageType
-	MaxMsgs     int64
-	MaxBytes    int64
-	MaxAge      time.Duration
-	Replicas    int
-	Placement   *PlacementConfig
+	Name      string
+	Subjects  []string
+	Retention RetentionPolicy
+	Storage   StorageType
+	MaxMsgs   int64
+	MaxBytes  int64
+	MaxAge    time.Duration
+	Replicas  int
+	Placement *PlacementConfig
 }
 
 type ConsumerConfig struct {
@@ -86,18 +86,18 @@ type StreamInfo struct {
 }
 
 type ConsumerInfo struct {
-	Name         string
-	NumPending   uint64
+	Name          string
+	NumPending    uint64
 	NumAckPending uint64
-	Delivered    uint64
-	AckFloor     uint64
+	Delivered     uint64
+	AckFloor      uint64
 }
 
 type RetentionPolicy string
 
 const (
-	RetentionPolicyLimits   RetentionPolicy = "limits"
-	RetentionPolicyInterest RetentionPolicy = "interest"
+	RetentionPolicyLimits    RetentionPolicy = "limits"
+	RetentionPolicyInterest  RetentionPolicy = "interest"
 	RetentionPolicyWorkQueue RetentionPolicy = "workqueue"
 )
 
@@ -111,26 +111,26 @@ const (
 type AckPolicy string
 
 const (
-	AckPolicyExplicit    AckPolicy = "explicit"
-	AckPolicyAll         AckPolicy = "all"
-	AckPolicyNone        AckPolicy = "none"
+	AckPolicyExplicit AckPolicy = "explicit"
+	AckPolicyAll      AckPolicy = "all"
+	AckPolicyNone     AckPolicy = "none"
 )
 
 type DeliverPolicy string
 
 const (
-	DeliverPolicyAll       DeliverPolicy = "all"
-	DeliverPolicyLast      DeliverPolicy = "last"
-	DeliverPolicyNew       DeliverPolicy = "new"
-	DeliverPolicyByStartSeq DeliverPolicy = "by_start_sequence"
+	DeliverPolicyAll         DeliverPolicy = "all"
+	DeliverPolicyLast        DeliverPolicy = "last"
+	DeliverPolicyNew         DeliverPolicy = "new"
+	DeliverPolicyByStartSeq  DeliverPolicy = "by_start_sequence"
 	DeliverPolicyByStartTime DeliverPolicy = "by_start_time"
 )
 
 type StreamState string
 
 const (
-	StreamStateActive   StreamState = "active"
-	StreamStateDeleted  StreamState = "deleted"
+	StreamStateActive  StreamState = "active"
+	StreamStateDeleted StreamState = "deleted"
 )
 
 // ShardedConsumer extends BrokerConsumer with shard management capabilities

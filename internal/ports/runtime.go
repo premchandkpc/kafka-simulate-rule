@@ -22,13 +22,13 @@ type KeyQueue interface {
 }
 
 type QueueItem struct {
-	Event         *domain.EventEnvelope
-	Delivery      Delivery
-	FencingToken  int64
-	Shard         uint32
-	WorkerID      string
-	Priority      int
-	SubmittedAt   time.Time
+	Event        *domain.EventEnvelope
+	Delivery     Delivery
+	FencingToken int64
+	Shard        uint32
+	WorkerID     string
+	Priority     int
+	SubmittedAt  time.Time
 }
 
 type QueueStats struct {
