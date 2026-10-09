@@ -61,7 +61,13 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		tx.SetFencingToken(fencingToken)
 	}
 
-	repos := s.newRepos(tx)
+	repos, err := s.newRepos(tx)
+	if err != nil {
+		return nil, fmt.Errorf("create transaction repositories: %w", err)
+	}
+	if txCtx := tx.Context(); txCtx != nil {
+		ctx = txCtx
+	}
 
 	entry, err := repos.Inbox.Get(ctx, envelope.TenantID, envelope.ID)
 	if err != nil {

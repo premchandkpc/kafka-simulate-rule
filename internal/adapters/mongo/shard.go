@@ -39,17 +39,10 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 
 	update := bson.M{
 		"$set": bson.M{
-			"virtual_shard": shard,
-			"owner":         owner,
-			"fencing_token": 1,
-			"expires_at":    expiresAt,
-			"routing_epoch": 0,
+			"owner":      owner,
+			"expires_at": expiresAt,
 		},
 		"$inc": bson.M{
-			"fencing_token": 1,
-		},
-		"$setOnInsert": bson.M{
-			"virtual_shard": shard,
 			"fencing_token": 1,
 		},
 	}
@@ -61,6 +54,9 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 	var doc LeaseDoc
 	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&doc)
 	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, domain.ErrLeaseOwnedByOther
+		}
 		return nil, fmt.Errorf("acquire lease: %w", err)
 	}
 
@@ -102,10 +98,13 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
 	coll := r.collection("shard_leases")
-	_, err := coll.DeleteOne(ctx, bson.M{
+	_, err := coll.UpdateOne(ctx, bson.M{
 		"virtual_shard": shard,
 		"owner":         owner,
-	})
+	}, bson.M{"$set": bson.M{
+		"owner":      "",
+		"expires_at": time.Now().UTC(),
+	}})
 	if err != nil {
 		return fmt.Errorf("release lease: %w", err)
 	}
@@ -120,7 +119,7 @@ func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*dom
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, fmt.Errorf("get owner: %w", err)
+			return nil, nil
 		}
 		return nil, fmt.Errorf("get owner: %w", err)
 	}

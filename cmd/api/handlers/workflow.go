@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
@@ -14,16 +13,16 @@ import (
 )
 
 type WorkflowHandler struct {
-	workflowSvc *svcworkflow.Service
-	ruleSvc     *svcrules.Service
-	pool        *sql.DB
+	workflowSvc     *svcworkflow.Service
+	ruleSvc         *svcrules.Service
+	workflowDefRepo ports.WorkflowDefinitionRepository
 }
 
-func NewWorkflowHandler(workflowSvc *svcworkflow.Service, ruleSvc *svcrules.Service, pool *sql.DB) *WorkflowHandler {
+func NewWorkflowHandler(workflowSvc *svcworkflow.Service, ruleSvc *svcrules.Service, workflowDefRepo ports.WorkflowDefinitionRepository) *WorkflowHandler {
 	return &WorkflowHandler{
-		workflowSvc: workflowSvc,
-		ruleSvc:     ruleSvc,
-		pool:        pool,
+		workflowSvc:     workflowSvc,
+		ruleSvc:         ruleSvc,
+		workflowDefRepo: workflowDefRepo,
 	}
 }
 
@@ -302,5 +301,5 @@ func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *htt
 }
 
 func (h *WorkflowHandler) getWorkflowDefRepo() ports.WorkflowDefinitionRepository {
-	return sql.NewWorkflowDefinitionRepository(h.pool.Pool())
+	return h.workflowDefRepo
 }

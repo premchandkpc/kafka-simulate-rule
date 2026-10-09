@@ -107,7 +107,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 					"status":           "claimed",
 					"claimant":         claimant,
 					"claimed_at":       now,
-					"claim_expires_at": now.Add(leaseTTL),
+					"claim_expires_at": expiresAt,
 				},
 			},
 			options.FindOneAndUpdate().
@@ -127,25 +127,6 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 	return events, nil
 }
 
-func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error {
-	coll := r.collection("scheduled_events")
-
-	_, err := coll.UpdateOne(ctx,
-		bson.M{
-			"event_id": eventID,
-			"status":   "pending",
-		},
-		bson.M{
-			"$set": bson.M{
-				"status":      "released",
-				"released_at": releasedAt,
-			},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("mark released: %w", err)
-	}
-	return nil
 func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error) {
 	coll := r.collection("scheduled_events")
 	var doc ScheduledDoc

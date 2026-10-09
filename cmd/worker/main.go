@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"log"
-		"os/signal"
+	"os/signal"
 	"syscall"
 	"time"
 
@@ -13,13 +13,13 @@ import (
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/observability"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 	"github.com/flowrule/flowrule/internal/services/batches"
 	svceffects "github.com/flowrule/flowrule/internal/services/effects"
 	svcevents "github.com/flowrule/flowrule/internal/services/events"
+	"github.com/flowrule/flowrule/internal/storage"
 )
 
 func main() {
@@ -43,17 +43,17 @@ func main() {
 	obs.Logger.Info("worker starting")
 
 	// Initialize database
-	db, err := sql.New(ctx, cfg.Database.DSN, cfg.Database.MigrationsDir)
+	db, err := storage.Open(ctx, cfg.Database)
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
 	defer db.Close()
 
-	if err := db.RunMigrations(ctx); err != nil {
+	if err := db.Initialize(ctx); err != nil {
 		log.Fatalf("migrations: %v", err)
 	}
 
-	pool := db.Pool()
+	repositories := db.Repositories()
 
 	// Initialize NATS
 	consumer, err := sql.NewJetStreamConsumer(ctx, cfg.NATS.URL, cfg.NATS.Stream, cfg.Worker.NumShards)
@@ -69,35 +69,14 @@ func main() {
 	effectSender := effects.NewFakeDestination()
 
 	// Create repositories
-	quarantineRepo := sql.NewQuarantineRepository(pool)
-	shardLeaseRepo := sql.NewShardLeaseRepository(pool)
-
-	// Create transaction manager
-	txManager := sql.NewTransactionManager(pool)
-
-	// Create repository factory
-	newRepos := func(tx ports.Transaction) ports.TxRepos {
-		txQuerier := sql.NewTxQuerier(tx.(*sql.Tx))
-		return ports.TxRepos{
-			Inbox:           sql.NewInboxRepository(txQuerier),
-			Activations:     sql.NewActivationRepository(txQuerier),
-			RuleRepo:        sql.NewRuleRepository(txQuerier),
-			Executions:      sql.NewExecutionRepository(txQuerier),
-			Outbox:          sql.NewOutboxRepository(txQuerier),
-			ShardLeases:     sql.NewShardLeaseRepository(txQuerier),
-			Workflow:        sql.NewWorkflowRepository(txQuerier),
-			ScheduledEvents: sql.NewScheduledEventRepository(txQuerier),
-			Batches:         sql.NewBatchRepository(txQuerier),
-			Quarantine:      sql.NewQuarantineRepository(txQuerier),
-		}
-	}
-
-// Create services
+	// Create services
 	workerID := cfg.WorkerID()
 
-	eventsSvc := svcevents.NewService(compiler, evaluator, quarantineRepo, clock, txManager, newRepos)
-	outboxRepo := sql.NewOutboxRepository(pool)
-	effectsSvc := svceffects.NewService(outboxRepo, effectSender, quarantineRepo, clock, workerID)
+	eventsSvc := svcevents.NewService(
+		compiler, evaluator, repositories.Quarantine, clock,
+		repositories.Transactions, repositories.NewTxRepositories,
+	)
+	effectsSvc := svceffects.NewService(repositories.Outbox, effectSender, repositories.Quarantine, clock, workerID)
 
 	// Batch service
 	batchMode := domain.BatchMode(cfg.Worker.BatchMode)
@@ -106,11 +85,10 @@ func main() {
 		MaxBatch: cfg.Worker.BatchMax,
 		Window:   cfg.BatchWindow(),
 	}
-	batchRepo := sql.NewBatchRepository(pool)
-	batchSvc := batches.NewService(batchRepo, eventsSvc, clock, batchCfg)
+	batchSvc := batches.NewService(repositories.Batches, eventsSvc, clock, batchCfg)
 
 	// Create lease manager
-	leaseManager := shard.NewLeaseManager(shardLeaseRepo, clock, workerID, cfg.Worker.NumShards, cfg.LeaseTTL())
+	leaseManager := shard.NewLeaseManager(repositories.ShardLeases, clock, workerID, cfg.Worker.NumShards, cfg.LeaseTTL())
 
 	workerConfig := application.WorkerConfig{
 		MaxGlobalInFlight:   cfg.Worker.MaxGlobalInFlight,
@@ -139,8 +117,7 @@ func main() {
 	)
 
 	// Start scheduler
-	schedRepo := sql.NewScheduledEventRepository(pool)
-	sched := scheduler.NewScheduler(schedRepo, consumer, clock, cfg.SchedulerPollInterval(), cfg.Worker.SchedulerBatchSize)
+	sched := scheduler.NewScheduler(repositories.ScheduledEvents, consumer, clock, cfg.SchedulerPollInterval(), cfg.Worker.SchedulerBatchSize)
 	sched.Start(ctx)
 	defer sched.Stop()
 

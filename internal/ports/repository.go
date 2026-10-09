@@ -127,4 +127,5 @@ type ContractRegistry interface {
 	Register(ctx context.Context, schema *domain.ContractSchema) error
 	Get(ctx context.Context, name, version string) (*domain.ContractSchema, error)
 	List(ctx context.Context, name string) ([]*domain.ContractSchema, error)
+	Delete(ctx context.Context, name, version string) error
 }

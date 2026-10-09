@@ -11,23 +11,23 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/codegen"
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type ContractHandler struct {
-	db *sql.DB
+	registry ports.ContractRegistry
 }
 
-func NewContractHandler(db *sql.DB) *ContractHandler {
-	return &ContractHandler{db: db}
+func NewContractHandler(registry ports.ContractRegistry) *ContractHandler {
+	return &ContractHandler{registry: registry}
 }
 
 func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request) {
 	var schema domain.ContractSchema
 	if err := decodeRequestBody(r, &schema); err != nil {
-		http.Error(w, `{"error":"invalid request body: ` + err.Error() + `"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -40,8 +40,7 @@ func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	registry := sql.NewContractRegistry(h.db.Pool())
-	if err := registry.Register(r.Context(), &schema); err != nil {
+	if err := h.registry.Register(r.Context(), &schema); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
@@ -54,8 +53,7 @@ func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request)
 func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 
-	registry := sql.NewContractRegistry(h.db.Pool())
-	schemas, err := registry.List(r.Context(), name)
+	schemas, err := h.registry.List(r.Context(), name)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
@@ -74,8 +72,7 @@ func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	registry := sql.NewContractRegistry(h.db.Pool())
-	schema, err := registry.Get(r.Context(), name, version)
+	schema, err := h.registry.Get(r.Context(), name, version)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
@@ -93,8 +90,7 @@ func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Requ
 	name := r.PathValue("name")
 	version := r.PathValue("version")
 
-	registry := sql.NewContractRegistry(h.db.Pool())
-	schema, err := registry.Get(r.Context(), name, version)
+	schema, err := h.registry.Get(r.Context(), name, version)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
@@ -112,8 +108,7 @@ func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request)
 	name := r.PathValue("name")
 	version := r.PathValue("version")
 
-	registry := sql.NewContractRegistry(h.db.Pool())
-	if err := registry.Delete(r.Context(), name, version); err != nil {
+	if err := h.registry.Delete(r.Context(), name, version); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
@@ -139,8 +134,7 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	registry := sql.NewContractRegistry(h.db.Pool())
-	schema, err := registry.Get(r.Context(), name, version)
+	schema, err := h.registry.Get(r.Context(), name, version)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return

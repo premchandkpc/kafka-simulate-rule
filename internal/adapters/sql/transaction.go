@@ -21,7 +21,7 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	return NewTx(tx), nil
+	return NewTx(tx, ctx), nil
 }
 
 func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {

@@ -5,6 +5,7 @@
 ### Prerequisites
 
 - PostgreSQL 14+
+- MongoDB replica set or sharded cluster (optional alternative; required for transactions)
 - NATS JetStream
 - Go 1.21+
 
@@ -13,6 +14,9 @@
 | Variable | Default |
 |----------|---------|
 | DATABASE_URL | postgres://postgres:postgres@localhost:5432/flowrule?sslmode=disable |
+| STORAGE_BACKEND | postgres |
+| MONGODB_URI | unset |
+| MONGODB_DATABASE | unset |
 | NATS_URL | nats://localhost:4222 |
 | MIGRATIONS_DIR | migrations |
 | API listen | :8080 |
@@ -28,6 +32,20 @@ The following are hardcoded in cmd/worker/main.go (not environment variables):
 | MAX_DELIVER | 10 | Max delivery attempts before NATS requeues |
 | PUBLISH_INTERVAL | 5s | Effect publisher batch interval |
 | PUBLISH_BATCH_SIZE | 10 | Effects per publish batch |
+
+PostgreSQL is the default transactional backend. To use MongoDB for both the API
+and worker, configure the same backend and database settings in both processes:
+
+```sh
+STORAGE_BACKEND=mongodb
+MONGODB_URI=mongodb://localhost:27017/?replicaSet=rs0
+MONGODB_DATABASE=flowrule
+```
+
+MongoDB startup creates the required indexes. Event processing uses
+multi-document transactions, so standalone MongoDB servers are not supported;
+use a replica set or sharded cluster. PostgreSQL startup applies the SQL
+migrations from `MIGRATIONS_DIR`.
 
 ### Steps
 

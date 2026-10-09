@@ -268,7 +268,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	}
 	txManager := newMockTxManager(mockTx)
 
-	newRepos := func(tx ports.Transaction) svcevents.TxRepos {
+	newRepos := func(tx ports.Transaction) (svcevents.TxRepos, error) {
 		return svcevents.TxRepos{
 			Inbox:       inbox,
 			Activations: activations,
@@ -276,7 +276,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 			Executions:  executions,
 			Outbox:      outbox,
 			ShardLeases: newMockShardLease(),
-		}
+		}, nil
 	}
 
 	uc := svcevents.NewService(

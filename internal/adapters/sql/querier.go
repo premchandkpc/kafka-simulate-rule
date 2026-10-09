@@ -18,11 +18,12 @@ type Querier interface {
 // Tx wraps pgx.Tx and implements ports.Tx for the application layer.
 type Tx struct {
 	tx           pgx.Tx
+	ctx          context.Context
 	fencingToken int64
 }
 
-func NewTx(tx pgx.Tx) *Tx {
-	return &Tx{tx: tx}
+func NewTx(tx pgx.Tx, ctx context.Context) *Tx {
+	return &Tx{tx: tx, ctx: ctx}
 }
 
 func (t *Tx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
@@ -54,7 +55,7 @@ func (t *Tx) SetFencingToken(token int64) {
 }
 
 func (t *Tx) Context() context.Context {
-	return context.Background()
+	return t.ctx
 }
 
 func (t *Tx) Conn() pgx.Tx {
@@ -70,7 +71,7 @@ func NewTxFromPool(ctx context.Context, pool *pgxpool.Pool) (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewTx(tx), nil
+	return NewTx(tx, ctx), nil
 }
 
 func NewTxQuerier(tx *Tx) Querier {

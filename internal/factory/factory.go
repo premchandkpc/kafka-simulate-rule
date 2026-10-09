@@ -184,7 +184,7 @@ func (f *Factory) NATSPublisher(ctx context.Context) (*nats.Publisher, error) {
 }
 
 func (f *Factory) TransactionManager(db *mongo.DB) ports.TransactionManager {
-	return mongo.NewTransactionManager(db.Client())
+	return mongo.NewTransactionManager(db.Client(), db.Database())
 }
 
 func (f *Factory) EventRepository(db *mongo.DB) *mongo.EventRepository {
@@ -274,7 +274,7 @@ func (f *Factory) EventService(
 	quarantine *mongo.QuarantineRepository,
 	clock ports.Clock,
 	beginTx ports.TransactionManager,
-	newRepos func(ports.Transaction) ports.TxRepos,
+	newRepos ports.RepositoryFactory,
 ) *events.Service {
 	return events.NewService(compiler, evaluator, quarantine, clock, beginTx, newRepos)
 }

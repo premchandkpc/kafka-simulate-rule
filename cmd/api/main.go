@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/cmd/api/handlers"
-	"github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
 	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
+	"github.com/flowrule/flowrule/internal/storage"
 )
 
 func main() {
@@ -29,34 +29,34 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	db, err := sql.New(ctx, cfg.Database.DSN, cfg.Database.MigrationsDir)
+	db, err := storage.Open(ctx, cfg.Database)
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
 	defer db.Close()
 
-	if err := db.RunMigrations(ctx); err != nil {
+	if err := db.Initialize(ctx); err != nil {
 		log.Fatalf("migrations: %v", err)
 	}
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	clock := domain.SystemClock{}
-	pool := db.Pool()
+	repositories := db.Repositories()
 
 	rulesSvc := svcrules.NewService(
 		compiler,
-		sql.NewRuleRepository(pool),
-		sql.NewActivationRepository(pool),
-		sql.NewExecutionRepository(pool),
+		repositories.Rules,
+		repositories.Activations,
+		repositories.Executions,
 		clock,
 	)
 
 	workflowSvc := svcworkflow.NewService(
-		sql.NewWorkflowRepository(pool),
+		repositories.Workflows,
 		clock,
 	)
 
-	workflowDefRepo := sql.NewWorkflowDefinitionRepository(pool)
+	workflowDefRepo := repositories.WorkflowDefinitions
 
 	mux := http.NewServeMux()
 
@@ -269,7 +269,7 @@ func main() {
 	})
 
 	// Contract endpoints
-	contractHandler := handlers.NewContractHandler(db)
+	contractHandler := handlers.NewContractHandler(repositories.Contracts)
 	mux.HandleFunc("POST /v1/contracts", contractHandler.CreateContract)
 	mux.HandleFunc("GET /v1/contracts", contractHandler.ListContracts)
 	mux.HandleFunc("GET /v1/contracts/{name}", contractHandler.GetContract)

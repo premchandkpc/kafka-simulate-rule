@@ -4,21 +4,23 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type AppConfig struct {
-	Env            string
-	LogLevel       string
-	HTTPAddr       string
-	GRPCAddr       string
+	Env             string
+	LogLevel        string
+	HTTPAddr        string
+	GRPCAddr        string
 	ShutdownTimeout time.Duration
 }
 
 type DatabaseConfig struct {
-	DSN           string
-	MigrationsDir string
-	MongoDBURI    string
+	StorageBackend  string
+	DSN             string
+	MigrationsDir   string
+	MongoDBURI      string
 	MongoDBDatabase string
 }
 
@@ -50,19 +52,19 @@ type WorkerConfig struct {
 }
 
 type GenerationConfig struct {
-	ProtocPath                 string
-	ProtocGenGoPath            string
-	ProtocGenGoGRPCPath        string
-	GenerationOutputDir        string
+	ProtocPath          string
+	ProtocGenGoPath     string
+	ProtocGenGoGRPCPath string
+	GenerationOutputDir string
 }
 
 type Config struct {
-	App         AppConfig
-	Database    DatabaseConfig
-	NATS        NATSConfig
-	Redis       RedisConfig
-	Worker      WorkerConfig
-	Generation  GenerationConfig
+	App        AppConfig
+	Database   DatabaseConfig
+	NATS       NATSConfig
+	Redis      RedisConfig
+	Worker     WorkerConfig
+	Generation GenerationConfig
 }
 
 func Load() (*Config, error) {
@@ -75,9 +77,10 @@ func Load() (*Config, error) {
 			ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
 		},
 		Database: DatabaseConfig{
-			DSN:            getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/flowrule?sslmode=disable"),
-			MigrationsDir:  getEnv("MIGRATIONS_DIR", "migrations"),
-			MongoDBURI:     getEnv("MONGODB_URI", ""),
+			StorageBackend:  getEnv("STORAGE_BACKEND", "postgres"),
+			DSN:             getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/flowrule?sslmode=disable"),
+			MigrationsDir:   getEnv("MIGRATIONS_DIR", "migrations"),
+			MongoDBURI:      getEnv("MONGODB_URI", ""),
 			MongoDBDatabase: getEnv("MONGODB_DATABASE", ""),
 		},
 		NATS: NATSConfig{
@@ -105,10 +108,10 @@ func Load() (*Config, error) {
 			LeaseRenewalIntervalMS: getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000),
 		},
 		Generation: GenerationConfig{
-			ProtocPath:              getEnv("PROTOC_PATH", "protoc"),
-			ProtocGenGoPath:         getEnv("PROTOC_GEN_GO_PATH", "protoc-gen-go"),
-			ProtocGenGoGRPCPath:     getEnv("PROTOC_GEN_GO_GRPC_PATH", "protoc-gen-go-grpc"),
-			GenerationOutputDir:     getEnv("GENERATION_OUTPUT_DIR", ""),
+			ProtocPath:          getEnv("PROTOC_PATH", "protoc"),
+			ProtocGenGoPath:     getEnv("PROTOC_GEN_GO_PATH", "protoc-gen-go"),
+			ProtocGenGoGRPCPath: getEnv("PROTOC_GEN_GO_GRPC_PATH", "protoc-gen-go-grpc"),
+			GenerationOutputDir: getEnv("GENERATION_OUTPUT_DIR", ""),
 		},
 	}
 
@@ -126,8 +129,24 @@ func (c *Config) Validate() error {
 	if c.App.GRPCAddr == "" {
 		return fmt.Errorf("GRPC_ADDR is required")
 	}
-	if c.Database.DSN == "" {
-		return fmt.Errorf("DATABASE_URL is required")
+	backend := strings.ToLower(strings.TrimSpace(c.Database.StorageBackend))
+	if backend == "" {
+		backend = "postgres"
+	}
+	switch backend {
+	case "postgres":
+		if c.Database.DSN == "" {
+			return fmt.Errorf("DATABASE_URL is required when STORAGE_BACKEND=postgres")
+		}
+	case "mongodb":
+		if c.Database.MongoDBURI == "" {
+			return fmt.Errorf("MONGODB_URI is required when STORAGE_BACKEND=mongodb")
+		}
+		if c.Database.MongoDBDatabase == "" {
+			return fmt.Errorf("MONGODB_DATABASE is required when STORAGE_BACKEND=mongodb")
+		}
+	default:
+		return fmt.Errorf("STORAGE_BACKEND must be either postgres or mongodb")
 	}
 	if c.NATS.URL == "" {
 		return fmt.Errorf("NATS_URL is required")

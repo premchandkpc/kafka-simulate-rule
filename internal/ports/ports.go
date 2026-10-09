@@ -41,7 +41,7 @@ type TxRepos struct {
 type TransactionFactory func(ctx context.Context) (Transaction, error)
 
 // Repository factory
-type RepositoryFactory func(Transaction) TxRepos
+type RepositoryFactory func(Transaction) (TxRepos, error)
 
 // RuleCompiler compiles raw rule source into an immutable revision.
 type RuleCompiler interface {

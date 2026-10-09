@@ -52,6 +52,7 @@ func New(ctx context.Context, cfg Config) (*DB, error) {
 	}
 
 	if err := client.Ping(ctx, nil); err != nil {
+		_ = client.Disconnect(context.Background())
 		return nil, fmt.Errorf("ping mongo: %w", err)
 	}
 
@@ -59,10 +60,43 @@ func New(ctx context.Context, cfg Config) (*DB, error) {
 
 	// Create indexes
 	if err := createIndexes(ctx, db); err != nil {
+		_ = client.Disconnect(context.Background())
 		return nil, fmt.Errorf("create indexes: %w", err)
+	}
+	if err := verifyTransactionSupport(ctx, client, db); err != nil {
+		_ = client.Disconnect(context.Background())
+		return nil, fmt.Errorf("verify MongoDB transaction support (use a replica set or sharded cluster): %w", err)
 	}
 
 	return &DB{client: client, database: db}, nil
+}
+
+func verifyTransactionSupport(ctx context.Context, client *mongo.Client, db *mongo.Database) error {
+	session, err := client.StartSession()
+	if err != nil {
+		return fmt.Errorf("start transaction check session: %w", err)
+	}
+	defer session.EndSession(context.Background())
+
+	sessionCtx := mongo.NewSessionContext(ctx, session)
+	if err := session.StartTransaction(); err != nil {
+		return fmt.Errorf("start transaction check: %w", err)
+	}
+
+	probeID := fmt.Sprintf("startup-check-%d", time.Now().UnixNano())
+	collection := db.Collection("_flowrule_transaction_checks")
+	if _, err := collection.InsertOne(sessionCtx, bson.M{"_id": probeID}); err != nil {
+		_ = session.AbortTransaction(sessionCtx)
+		return fmt.Errorf("insert transaction check record: %w", err)
+	}
+	if _, err := collection.DeleteOne(sessionCtx, bson.M{"_id": probeID}); err != nil {
+		_ = session.AbortTransaction(sessionCtx)
+		return fmt.Errorf("delete transaction check record: %w", err)
+	}
+	if err := session.CommitTransaction(sessionCtx); err != nil {
+		return fmt.Errorf("commit transaction check: %w", err)
+	}
+	return nil
 }
 
 func (d *DB) Close() {
@@ -125,6 +159,12 @@ func createIndexes(ctx context.Context, db *mongo.Database) error {
 			{Keys: bson.D{{Key: "workflow_id", Value: 1}}, Options: options.Index().SetUnique(true)},
 			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "state", Value: 1}}},
 			{Keys: bson.D{{Key: "updated_at", Value: 1}}},
+		},
+		"workflow_definitions": {
+			{Keys: bson.D{{Key: "workflow_type", Value: 1}, {Key: "version", Value: 1}}, Options: options.Index().SetUnique(true)},
+		},
+		"contract_schemas": {
+			{Keys: bson.D{{Key: "name", Value: 1}, {Key: "version", Value: 1}}, Options: options.Index().SetUnique(true)},
 		},
 	}
 

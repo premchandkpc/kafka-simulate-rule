@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -14,10 +15,11 @@ import (
 
 type TransactionManager struct {
 	client *mongo.Client
+	db     *mongo.Database
 }
 
-func NewTransactionManager(client *mongo.Client) *TransactionManager {
-	return &TransactionManager{client: client}
+func NewTransactionManager(client *mongo.Client, db *mongo.Database) *TransactionManager {
+	return &TransactionManager{client: client, db: db}
 }
 
 func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, error) {
@@ -36,7 +38,11 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 		return nil, fmt.Errorf("start transaction: %w", err)
 	}
 
-	return &Transaction{session: session}, nil
+	return &Transaction{
+		session: session,
+		ctx:     mongo.NewSessionContext(ctx, session),
+		db:      m.db,
+	}, nil
 }
 
 func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
@@ -50,35 +56,49 @@ func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx co
 		SetReadConcern(readconcern.Majority()).
 		SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
 
-	err = session.StartTransaction(txOpts)
-	if err != nil {
-		return fmt.Errorf("start transaction: %w", err)
-	}
-
-	e := fn(ctx)
-	if e != nil {
-		session.AbortTransaction(ctx)
-		return e
-	}
-
-	return session.CommitTransaction(ctx)
+	_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+		return nil, fn(sc)
+	}, txOpts)
+	return err
 }
 
 type Transaction struct {
 	session      mongo.Session
 	fencingToken int64
+	ctx          mongo.SessionContext
+	db           *mongo.Database
+	mu           sync.Mutex
+	done         bool
 }
 
 func (t *Transaction) Commit(ctx context.Context) error {
-	return t.session.CommitTransaction(ctx)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.done {
+		return nil
+	}
+	err := t.session.CommitTransaction(ctx)
+	if err == nil {
+		t.done = true
+		t.session.EndSession(context.Background())
+	}
+	return err
 }
 
 func (t *Transaction) Rollback(ctx context.Context) error {
-	return t.session.AbortTransaction(ctx)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.done {
+		return nil
+	}
+	err := t.session.AbortTransaction(ctx)
+	t.done = true
+	t.session.EndSession(context.Background())
+	return err
 }
 
 func (t *Transaction) Context() context.Context {
-	return context.Background()
+	return t.ctx
 }
 
 func (t *Transaction) FencingToken() int64 {
@@ -92,6 +112,10 @@ func (t *Transaction) SetFencingToken(token int64) {
 // Session returns the underlying MongoDB session
 func (t *Transaction) Session() mongo.Session {
 	return t.session
+}
+
+func (t *Transaction) Database() *mongo.Database {
+	return t.db
 }
 
 // Querier interface for repositories
@@ -114,10 +138,11 @@ func (q *dbQuerier) Session() mongo.Session {
 
 type txQuerier struct {
 	session mongo.Session
+	db      *mongo.Database
 }
 
 func (q *txQuerier) Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection {
-	return q.session.Client().Database("flowrule").Collection(name, opts...)
+	return q.db.Collection(name, opts...)
 }
 
 func (q *txQuerier) Session() mongo.Session {
@@ -128,8 +153,8 @@ func NewQuerier(db *mongo.Database) Querier {
 	return &dbQuerier{db: db}
 }
 
-func NewTxQuerier(session mongo.Session) Querier {
-	return &txQuerier{session: session}
+func NewTxQuerier(session mongo.Session, db *mongo.Database) Querier {
+	return &txQuerier{session: session, db: db}
 }
 
 type TxWrapper struct {
@@ -137,7 +162,7 @@ type TxWrapper struct {
 }
 
 func (t *TxWrapper) Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection {
-	return t.session.Client().Database("flowrule").Collection(name, opts...)
+	return t.db.Collection(name, opts...)
 }
 
 func (t *TxWrapper) Session() mongo.Session {
