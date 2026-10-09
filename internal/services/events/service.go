@@ -55,7 +55,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if fencingToken > 0 {
 		tx.SetFencingToken(fencingToken)

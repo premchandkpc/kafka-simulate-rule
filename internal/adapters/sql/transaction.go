@@ -29,7 +29,7 @@ func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx co
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := fn(ctx); err != nil {
 		return err

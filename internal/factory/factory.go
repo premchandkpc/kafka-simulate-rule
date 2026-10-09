@@ -265,6 +265,7 @@ func (f *Factory) Scheduler(db *mongo.DB, publisher ports.BrokerPublisher, clock
 		clock,
 		f.config.Scheduler.PollInterval,
 		f.config.Scheduler.BatchSize,
+		f.config.ShardLease.NumShards,
 	)
 }
 

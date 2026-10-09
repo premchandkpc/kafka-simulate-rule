@@ -18,6 +18,7 @@ type Scheduler struct {
 	clock        ports.Clock
 	pollInterval time.Duration
 	batchSize    int
+	numShards    uint32
 
 	mu       sync.Mutex
 	running  bool
@@ -31,6 +32,7 @@ func NewScheduler(
 	clock ports.Clock,
 	pollInterval time.Duration,
 	batchSize int,
+	numShards uint32,
 ) *Scheduler {
 	if pollInterval <= 0 {
 		pollInterval = 5 * time.Second
@@ -38,12 +40,16 @@ func NewScheduler(
 	if batchSize <= 0 {
 		batchSize = 100
 	}
+	if numShards == 0 {
+		numShards = 4096
+	}
 	return &Scheduler{
 		repo:         repo,
 		publisher:    publisher,
 		clock:        clock,
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
+		numShards:    numShards,
 		stopChan:     make(chan struct{}),
 	}
 }
@@ -158,7 +164,7 @@ func (s *Scheduler) releaseEvent(ctx context.Context, evt *domain.ScheduledEvent
 	}
 
 	// Publish to shard-specific subject
-	shard := env.VirtualShard(4096)
+	shard := env.VirtualShard(s.numShards)
 	baseSubject := "events." + evt.EventType
 	return s.publisher.PublishToShard(ctx, baseSubject, shard, data)
 }

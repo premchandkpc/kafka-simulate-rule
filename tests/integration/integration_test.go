@@ -65,6 +65,12 @@ func (m *mockActivation) Set(ctx context.Context, activation *domain.RuleActivat
 	return nil
 }
 
+func (m *mockActivation) Delete(ctx context.Context, tenantScope string, ruleSet string) error {
+	key := tenantScope + ":" + ruleSet
+	delete(m.activations, key)
+	return nil
+}
+
 type mockRuleRepo struct {
 	revisions map[string]*domain.RuleRevision
 }
@@ -307,13 +313,15 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 		t.Fatalf("compile: %v", err)
 	}
 
-	activations.Set(context.Background(), &domain.RuleActivation{
+	if err := activations.Set(context.Background(), &domain.RuleActivation{
 		TenantScope: "test-tenant",
 		RuleSet:     "order.created",
 		Revision:    1,
 		Version:     1,
 		Actor:       "test",
-	})
+	}); err != nil {
+		t.Fatalf("set activation: %v", err)
+	}
 	ruleRepo.revisions["test-tenant:order.created"] = revision
 
 	return uc, inbox, executions, outbox

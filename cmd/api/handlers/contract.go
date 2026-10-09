@@ -47,7 +47,9 @@ func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(schema)
+	if err := json.NewEncoder(w).Encode(schema); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,9 @@ func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(schemas)
+	if err := json.NewEncoder(w).Encode(schemas); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +87,9 @@ func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(schema)
+	if err := json.NewEncoder(w).Encode(schema); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +107,9 @@ func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(schema)
+	if err := json.NewEncoder(w).Encode(schema); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request) {
@@ -174,13 +182,15 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"contract":        name,
 		"version":         version,
 		"language":        req.Language,
 		"output_dir":      outputDir,
 		"generated_files": generatedFiles,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // decodeRequestBody decodes the request body as JSON or YAML based on Content-Type header

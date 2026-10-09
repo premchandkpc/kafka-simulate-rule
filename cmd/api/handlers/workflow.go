@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -64,7 +65,9 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(wf)
+	if err := json.NewEncoder(w).Encode(wf); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +89,9 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(wf)
+	if err := json.NewEncoder(w).Encode(wf); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +129,9 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
@@ -172,12 +179,14 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"workflows": workflows,
 		"total":     len(workflows),
 		"limit":     limit,
 		"offset":    offset,
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
@@ -198,10 +207,12 @@ func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"definitions": defs,
 		"total":       len(defs),
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +239,9 @@ func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *htt
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(def)
+	if err := json.NewEncoder(w).Encode(def); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +285,9 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(def)
+	if err := json.NewEncoder(w).Encode(def); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +312,9 @@ func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "deleted"}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func (h *WorkflowHandler) getWorkflowDefRepo() ports.WorkflowDefinitionRepository {

@@ -30,7 +30,7 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 
 	txOpts := options.Transaction().
 		SetReadConcern(readconcern.Majority()).
-		SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+		SetWriteConcern(&writeconcern.WriteConcern{W: "majority"})
 
 	err = session.StartTransaction(txOpts)
 	if err != nil {
@@ -54,7 +54,7 @@ func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx co
 
 	txOpts := options.Transaction().
 		SetReadConcern(readconcern.Majority()).
-		SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+		SetWriteConcern(&writeconcern.WriteConcern{W: "majority"})
 
 	_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
 		return nil, fn(sc)

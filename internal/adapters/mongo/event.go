@@ -159,7 +159,7 @@ func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 		data = json.RawMessage(d.Data)
 	}
 	if d.Headers != nil {
-		json.Unmarshal(d.Headers, &headers)
+		_ = json.Unmarshal(d.Headers, &headers)
 	}
 
 	return &domain.EventEnvelope{

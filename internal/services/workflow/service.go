@@ -103,13 +103,19 @@ func (s *Service) GetByCorrelation(ctx context.Context, correlationID string) ([
 }
 
 func (s *Service) ListDefinitions(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
-	return nil, fmt.Errorf("not implemented")
+	// This requires a WorkflowDefinitionRepository - not available in base WorkflowRepository
+	// The caller should use the definition repository directly
+	return nil, fmt.Errorf("not implemented - use WorkflowDefinitionRepository directly")
 }
 
 func (s *Service) GetDefinition(ctx context.Context, tenantID, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
-	return nil, fmt.Errorf("not implemented")
+	// This requires a WorkflowDefinitionRepository - not available in base WorkflowRepository
+	// The caller should use the definition repository directly
+	return nil, fmt.Errorf("not implemented - use WorkflowDefinitionRepository directly")
 }
 
 func (s *Service) SaveDefinition(ctx context.Context, def *domain.WorkflowDefinition) error {
-	return fmt.Errorf("not implemented")
+	// This requires a WorkflowDefinitionRepository - not available in base WorkflowRepository
+	// The caller should use the definition repository directly
+	return fmt.Errorf("not implemented - use WorkflowDefinitionRepository directly")
 }

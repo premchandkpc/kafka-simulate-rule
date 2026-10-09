@@ -134,7 +134,9 @@ func (s *InboxTestSuite) RunTests(t *testing.T) {
 			Status:      domain.InboxStatusProcessing,
 			FirstSeenAt: time.Now().UTC(),
 		}
-		repo.Insert(ctx, entry)
+		if _, err := repo.Insert(ctx, entry); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
 
 		err := repo.MarkCommitted(ctx, "tenant-3", "event-3", "exec-1")
 		if err != nil {
@@ -207,7 +209,9 @@ func (s *ExecutionTestSuite) RunTests(t *testing.T) {
 			Status:       domain.ExecutionStatusPending,
 			CreatedAt:    time.Now().UTC(),
 		}
-		repo.Save(ctx, exec)
+		if err := repo.Save(ctx, exec); err != nil {
+			t.Fatalf("save: %v", err)
+		}
 
 		err := repo.UpdateStatus(ctx, "exec-2", domain.ExecutionStatusCompleted, "")
 		if err != nil {
@@ -294,7 +298,7 @@ func (s *OutboxTestSuite) RunTests(t *testing.T) {
 				UpdatedAt:   now,
 			},
 		}
-		repo.Insert(ctx, effects)
+		if err := repo.Insert(ctx, effects); err != nil { t.Fatalf("insert: %v", err) }
 
 		err := repo.MarkDelivered(ctx, "effect-2")
 		if err != nil {
@@ -327,7 +331,7 @@ func (s *OutboxTestSuite) RunTests(t *testing.T) {
 				UpdatedAt:   now,
 			},
 		}
-		repo.Insert(ctx, effects)
+		if err := repo.Insert(ctx, effects); err != nil { t.Fatalf("insert: %v", err) }
 
 		err := repo.ScheduleRetry(ctx, "effect-3", 5*time.Second, 1, "temporary error")
 		if err != nil {

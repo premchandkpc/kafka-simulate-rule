@@ -102,7 +102,7 @@ func verifyTransactionSupport(ctx context.Context, client *mongo.Client, db *mon
 func (d *DB) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	d.client.Disconnect(ctx)
+	_ = d.client.Disconnect(ctx)
 }
 
 func (d *DB) Database() *mongo.Database {

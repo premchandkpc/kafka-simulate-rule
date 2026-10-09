@@ -56,6 +56,7 @@ type RuleRepository interface {
 type ActivationRepository interface {
 	Get(ctx context.Context, tenantScope, ruleSet string) (*domain.RuleActivation, error)
 	Set(ctx context.Context, activation *domain.RuleActivation) error
+	Delete(ctx context.Context, tenantScope, ruleSet string) error
 }
 
 // WorkflowRepository handles workflow instances

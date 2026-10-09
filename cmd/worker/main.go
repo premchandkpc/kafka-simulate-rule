@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/effects"
-	"github.com/flowrule/flowrule/internal/adapters/sql"
+	"github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
@@ -38,7 +38,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("observability init: %v", err)
 	}
-	defer obs.Shutdown(ctx)
+	defer func() { _ = obs.Shutdown(ctx) }()
 
 	obs.Logger.Info("worker starting")
 
@@ -56,7 +56,16 @@ func main() {
 	repositories := db.Repositories()
 
 	// Initialize NATS
-	consumer, err := sql.NewJetStreamConsumer(ctx, cfg.NATS.URL, cfg.NATS.Stream, cfg.Worker.NumShards)
+	natsCfg := nats.Config{
+		NatsURL:    cfg.NATS.URL,
+		Stream:     cfg.NATS.Stream,
+		Consumer:   cfg.NATS.Consumer,
+		Subjects:   []string{"events"},
+		AckWait:    30 * time.Second,
+		MaxDeliver: 10,
+		NumShards:  cfg.Worker.NumShards,
+	}
+	consumer, err := nats.NewConsumer(ctx, natsCfg)
 	if err != nil {
 		log.Fatalf("NATS JetStream: %v", err)
 	}
@@ -117,7 +126,7 @@ func main() {
 	)
 
 	// Start scheduler
-	sched := scheduler.NewScheduler(repositories.ScheduledEvents, consumer, clock, cfg.SchedulerPollInterval(), cfg.Worker.SchedulerBatchSize)
+	sched := scheduler.NewScheduler(repositories.ScheduledEvents, consumer, clock, cfg.SchedulerPollInterval(), cfg.Worker.SchedulerBatchSize, cfg.Worker.NumShards)
 	sched.Start(ctx)
 	defer sched.Stop()
 

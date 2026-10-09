@@ -23,10 +23,6 @@ func newMemBatches() *memBatches {
 	}
 }
 
-func (m *memBatches) key(e *domain.InboxEntry) string {
-	return e.TenantID + "|" + e.EventID
-}
-
 func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

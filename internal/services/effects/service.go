@@ -97,3 +97,18 @@ func backoffDuration(attempts int) time.Duration {
 	}
 	return delay
 }
+
+// Dispatch sends a single effect immediately (bypasses outbox)
+func (s *Service) Dispatch(ctx context.Context, effect *domain.Effect) error {
+	return s.effectSender.Send(ctx, effect)
+}
+
+// GetPending returns pending outbox effects
+func (s *Service) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
+	return s.outbox.GetPending(ctx, limit)
+}
+
+// GetByExecution returns outbox effects for a specific execution
+func (s *Service) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
+	return s.outbox.GetByExecution(ctx, executionID)
+}

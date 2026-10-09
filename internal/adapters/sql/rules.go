@@ -198,3 +198,13 @@ func (a *ActivationRepository) List(ctx context.Context, tenantScope string) ([]
 	}
 	return activations, nil
 }
+
+func (a *ActivationRepository) Delete(ctx context.Context, tenantScope string, ruleSet string) error {
+	_, err := a.db.Exec(ctx, `
+		DELETE FROM rule_activations WHERE tenant_scope = $1 AND rule_set = $2
+	`, tenantScope, ruleSet)
+	if err != nil {
+		return fmt.Errorf("delete activation: %w", err)
+	}
+	return nil
+}

@@ -125,11 +125,15 @@ func TestEvaluateEmitEventDeterministicChildID(t *testing.T) {
 
 	decision1, _ := NewEvaluator().Evaluate(revision, env, nil)
 	var child1 domain.EventEnvelope
-	json.Unmarshal(decision1.Effects[0].Payload, &child1)
+	if err := json.Unmarshal(decision1.Effects[0].Payload, &child1); err != nil {
+		t.Fatalf("unmarshal child1: %v", err)
+	}
 
 	decision2, _ := NewEvaluator().Evaluate(revision, env, nil)
 	var child2 domain.EventEnvelope
-	json.Unmarshal(decision2.Effects[0].Payload, &child2)
+	if err := json.Unmarshal(decision2.Effects[0].Payload, &child2); err != nil {
+		t.Fatalf("unmarshal child2: %v", err)
+	}
 
 	if child1.ID != child2.ID {
 		t.Errorf("child event ID not deterministic: %s != %s", child1.ID, child2.ID)

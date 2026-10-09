@@ -210,7 +210,7 @@ func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 		payload = json.RawMessage(d.Payload)
 	}
 	if d.Headers != nil {
-		bson.Unmarshal(d.Headers, &headers)
+		_ = bson.Unmarshal(d.Headers, &headers)
 	}
 	return &domain.ScheduledEvent{
 		EventID:      d.EventID,

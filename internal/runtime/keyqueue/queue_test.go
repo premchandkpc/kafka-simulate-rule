@@ -40,8 +40,12 @@ func TestKeyQueue_PerKeySerialization(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		envA := &domain.EventEnvelope{ID: "evt-A-" + string(rune('0'+i)), PartitionKey: "key-A"}
 		envB := &domain.EventEnvelope{ID: "evt-B-" + string(rune('0'+i)), PartitionKey: "key-B"}
-		kq.Submit(ctx, envA, &mockDelivery{}, 0, 0, "")
-		kq.Submit(ctx, envB, &mockDelivery{}, 0, 0, "")
+		if err := kq.Submit(ctx, envA, &mockDelivery{}, 0, 0, ""); err != nil {
+			t.Fatalf("submit envA: %v", err)
+		}
+		if err := kq.Submit(ctx, envB, &mockDelivery{}, 0, 0, ""); err != nil {
+			t.Fatalf("submit envB: %v", err)
+		}
 	}
 
 	// Wait for processing
@@ -121,7 +125,9 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 		key := "key-" + string(rune('0'+k))
 		for i := 0; i < eventsPerKey; i++ {
 			env := &domain.EventEnvelope{ID: key + "-evt-" + string(rune('0'+i)), PartitionKey: key}
-			kq.Submit(ctx, env, &mockDelivery{}, 0, 0, "")
+			if err := kq.Submit(ctx, env, &mockDelivery{}, 0, 0, ""); err != nil {
+				t.Fatalf("submit: %v", err)
+			}
 			wg.Done()
 		}
 	}
@@ -225,7 +231,9 @@ func TestKeyQueue_HotKeyDetection(t *testing.T) {
 	// Submit 5 events for the same key - should trigger hot-key detection
 	for i := 0; i < 5; i++ {
 		env := &domain.EventEnvelope{ID: "evt-" + string(rune('0'+i)), PartitionKey: "hot-key"}
-		kq.Submit(ctx, env, &mockDelivery{}, 0, 0, "")
+		if err := kq.Submit(ctx, env, &mockDelivery{}, 0, 0, ""); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
 	}
 
 	// Wait for detection - need to wait for at least one check interval

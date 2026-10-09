@@ -142,7 +142,7 @@ type RevisionDoc struct {
 
 func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 	var compiled []domain.CompiledRule
-	bson.Unmarshal(d.Compiled, &compiled)
+	_ = bson.Unmarshal(d.Compiled, &compiled)
 
 	return &domain.RuleRevision{
 		TenantScope:     d.TenantScope,
@@ -233,4 +233,16 @@ func (d *ActivationDoc) ToDomain() *domain.RuleActivation {
 		Actor:       d.Actor,
 		ActivatedAt: d.ActivatedAt,
 	}
+}
+
+func (r *ActivationRepository) Delete(ctx context.Context, tenantScope string, ruleSet string) error {
+	coll := r.collection("rule_activations")
+	_, err := coll.DeleteOne(ctx, bson.M{
+		"tenant_scope": tenantScope,
+		"rule_set":     ruleSet,
+	})
+	if err != nil {
+		return fmt.Errorf("delete activation: %w", err)
+	}
+	return nil
 }

@@ -84,6 +84,60 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 	return formed, nil
 }
 
+// CreateBatch creates a new batch from unbatched entries (manual batch formation)
+func (s *Service) CreateBatch(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) (*domain.BatchRun, error) {
+	if len(eventIDs) == 0 {
+		return nil, fmt.Errorf("no event IDs provided")
+	}
+
+	// Fetch the inbox entries for these events
+	entries, err := s.batches.ListUnbatched(ctx, len(eventIDs))
+	if err != nil {
+		return nil, fmt.Errorf("list unbatched: %w", err)
+	}
+
+	// Filter to match the requested tenant, partition key, rule set, and event IDs
+	eventIDSet := make(map[string]bool)
+	for _, id := range eventIDs {
+		eventIDSet[id] = true
+	}
+
+	var members []*domain.InboxEntry
+	for _, e := range entries {
+		if e.TenantID == tenantID && e.PartitionKey == partitionKey && e.RuleSet == ruleSet && eventIDSet[e.EventID] {
+			members = append(members, e)
+		}
+	}
+
+	if len(members) == 0 {
+		return nil, fmt.Errorf("no matching unbatched entries found")
+	}
+
+	sort.SliceStable(members, func(i, j int) bool {
+		return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
+	})
+
+	_, err = s.processGroup(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the created batch run
+	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
+	return s.batches.GetRun(ctx, batchID)
+}
+
+// GetBatch retrieves a batch run by ID
+func (s *Service) GetBatch(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+	return s.batches.GetRun(ctx, batchID)
+}
+
+// ListBatches lists batch runs with optional filters
+func (s *Service) ListBatches(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+	// This would need a new repository method. For now, return not implemented.
+	return nil, fmt.Errorf("ListBatches not implemented - requires repository method")
+}
+
 func (s *Service) ready(members []*domain.InboxEntry) bool {
 	switch s.cfg.Mode {
 	case domain.BatchModeAccumulate:

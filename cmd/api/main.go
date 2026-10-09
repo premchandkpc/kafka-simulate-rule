@@ -15,6 +15,8 @@ import (
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
+	svcbatches "github.com/flowrule/flowrule/internal/services/batches"
+	svcquarantine "github.com/flowrule/flowrule/internal/services/quarantine"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
 	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
 	"github.com/flowrule/flowrule/internal/storage"
@@ -56,6 +58,15 @@ func main() {
 		clock,
 	)
 
+	batchSvc := svcbatches.NewService(
+		repositories.Batches,
+		nil, // events processor - not needed for query API
+		clock,
+		domain.BatchConfig{Mode: domain.BatchModeNone},
+	)
+
+	quarantineSvc := svcquarantine.NewService(repositories.Quarantine)
+
 	workflowDefRepo := repositories.WorkflowDefinitions
 
 	mux := http.NewServeMux()
@@ -76,7 +87,9 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(activation)
+		if err := json.NewEncoder(w).Encode(activation); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	mux.HandleFunc("POST /v1/rules/{ruleSet}/revisions/{revision}/activate", func(w http.ResponseWriter, r *http.Request) {
@@ -91,8 +104,14 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(exec)
+		if err := json.NewEncoder(w).Encode(exec); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
+
+	// Rule extension endpoints
+	ruleHandler := handlers.NewRuleHandler(rulesSvc)
+	ruleHandler.RegisterRoutes(mux)
 
 	// Workflow instance endpoints
 	mux.HandleFunc("POST /v1/workflows", func(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +137,9 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(workflow)
+		if err := json.NewEncoder(w).Encode(workflow); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	mux.HandleFunc("GET /v1/workflows/{workflowID}", func(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +154,9 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(workflow)
+		if err := json.NewEncoder(w).Encode(workflow); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	mux.HandleFunc("POST /v1/workflows/{workflowID}/transition", func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +182,9 @@ func main() {
 
 		workflow, _ := workflowSvc.Get(r.Context(), workflowID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(workflow)
+		if err := json.NewEncoder(w).Encode(workflow); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	mux.HandleFunc("GET /v1/workflows", func(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +206,9 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(workflows)
+		if err := json.NewEncoder(w).Encode(workflows); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	// Workflow definition endpoints
@@ -212,7 +239,9 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(def)
+		if err := json.NewEncoder(w).Encode(def); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	mux.HandleFunc("GET /v1/workflow-definitions/{workflowType}", func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +283,9 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(def)
+		if err := json.NewEncoder(w).Encode(def); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	mux.HandleFunc("GET /v1/workflow-definitions", func(w http.ResponseWriter, r *http.Request) {
@@ -265,7 +296,9 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(defs)
+		if err := json.NewEncoder(w).Encode(defs); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	})
 
 	// Contract endpoints
@@ -277,9 +310,23 @@ func main() {
 	mux.HandleFunc("DELETE /v1/contracts/{name}/{version}", contractHandler.DeleteContract)
 	mux.HandleFunc("POST /v1/contracts/{name}/{version}/generate", contractHandler.GenerateContract)
 
+	// Batch endpoints
+	batchHandler := handlers.NewBatchHandler(batchSvc)
+	batchHandler.RegisterRoutes(mux)
+
+	// Quarantine endpoints
+	quarantineHandler := handlers.NewQuarantineHandler(quarantineSvc)
+	quarantineHandler.RegisterRoutes(mux)
+
+	// Scheduled event endpoints
+	scheduledHandler := handlers.NewScheduledHandler(repositories.ScheduledEvents)
+	scheduledHandler.RegisterRoutes(mux)
+
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Printf("health write: %v", err)
+		}
 	})
 
 	server := &http.Server{
@@ -301,5 +348,7 @@ func main() {
 	log.Println("shutting down...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.App.ShutdownTimeout)
 	defer shutdownCancel()
-	server.Shutdown(shutdownCtx)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("server shutdown: %v", err)
+	}
 }

@@ -281,7 +281,9 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	fmt.Fprint(f, "	case json.Number:\n")
 	fmt.Fprint(f, "		return v.String(), true\n")
 	fmt.Fprint(f, "	}\n")
-	f.WriteString("	return fmt.Sprintf(\"%v\", v), true\n")
+	if _, err := f.WriteString("	return fmt.Sprintf(\"%v\", v), true\n"); err != nil {
+		return nil, fmt.Errorf("write getString: %w", err)
+	}
 	fmt.Fprint(f, "}\n\n")
 
 	fmt.Fprint(f, "func computePartitionKey(payload map[string]any, policy string) string {\n")
@@ -541,7 +543,7 @@ func (g *Generator) mapJSONSchema(field domain.ContractField) map[string]interfa
 	if field.Format != "" {
 		schema["format"] = field.Format
 	}
-	if field.Enum != nil && len(field.Enum) > 0 {
+	if len(field.Enum) > 0 {
 		schema["enum"] = field.Enum
 	}
 	if field.Default != nil {
@@ -671,7 +673,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule-sdk/go/runtime"
+	"github.com/google/uuid"
 )
 
 // Envelope wraps a typed payload with metadata for event processing
@@ -690,7 +693,7 @@ type Envelope struct {
 func NewEnvelope(payload *{{.ContractPkg}}.{{.ContractType}}, tenantID, partitionKey string) *Envelope {
 	data, _ := json.Marshal(payload)
 	return &Envelope{
-		ID:           domain.NewID(),
+		ID:           uuid.New().String(),
 		Type:         "{{.EventName}}",
 		TenantID:     tenantID,
 		PartitionKey: partitionKey,
@@ -710,7 +713,7 @@ func (e *Envelope) Payload() (*{{.ContractPkg}}.{{.ContractType}}, error) {
 
 // Shard computes the virtual shard for this envelope
 func (e *Envelope) Shard(numShards uint32) uint32 {
-	return domain.ComputeShard(e.TenantID, e.PartitionKey, numShards)
+	return runtime.ComputeShard(e.TenantID, e.PartitionKey, numShards)
 }
 
 // Marshal serializes the envelope to JSON
@@ -1001,10 +1004,7 @@ func (g *Generator) buildCompiledRules() []CompiledRuleData {
 
 
 func (g *Generator) buildConditionCode(cond Condition) string {
-	path := cond.Path
-	if strings.HasPrefix(path, "$.") {
-		path = path[2:] // Remove "$."
-	}
+	path := strings.TrimPrefix(cond.Path, "$.")
 
 	var op string
 	switch cond.Op {
