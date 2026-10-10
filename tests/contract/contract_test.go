@@ -298,7 +298,9 @@ func (s *OutboxTestSuite) RunTests(t *testing.T) {
 				UpdatedAt:   now,
 			},
 		}
-		if err := repo.Insert(ctx, effects); err != nil { t.Fatalf("insert: %v", err) }
+		if err := repo.Insert(ctx, effects); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
 
 		err := repo.MarkDelivered(ctx, "effect-2")
 		if err != nil {
@@ -331,7 +333,9 @@ func (s *OutboxTestSuite) RunTests(t *testing.T) {
 				UpdatedAt:   now,
 			},
 		}
-		if err := repo.Insert(ctx, effects); err != nil { t.Fatalf("insert: %v", err) }
+		if err := repo.Insert(ctx, effects); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
 
 		err := repo.ScheduleRetry(ctx, "effect-3", 5*time.Second, 1, "temporary error")
 		if err != nil {
