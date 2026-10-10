@@ -1,10 +1,22 @@
-# Rust
-rust/target/
-rust/Cargo.lock
-
 # Go
 go/bin/
 go/vendor/
+
+# Build artifacts
+bin/
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
 
 # IDE
 .idea/
@@ -13,19 +25,16 @@ go/vendor/
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
+# Rust
+rust/target/
+rust/Cargo.lock
 
-# Env
-.env
-.env.local
+# Temp files
+.temp/
+*.tmp
 
-# Build
-flowrule
-*.o
-*.so
-*.dylib
-*.dll
-*.a
+# Database/data directories (runtime data)
+data/
 
+# Generated code
+examples/*/generated/

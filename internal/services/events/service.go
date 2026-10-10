@@ -51,15 +51,19 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, err
 	}
 
+	// F1: Reject invalid fencing token (<= 0) for all shards including 0
+	if fencingToken <= 0 {
+		return nil, domain.ErrFencingTokenMismatch
+	}
+
 	tx, err := s.beginTx.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if fencingToken > 0 {
-		tx.SetFencingToken(fencingToken)
-	}
+	// F1: Set fencing token for validation
+	tx.SetFencingToken(fencingToken)
 
 	repos, err := s.newRepos(tx)
 	if err != nil {
@@ -67,6 +71,11 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 	}
 	if txCtx := tx.Context(); txCtx != nil {
 		ctx = txCtx
+	}
+
+	// F3: Validate fencing token FIRST with row lock (AssertHeld)
+	if err := repos.ShardLeases.AssertHeld(ctx, shard, workerID, fencingToken); err != nil {
+		return nil, fmt.Errorf("fencing token validation failed: %w", err)
 	}
 
 	entry, err := repos.Inbox.Get(ctx, envelope.TenantID, envelope.ID)
@@ -96,6 +105,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 	if err != nil {
 		return nil, fmt.Errorf("insert inbox: %w", err)
 	}
+	// F2: Dedup fall-through - if not inserted and no execution found, it's a conflict
 	if !inserted {
 		entry, err = repos.Inbox.Get(ctx, envelope.TenantID, envelope.ID)
 		if err != nil {
@@ -110,6 +120,8 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 				return exec, nil
 			}
 		}
+		// F2: Fall-through with nil execution = conflict
+		return nil, domain.ErrInboxDuplicate
 	}
 
 	ruleSet := envelope.Type
@@ -180,12 +192,6 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 
 	if err := repos.Executions.UpdateStatus(ctx, executionID, domain.ExecutionStatusCompleted, ""); err != nil {
 		return nil, fmt.Errorf("mark execution completed: %w", err)
-	}
-
-	if fencingToken > 0 && shard > 0 && workerID != "" {
-		if err := repos.ShardLeases.ValidateFencingToken(ctx, shard, workerID, fencingToken); err != nil {
-			return nil, fmt.Errorf("fencing token validation failed: %w", err)
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

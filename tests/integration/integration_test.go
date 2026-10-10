@@ -385,6 +385,10 @@ func (m *mockShardLease) ValidateFencingToken(ctx context.Context, shard uint32,
 	return nil
 }
 
+func (m *mockShardLease) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+	return nil
+}
+
 func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 	uc, _, executions, _ := setupTestUseCase(t)
 
@@ -397,7 +401,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 1500, "id": "order-1"}`),
 	}
 
-	exec1, err := uc.Process(context.Background(), env, 0, 0, "")
+	exec1, err := uc.Process(context.Background(), env, 1, 1, "test-worker")
 	if err != nil {
 		t.Fatalf("first process: %v", err)
 	}
@@ -405,7 +409,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 		t.Fatal("expected execution from first process")
 	}
 
-	exec2, err := uc.Process(context.Background(), env, 0, 0, "")
+	exec2, err := uc.Process(context.Background(), env, 1, 1, "test-worker")
 	if err != nil {
 		t.Fatalf("second process: %v", err)
 	}
@@ -440,10 +444,10 @@ func TestDeterministicHashConsistency(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 2000, "id": "order-2"}`),
 	}
 
-	exec1, _ := uc.Process(context.Background(), env, 0, 0, "")
+	exec1, _ := uc.Process(context.Background(), env, 1, 1, "test-worker")
 
 	// Process same event again - should get same execution and hash
-	exec2, _ := uc.Process(context.Background(), env, 0, 0, "")
+	exec2, _ := uc.Process(context.Background(), env, 1, 1, "test-worker")
 
 	if exec1.DecisionHash == "" {
 		t.Error("expected non-empty decision hash")
@@ -508,7 +512,7 @@ func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *te
 		Data:         json.RawMessage(`{"total": 1500, "id": "order-42"}`),
 	}
 
-	exec, err := uc.Process(context.Background(), env, 0, 0, "")
+	exec, err := uc.Process(context.Background(), env, 1, 1, "test-worker")
 	if err != nil {
 		t.Fatalf("process event: %v", err)
 	}

@@ -101,6 +101,9 @@ type ShardLeaseRepository interface {
 	Release(ctx context.Context, shard uint32, owner string) error
 	GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error)
 	ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error
+	// AssertHeld validates the lease is held by the owner with the given fencing token.
+	// Uses row lock (FOR SHARE) to prevent stale holders from proceeding. Fails closed.
+	AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error
 }
 
 // QuarantineRepository handles failed items

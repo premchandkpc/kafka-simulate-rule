@@ -133,9 +133,20 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 	}
 
 	wg.Wait()
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all processing to complete by waiting for queue to drain
+	for {
+		time.Sleep(10 * time.Millisecond)
+		mu.Lock()
+		done := len(active) == 0
+		mu.Unlock()
+		if done {
+			break
+		}
+	}
 
 	// With 3 workers and 5 keys, we should see some parallelism
+	mu.Lock()
+	defer mu.Unlock()
 	if maxConcurrent < 2 {
 		t.Logf("Warning: max concurrent keys was %d (expected at least 2 with 3 workers)", maxConcurrent)
 	}

@@ -267,6 +267,32 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 	return nil
 }
 
+// AssertHeld validates the lease is held by the owner with the given fencing token.
+// Uses row lock (FOR SHARE) to prevent stale holders from proceeding. Fails closed.
+func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+	var currentToken int64
+	var expiresAt time.Time
+	err := r.db.QueryRow(ctx, `
+		SELECT fencing_token, expires_at FROM shard_leases
+		WHERE virtual_shard = $1 AND owner = $2
+		FOR SHARE
+	`, shard, owner).Scan(&currentToken, &expiresAt)
+	if err != nil {
+		return fmt.Errorf("assert held: %w", err)
+	}
+	// Fail closed: token <= 0 is invalid, lease must not be expired
+	if fencingToken <= 0 {
+		return domain.ErrFencingTokenMismatch
+	}
+	if time.Now().UTC().After(expiresAt) {
+		return domain.ErrLeaseExpired
+	}
+	if currentToken != fencingToken {
+		return domain.ErrFencingTokenMismatch
+	}
+	return nil
+}
+
 func (r *ShardLeaseRepository) ListOwned(ctx context.Context, owner string) ([]*domain.ShardLease, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT virtual_shard, owner, fencing_token, expires_at, routing_epoch

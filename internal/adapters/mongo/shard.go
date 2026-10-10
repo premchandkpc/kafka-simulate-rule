@@ -144,6 +144,29 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 	return nil
 }
 
+// AssertHeld validates the lease is held by the owner with the given fencing token.
+// Uses find with filter to ensure lease is valid. Fails closed.
+func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+	coll := r.collection("shard_leases")
+	var doc LeaseDoc
+	err := coll.FindOne(ctx, bson.M{
+		"virtual_shard": shard,
+		"owner":         owner,
+		"fencing_token": fencingToken,
+		"expires_at":    bson.M{"$gt": time.Now().UTC()},
+	}).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return domain.ErrFencingTokenMismatch
+		}
+		return fmt.Errorf("assert held: %w", err)
+	}
+	if fencingToken <= 0 {
+		return domain.ErrFencingTokenMismatch
+	}
+	return nil
+}
+
 type LeaseDoc struct {
 	VirtualShard uint32    `bson:"virtual_shard"`
 	Owner        string    `bson:"owner"`
