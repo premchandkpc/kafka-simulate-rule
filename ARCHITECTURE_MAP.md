@@ -47,7 +47,7 @@ Security contract:
 - In development/test, tenant context may be supplied using X-Tenant-ID or tenant_id for local use only.
 - In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN, validates X-Proxy-Auth using constant-time comparison, and accepts tenant identity only from X-Authenticated-Tenant-ID. It fails closed when the token is missing or invalid.
 - This is not first-party authentication. The trusted proxy must authenticate/authorize callers, strip inbound trusted headers, set the tenant header itself, and keep the API inaccessible to direct untrusted traffic.
-- Resource-level tenant authorization is still incomplete, especially for workflow definitions and quarantine records. Do not expose the API to untrusted multi-tenant traffic until every resource read/write is scoped and cross-tenant negative tests exist.
+- Workflow definitions are global platform configuration and are read-only through the tenant-facing API. Quarantine GET/replay/delete operations are tenant-scoped at repository query time; effect-generated records may still lack tenant context. Do not expose the API to untrusted multi-tenant traffic until source tenant propagation, proxy authentication, and cross-tenant negative tests are verified.
 
 ### Worker — cmd/worker/main.go
 
