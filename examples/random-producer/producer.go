@@ -24,7 +24,7 @@ const (
 	DefaultBaseSubject = "events"
 )
 
-// Publisher is the smallest transport contract required by the simulator.
+// Publisher is the smallest transport contract required by the example.
 type Publisher interface {
 	Publish(ctx context.Context, subject string, payload []byte) error
 }
