@@ -12,19 +12,19 @@ import (
 )
 
 type Repositories struct {
-	Inbox               ports.InboxRepository
-	Activations         ports.ActivationRepository
-	Rules               ports.RuleRepository
-	Executions          ports.ExecutionRepository
-	Outbox              ports.OutboxRepository
-	ShardLeases         ports.ShardLeaseRepository
-	Workflows           ports.WorkflowRepository
-	WorkflowDefinitions ports.WorkflowDefinitionRepository
-	ScheduledEvents     ports.ScheduledEventRepository
-	Batches             ports.BatchRepository
-	Quarantine          ports.QuarantineRepository
-	Contracts           ports.ContractRegistry
-	Transactions        ports.TransactionManager
+	Inbox                  ports.InboxRepository
+	Activations            ports.ActivationRepository
+	Rules                  ports.RuleRepository
+	Executions             ports.ExecutionRepository
+	Outbox                 ports.OutboxRepository
+	ShardLeases            ports.ShardLeaseRepository
+	Workflows              ports.WorkflowRepository
+	WorkflowDefinitions    ports.WorkflowDefinitionRepository
+	ScheduledEvents        ports.ScheduledEventRepository
+	Batches                ports.BatchRepository
+	Quarantine             ports.QuarantineRepository
+	Contracts              ports.ContractRegistry
+	Transactions           ports.TransactionManager
 	NewEventTxRepositories ports.EventTxRepositoryFactory
 	NewRuleTxRepositories  ports.RuleTxRepositoryFactory
 }
@@ -52,19 +52,19 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 		return &Storage{
 			backend: backend,
 			repositories: Repositories{
-				Inbox:               sqladapter.NewInboxRepository(pool),
-				Activations:         sqladapter.NewActivationRepository(pool),
-				Rules:               sqladapter.NewRuleRepository(pool),
-				Executions:          sqladapter.NewExecutionRepository(pool),
-				Outbox:              sqladapter.NewOutboxRepository(pool),
-				ShardLeases:         sqladapter.NewShardLeaseRepository(pool),
-				Workflows:           sqladapter.NewWorkflowRepository(pool),
-				WorkflowDefinitions: sqladapter.NewWorkflowDefinitionRepository(pool),
-				ScheduledEvents:     sqladapter.NewScheduledEventRepository(pool),
-				Batches:             sqladapter.NewBatchRepository(pool),
-				Quarantine:          sqladapter.NewQuarantineRepository(pool),
-				Contracts:           sqladapter.NewContractRegistry(pool),
-				Transactions:        sqladapter.NewTransactionManager(pool),
+				Inbox:                sqladapter.NewInboxRepository(pool),
+				Activations:          sqladapter.NewActivationRepository(pool),
+				Rules:                sqladapter.NewRuleRepository(pool),
+				Executions:           sqladapter.NewExecutionRepository(pool),
+				Outbox:               sqladapter.NewOutboxRepository(pool),
+				ShardLeases:          sqladapter.NewShardLeaseRepository(pool),
+				Workflows:            sqladapter.NewWorkflowRepository(pool),
+				WorkflowDefinitions:  sqladapter.NewWorkflowDefinitionRepository(pool),
+				ScheduledEvents:      sqladapter.NewScheduledEventRepository(pool),
+				Batches:              sqladapter.NewBatchRepository(pool),
+				Quarantine:           sqladapter.NewQuarantineRepository(pool),
+				Contracts:            sqladapter.NewContractRegistry(pool),
+				Transactions:         sqladapter.NewTransactionManager(pool),
 				NewEventTxRepositories: sqladapter.NewEventTxRepositories,
 				NewRuleTxRepositories:  sqladapter.NewRuleTxRepositories,
 			},
@@ -85,19 +85,19 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 		return &Storage{
 			backend: backend,
 			repositories: Repositories{
-				Inbox:               mongoadapter.NewInboxRepository(q),
-				Activations:         mongoadapter.NewActivationRepository(q),
-				Rules:               mongoadapter.NewRepository(q),
-				Executions:          mongoadapter.NewExecutionRepository(q),
-				Outbox:              mongoadapter.NewOutboxRepository(q),
-				ShardLeases:         mongoadapter.NewShardLeaseRepository(q),
-				Workflows:           mongoadapter.NewWorkflowRepository(q),
-				WorkflowDefinitions: mongoadapter.NewWorkflowDefinitionRepository(q),
-				ScheduledEvents:     mongoadapter.NewScheduledEventRepository(q),
-				Batches:             mongoadapter.NewBatchRepository(q),
+				Inbox:                mongoadapter.NewInboxRepository(q),
+				Activations:          mongoadapter.NewActivationRepository(q),
+				Rules:                mongoadapter.NewRepository(q),
+				Executions:           mongoadapter.NewExecutionRepository(q),
+				Outbox:               mongoadapter.NewOutboxRepository(q),
+				ShardLeases:          mongoadapter.NewShardLeaseRepository(q),
+				Workflows:            mongoadapter.NewWorkflowRepository(q),
+				WorkflowDefinitions:  mongoadapter.NewWorkflowDefinitionRepository(q),
+				ScheduledEvents:      mongoadapter.NewScheduledEventRepository(q),
+				Batches:              mongoadapter.NewBatchRepository(q),
 				Quarantine:          quarantineRepo,
-				Contracts:           mongoadapter.NewContractRegistry(q),
-				Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
+				Contracts:            mongoadapter.NewContractRegistry(q),
+				Transactions:         mongoadapter.NewTransactionManager(db.Client(), db.Database()),
 				NewEventTxRepositories: mongoadapter.NewEventTxRepositories,
 				NewRuleTxRepositories:  mongoadapter.NewRuleTxRepositories,
 			},
