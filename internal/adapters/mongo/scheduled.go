@@ -125,7 +125,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 		bson.M{
 			"$set": bson.M{"status": domain.ScheduledEventStatusReleased, "released_at": releasedAt},
 			"$unset": bson.M{
-				"claimant": "", "claimed_at": "", "claim_expires_at": "",
+				"claimant": "", "claimed_at": "", "claim_expires_at": "", "retry_at": "",
 			},
 		},
 	)
