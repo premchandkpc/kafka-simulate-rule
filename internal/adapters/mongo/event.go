@@ -114,19 +114,19 @@ func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, l
 }
 
 type EventDoc struct {
-	EventID      string     `bson:"event_id"`
-	TenantID     string     `bson:"tenant_id"`
-	Type         string     `bson:"type"`
-	PartitionKey string     `bson:"partition_key"`
-	WorkflowID   string     `bson:"workflow_id,omitempty"`
-	OccurredAt   time.Time  `bson:"occurred_at"`
-	ScheduledAt  *time.Time `bson:"scheduled_at,omitempty"`
-	Data         []byte     `bson:"data"`
+	EventID      string            `bson:"event_id"`
+	TenantID     string            `bson:"tenant_id"`
+	Type         string            `bson:"type"`
+	PartitionKey string            `bson:"partition_key"`
+	WorkflowID   string            `bson:"workflow_id,omitempty"`
+	OccurredAt   time.Time         `bson:"occurred_at"`
+	ScheduledAt  *time.Time        `bson:"scheduled_at,omitempty"`
+	Data         []byte            `bson:"data"`
 	Headers      map[string]string `bson:"headers,omitempty"`
-	Processed    bool       `bson:"processed"`
-	ExecutionID  string     `bson:"execution_id,omitempty"`
-	ProcessedAt  *time.Time `bson:"processed_at,omitempty"`
-	CreatedAt    time.Time  `bson:"created_at"`
+	Processed    bool              `bson:"processed"`
+	ExecutionID  string            `bson:"execution_id,omitempty"`
+	ProcessedAt  *time.Time        `bson:"processed_at,omitempty"`
+	CreatedAt    time.Time         `bson:"created_at"`
 }
 
 func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
