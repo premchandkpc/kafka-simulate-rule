@@ -1,0 +1,33 @@
+name: Go CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build service binaries
+        run: go build ./cmd/api ./cmd/worker ./cmd/codegen
+
+      - name: Run unit tests with race detector
+        run: go test -race -count=1 ./internal/...
+
+      - name: Vet internal packages
+        run: go vet ./internal/...
