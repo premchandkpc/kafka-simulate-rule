@@ -35,7 +35,7 @@ func (p *fakePublisher) Publish(_ context.Context, subject string, payload []byt
 }
 
 func validConfig() Config {
-	return Config{Clients: 3, MaxMessagesPerClient: 4, NumShards: 64, Concurrency: 3, BaseSubject: defaultBaseTopic}
+	return Config{Clients: 3, MaxMessagesPerClient: 4, NumShards: 64, Concurrency: 3, BaseSubject: DefaultBaseSubject}
 }
 
 func TestRunPublishesValidEventsToDomainComputedShard(t *testing.T) {
