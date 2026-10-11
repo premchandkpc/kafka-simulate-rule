@@ -8,7 +8,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/flowrule/flowrule/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 
