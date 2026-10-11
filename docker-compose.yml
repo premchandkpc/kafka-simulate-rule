@@ -152,10 +152,10 @@ services:
     restart: unless-stopped
     networks: [flowrule]
 
-  simulator:
+  random-producer:
     build:
       context: .
-      dockerfile: Dockerfile.simulator
+      dockerfile: Dockerfile.random-producer
     env_file: .env
     environment:
       NATS_URL: ${NATS_URL:-nats://nats:4222}
@@ -171,7 +171,7 @@ services:
     depends_on:
       nats:
         condition: service_healthy
-    profiles: [simulation]
+    profiles: [examples]
     networks: [flowrule]
 
   codegen:
