@@ -14,17 +14,17 @@ import (
 )
 
 type scheduledRepositoryStub struct {
-	saveCalls   int
-	saved       *domain.ScheduledEvent
-	getTenant   string
-	getID       string
-	listTenant  string
-	listLimit   int
-	listOffset  int
+	saveCalls    int
+	saved        *domain.ScheduledEvent
+	getTenant    string
+	getID        string
+	listTenant   string
+	listLimit    int
+	listOffset   int
 	cancelTenant string
-	cancelID    string
-	listResult  []*domain.ScheduledEvent
-	cancelErr   error
+	cancelID     string
+	listResult   []*domain.ScheduledEvent
+	cancelErr    error
 }
 
 func (s *scheduledRepositoryStub) Save(_ context.Context, evt *domain.ScheduledEvent) error {
