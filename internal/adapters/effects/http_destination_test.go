@@ -67,7 +67,10 @@ func TestHTTPDestinationBoundsErrorResponseBody(t *testing.T) {
 	if got := len(err.Error()); got > (5<<10) {
 		t.Fatalf("error length = %d, expected bounded error response", got)
 	}
-	if !strings.Contains(err.Error(), "response body truncated") {
-		t.Fatalf("error = %q, want truncation marker", err.Error())
+	if !strings.Contains(err.Error(), "destination returned non-success status 502") {
+		t.Fatalf("error = %q, want status-only error", err.Error())
+	}
+	if strings.Contains(err.Error(), strings.Repeat("x", 100)) {
+		t.Fatal("destination response body leaked into error")
 	}
 }
