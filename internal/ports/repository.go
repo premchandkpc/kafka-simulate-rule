@@ -66,10 +66,10 @@ type ActivationRepository interface {
 // WorkflowRepository handles workflow instances
 type WorkflowRepository interface {
 	Save(ctx context.Context, workflow *domain.WorkflowInstance) error
-	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error)
 	Update(ctx context.Context, workflow *domain.WorkflowInstance) error
 	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
-	GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error)
+	GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error)
 }
 
 // WorkflowDefinitionRepository handles workflow definitions (templates)
