@@ -119,10 +119,10 @@ type ShardLeaseRepository interface {
 // QuarantineRepository handles failed items
 type QuarantineRepository interface {
 	Save(ctx context.Context, entry *domain.QuarantineEntry) error
-	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
+	Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error)
 	List(ctx context.Context, filter QuarantineFilter) ([]*domain.QuarantineEntry, error)
-	Replay(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
+	Replay(ctx context.Context, tenantID, id string) error
+	Delete(ctx context.Context, tenantID, id string) error
 }
 
 // QuarantineFilter for filtering quarantine entries
