@@ -271,6 +271,7 @@ func (e *Execution) Quarantine(now time.Time, errMsg string) error {
 type OutboxEffect struct {
 	ID             string          `json:"id"`
 	ExecutionID    string          `json:"execution_id"`
+	TenantID       string          `json:"tenant_id"`
 	Destination    string          `json:"destination"`
 	Name           string          `json:"name"`
 	Payload        json.RawMessage `json:"payload"`
