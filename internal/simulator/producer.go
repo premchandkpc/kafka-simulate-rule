@@ -47,6 +47,11 @@ type Summary struct {
 	NumShards   uint32
 }
 
+type generationResult struct {
+	count int
+	err   error
+}
+
 // Validate rejects unsafe or nonsensical load settings before starting goroutines.
 func (c Config) Validate() error {
 	switch {
@@ -80,7 +85,7 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 	summary := Summary{Clients: cfg.Clients, NumShards: cfg.NumShards}
 	jobs := make(chan domain.EventEnvelope, cfg.Concurrency)
 	results := make(chan error, cfg.Concurrency)
-	generated := make(chan int, 1)
+	generated := make(chan generationResult, 1)
 
 	var workers sync.WaitGroup
 	workers.Add(cfg.Concurrency)
@@ -102,9 +107,9 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 	}()
 
 	go func() {
-		count := generate(ctx, cfg, jobs)
+		count, err := generate(ctx, cfg, jobs)
 		close(jobs)
-		generated <- count
+		generated <- generationResult{count: count, err: err}
 		close(generated)
 	}()
 
@@ -115,14 +120,18 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 			summary.BrokerAcked++
 		}
 	}
-	summary.Attempted = <-generated
+	generation := <-generated
+	summary.Attempted = generation.count
+	if generation.err != nil {
+		return summary, generation.err
+	}
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}
 	return summary, nil
 }
 
-func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope) int {
+func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope) (int, error) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	attempted := 0
 
@@ -143,7 +152,7 @@ func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope)
 				Amount:   float64(rng.Intn(100000)) / 100,
 			})
 			if err != nil {
-				continue
+				return attempted, fmt.Errorf("marshal generated payload for tenant %s: %w", tenantID, err)
 			}
 
 			event := domain.EventEnvelope{
@@ -159,11 +168,11 @@ func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope)
 			case jobs <- event:
 				attempted++
 			case <-ctx.Done():
-				return attempted
+				return attempted, nil
 			}
 		}
 	}
-	return attempted
+	return attempted, nil
 }
 
 func publishEvent(ctx context.Context, cfg Config, publisher Publisher, event domain.EventEnvelope) error {
