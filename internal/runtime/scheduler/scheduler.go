@@ -12,6 +12,8 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+const maxScheduledEventAttempts = 8
+
 type Scheduler struct {
 	repo         ports.ScheduledEventRepository
 	publisher    ports.EventPublisher
@@ -145,18 +147,41 @@ func (s *Scheduler) tick(ctx context.Context) {
 		idempotencyKey := fmt.Sprintf("sched-%s", evt.EventID)
 		if err := s.releaseEvent(ctx, evt, idempotencyKey); err != nil {
 			log.Printf("scheduler: release event %s: %v", evt.EventID, err)
-			// Mark as failed
-			if markErr := s.repo.MarkFailed(ctx, evt.EventID, claimant, err.Error()); markErr != nil {
-				log.Printf("scheduler: mark failed %s: %v", evt.EventID, markErr)
+			nextAttempt := evt.RetryCount + 1
+			if nextAttempt >= maxScheduledEventAttempts {
+				if markErr := s.repo.MarkFailed(ctx, evt.EventID, claimant, err.Error()); markErr != nil {
+					log.Printf("scheduler: mark failed %s: %v", evt.EventID, markErr)
+				}
+				continue
+			}
+
+			retryAt := s.clock.Now().Add(scheduledRetryDelay(nextAttempt))
+			if retryErr := s.repo.ScheduleRetry(ctx, evt.EventID, claimant, retryAt, err.Error()); retryErr != nil {
+				log.Printf("scheduler: schedule retry %s: %v", evt.EventID, retryErr)
 			}
 			continue
 		}
 
-		// Mark released with the same timestamp used for idempotency
-		if err := s.repo.MarkReleased(ctx, evt.EventID, claimant, now); err != nil {
+		// Settle using the current time, not the tick's start time. Claim expiry
+		// must be checked against the actual publish completion time.
+		if err := s.repo.MarkReleased(ctx, evt.EventID, claimant, s.clock.Now()); err != nil {
 			log.Printf("scheduler: mark released %s: %v", evt.EventID, err)
 		}
 	}
+}
+
+func scheduledRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 7 {
+		attempt = 7
+	}
+	delay := time.Duration(1<<uint(attempt-1)) * time.Second
+	if delay > time.Minute {
+		return time.Minute
+	}
+	return delay
 }
 
 func (s *Scheduler) releaseEvent(ctx context.Context, evt *domain.ScheduledEvent, idempotencyKey string) error {

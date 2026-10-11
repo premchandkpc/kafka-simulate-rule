@@ -42,6 +42,9 @@ func (s *scheduledRepositoryStub) Claim(context.Context, []string, string, time.
 func (s *scheduledRepositoryStub) MarkReleased(context.Context, string, string, time.Time) error {
 	return nil
 }
+func (s *scheduledRepositoryStub) ScheduleRetry(context.Context, string, string, time.Time, string) error {
+	return nil
+}
 func (s *scheduledRepositoryStub) MarkFailed(context.Context, string, string, string) error {
 	return nil
 }
