@@ -101,3 +101,36 @@ A failed scheduled publish is marked failed immediately rather than classified/r
 ## Evidence rule
 
 Re-run and record all Go CI and CodeQL jobs against the exact PR head immediately before merge. A green compile/test does not close the security or live-infrastructure risks listed above.
+
+## Architecture and reuse review after PR #3
+
+This review covers the PR #3 baseline and the follow-up remediation branch, not just the changed lines in an isolated pull request.
+
+### Confirmed design strengths
+- The domain/rules packages are mostly inward-facing; HTTP, SQL, Mongo and NATS concerns live in adapter packages.
+- The command packages act as composition roots, while services coordinate use cases through ports.
+- SQL and Mongo are selected in internal/storage, avoiding storage-driver imports in use cases.
+- Event processing persists inbox, execution and outbox state transactionally; broker publication is outside the domain layer.
+- Nested Go modules are tested separately because module boundaries are real dependency boundaries.
+
+### Confirmed design debt
+- internal/storage.Storage composes many repository interfaces in one broad aggregate and exposes NewTxRepositories, which type-asserts the generic transaction back to concrete SQL/Mongo transaction types. This is an adapter leak at the composition boundary. Longer term, use a transaction-scoped unit-of-work factory implemented by each adapter, or split use-case-specific repository bundles. Do not push database driver types into ports.
+- ports.TxRepos is broad and makes each transactional use case depend on repositories it may not need. Prefer small consumer-owned interfaces/use-case-specific transaction views when refactoring the transaction abstraction.
+- internal/factory overlaps with internal/storage; new wiring should use one composition root. Remove the legacy factory only after all callers and tests are migrated.
+- HTTP handlers repeat pagination parsing and have inconsistent maximums/error wording. Added handlers.parsePagination and migrated workflow, batch, quarantine and scheduled-event listing to one bounded implementation. The helper deliberately keeps pagination policy explicit at each call site.
+- JSON/YAML request decoding lives in handlers/utils.go and raw-document decoding partly repeats the same single-document logic. A future extraction should make one bounded decoder the source of truth and retain strict trailing-document rejection.
+- SQL and Mongo adapters intentionally implement the same ports, but duplicated state transitions can drift. Add adapter contract tests that run the same behavioral suite against both backends; serialization round-trip tests alone are insufficient.
+- Workflow definition endpoints currently use a global repository API without a tenant argument. Decide explicitly whether definitions are global platform configuration or tenant-owned. If tenant-owned, tenant ID must be part of the repository contract and every query/mutation; a handler-only check is insufficient.
+- Quarantine records created by the effects path can lack TenantID because the effect/outbox data model does not carry enough tenant context. Fail-closed handler checks prevent disclosure but make these records unavailable to tenant users. Fix the source model and persistence contract, then migrate old records; do not infer tenant from a client request.
+- Repeated handler error writes are noisy, but should not be hidden behind a giant generic HTTP framework. Prefer small, typed mapping helpers for stable domain errors after use-case error contracts are normalized.
+- The root module and nested SDK/example modules are appropriate module boundaries. Avoid moving packages only to make the tree look more hexagonal; move only when dependency direction or ownership improves.
+
+### SOLID / interface guidance
+- S: Keep handlers responsible for HTTP translation, services for use-case orchestration, domain for invariants, and adapters for I/O.
+- O: Add new broker/storage implementations through existing ports and conformance tests, not switches scattered through services.
+- L: SQL and Mongo implementations must satisfy the same observable repository contract, including duplicate inserts, not-found behavior, claim expiry and cancellation conflicts.
+- I: Split broad repository/transaction interfaces by consumer need when touched; avoid speculative one-method interfaces that add no substitution value.
+- D: Services should depend on ports. The composition root may depend on concrete adapters; the current transaction type assertion in storage is a contained but real exception.
+
+### Verification limits
+The CI suite validates formatting, builds, race-enabled unit tests, vet, SDK modules and examples. It does not prove live PostgreSQL/Mongo/NATS recovery, transaction parity, proxy deployment correctness, full authorization, or exactly-once external effects. Those remain explicit release gates.
