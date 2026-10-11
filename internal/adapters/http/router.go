@@ -8,8 +8,16 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/http/handlers"
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
+	"github.com/flowrule/flowrule/internal/auth"
 	"github.com/flowrule/flowrule/internal/ports"
 )
+
+// RouterConfig holds router configuration
+type RouterConfig struct {
+	AuthValidator  *auth.Validator
+	RequireAuth    bool
+	RequiredScopes []string
+}
 
 // Router holds all HTTP handlers and middleware
 type Router struct {
@@ -25,6 +33,7 @@ func NewRouter(
 	batchSvc ports.BatchService,
 	quarantineSvc ports.QuarantineService,
 	scheduledRepo ports.ScheduledEventRepository,
+	config RouterConfig,
 ) *Router {
 	mux := http.NewServeMux()
 
@@ -32,7 +41,16 @@ func NewRouter(
 	handler := middleware.Recovery(mux)
 	handler = middleware.TenantExtractor(handler)
 
-	// Health endpoint
+	// Apply auth middleware if validator is provided
+	if config.AuthValidator != nil {
+		if config.RequireAuth {
+			handler = auth.Middleware(config.AuthValidator, config.RequiredScopes...)(handler)
+		} else {
+			handler = auth.OptionalAuthMiddleware(config.AuthValidator)(handler)
+		}
+	}
+
+	// Health endpoint (public)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		responses.WriteOK(w, map[string]string{"status": "ok"})
 	})

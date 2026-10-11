@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/flowrule/flowrule/internal/adapters/http"
+	"github.com/flowrule/flowrule/internal/auth"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
@@ -77,6 +78,16 @@ func run() error {
 
 	workflowDefRepo := repositories.WorkflowDefinitions
 
+	// Create auth validator if JWT secret is configured
+	var authValidator *auth.Validator
+	if cfg.Auth.JWTSecret != "" {
+		authValidator = auth.NewValidator(
+			[]byte(cfg.Auth.JWTSecret),
+			cfg.Auth.JWTIssuer,
+			cfg.Auth.JWTAudience,
+		)
+	}
+
 	router := http.NewRouter(
 		rulesSvc,
 		workflowSvc,
@@ -85,6 +96,11 @@ func run() error {
 		batchSvc,
 		quarantineSvc,
 		repositories.ScheduledEvents,
+		http.RouterConfig{
+			AuthValidator:  authValidator,
+			RequireAuth:    cfg.Auth.RequireAuth,
+			RequiredScopes: cfg.Auth.RequiredScopes,
+		},
 	)
 
 	log.Printf("API server listening on %s", cfg.App.HTTPAddr)

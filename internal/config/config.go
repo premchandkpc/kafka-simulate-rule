@@ -66,6 +66,14 @@ type GenerationConfig struct {
 	GenerationOutputDir string
 }
 
+type AuthConfig struct {
+	JWTSecret      string   `env:"JWT_SECRET"`
+	JWTIssuer      string   `env:"JWT_ISSUER"`
+	JWTAudience    string   `env:"JWT_AUDIENCE"`
+	RequireAuth    bool     `env:"REQUIRE_AUTH"`
+	RequiredScopes []string `env:"REQUIRED_SCOPES"`
+}
+
 type Config struct {
 	App        AppConfig
 	Database   DatabaseConfig
@@ -73,6 +81,7 @@ type Config struct {
 	Redis      RedisConfig
 	Worker     WorkerConfig
 	Generation GenerationConfig
+	Auth       AuthConfig
 }
 
 func Load() (*Config, error) {
@@ -133,6 +142,13 @@ func Load() (*Config, error) {
 			ProtocGenGoGRPCPath: getEnv("PROTOC_GEN_GO_GRPC_PATH", "protoc-gen-go-grpc"),
 			GenerationOutputDir: getEnv("GENERATION_OUTPUT_DIR", ""),
 		},
+		Auth: AuthConfig{
+			JWTSecret:      getEnv("JWT_SECRET", ""),
+			JWTIssuer:      getEnv("JWT_ISSUER", "flowrule"),
+			JWTAudience:    getEnv("JWT_AUDIENCE", "flowrule-api"),
+			RequireAuth:    getBoolEnv("REQUIRE_AUTH", false),
+			RequiredScopes: splitCSV(getEnv("REQUIRED_SCOPES", "")),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -170,6 +186,14 @@ func (c *Config) Validate() error {
 	}
 	if c.NATS.URL == "" {
 		return fmt.Errorf("NATS_URL is required")
+	}
+	if c.Auth.RequireAuth {
+		if c.Auth.JWTSecret == "" {
+			return fmt.Errorf("JWT_SECRET is required when REQUIRE_AUTH=true")
+		}
+		if len(c.Auth.JWTSecret) < 32 {
+			return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+		}
 	}
 	if c.Worker.NumShards == 0 {
 		return fmt.Errorf("NUM_SHARDS must be > 0")
@@ -308,6 +332,15 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 	return fallback
 }
 
+func getBoolEnv(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+			return b
+		}
+	}
+	return fallback
+}
+
 func toUint32(v int) uint32 {
 	if v < 0 {
 		return 0
@@ -367,4 +400,18 @@ func (c *Config) EventRetryDelay() time.Duration {
 
 func (c *Config) ShutdownTimeoutDuration() time.Duration {
 	return c.App.ShutdownTimeout
+}
+
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var result []string
+	for _, part := range strings.Split(s, ",") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
