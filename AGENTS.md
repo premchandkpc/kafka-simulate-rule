@@ -140,6 +140,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - internal/ports/runtime.go — worker/runtime-specific ports.
 - internal/ports/services.go — use-case interfaces consumed by adapters/runtime.
 - internal/rules/compiler.go — rule source parsing, validation, limits and immutable compiled revisions.
+- internal/rules/compiler_test.go — emit_event action support and composite-predicate validation regressions.
 - internal/rules/evaluator.go — predicate/action evaluation and decision construction.
 - internal/rules/evaluator_test.go — evaluator behavior tests.
 - internal/services/events/service.go — transactional fencing, inbox deduplication, activation/revision lookup, evaluation, execution and outbox writes.
@@ -199,7 +200,7 @@ Storage/messaging:
 ### Schemas, migrations, SDK and examples
 
 - api/envelope-schema.json — event envelope JSON Schema.
-- api/rule-schema.json — rule-set JSON Schema.
+- api/rule-schema.json — rule-set JSON Schema for leaf/composite predicates and emit, emit_event, and command actions. The schema is not automatically applied by every handler; keep it aligned with compiler behavior.
 - migrations/001_rule_revisions.sql through migrations/014_workflow_definitions.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; do not renumber/edit applied migrations.
 - sdk/go/go.mod — independent SDK module definition.
 - sdk/go/runtime/envelope.go — public envelope, payload and shard hashing.
