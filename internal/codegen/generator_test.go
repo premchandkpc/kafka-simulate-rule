@@ -77,3 +77,28 @@ func TestToGoIdentifier(t *testing.T) {
 		})
 	}
 }
+
+
+func TestGenerateGoRejectsUnsafeSchemaDerivedFileNames(t *testing.T) {
+	generator := NewGenerator(&domain.ContractSchema{
+		Name:    "../../escape",
+		Version: "1.0",
+		Fields:  map[string]domain.ContractField{},
+	})
+	if _, err := generator.GenerateGo(t.TempDir()); err == nil {
+		t.Fatal("GenerateGo() accepted a schema name that produces an unsafe file name")
+	}
+}
+
+func TestValidateGeneratedTypeName(t *testing.T) {
+	for _, name := range []string{"OrderCreated", "TransactionInitiated"} {
+		if err := validateGeneratedTypeName(name); err != nil {
+			t.Errorf("validateGeneratedTypeName(%q) error = %v", name, err)
+		}
+	}
+	for _, name := range []string{"../Escape", "Order/Created", "1stOrder", ""} {
+		if err := validateGeneratedTypeName(name); err == nil {
+			t.Errorf("validateGeneratedTypeName(%q) accepted unsafe name", name)
+		}
+	}
+}
