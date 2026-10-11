@@ -25,6 +25,22 @@ func TestSafeGenerationOutputDir(t *testing.T) {
 	}
 }
 
+func TestSafeGenerationOutputDirSupportsRelativeOutputPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), generatedOutputRootName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := safeGenerationOutputDir(filepath.Join("orders", "v1"), root)
+	if err != nil {
+		t.Fatalf("safeGenerationOutputDir(relative) error = %v", err)
+	}
+	want := filepath.Join(root, "orders", "v1")
+	if got != want {
+		t.Fatalf("output dir = %q, want %q", got, want)
+	}
+}
+
 func TestSafeGenerationOutputDirRejectsSiblingPrefix(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, generatedOutputRootName)
@@ -42,6 +58,9 @@ func TestSafeGenerationOutputDirRejectsParentTraversal(t *testing.T) {
 
 	if _, err := safeGenerationOutputDir(escape, root); err == nil {
 		t.Fatal("expected parent traversal to be rejected")
+	}
+	if _, err := safeGenerationOutputDir(filepath.Join("..", "outside"), root); err == nil {
+		t.Fatal("expected relative parent traversal to be rejected")
 	}
 }
 

@@ -28,7 +28,14 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 		return "", fmt.Errorf("resolve output root: %w", err)
 	}
 
-	cleanOutput, err := sanitizeRelativeOutputPath(outputDir)
+	relativeOutput := outputDir
+	if filepath.IsAbs(outputDir) {
+		relativeOutput, err = filepath.Rel(rootAbs, outputDir)
+		if err != nil {
+			return "", fmt.Errorf("check output directory: %w", err)
+		}
+	}
+	cleanOutput, err := sanitizeRelativeOutputPath(relativeOutput)
 	if err != nil {
 		return "", fmt.Errorf("resolve output directory: %w", err)
 	}
@@ -54,7 +61,6 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 			}
 			candidate := resolved
 			for _, part := range suffix {
-				// codeql[go/path-injection] The final path is checked against the approved root below.
 				candidate = filepath.Join(candidate, part)
 			}
 			resolvedRel, relErr := filepath.Rel(realRoot, candidate)
