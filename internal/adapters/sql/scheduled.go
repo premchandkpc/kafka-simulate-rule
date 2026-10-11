@@ -152,7 +152,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 	`, tenantID, eventID).Scan(
 		&evt.EventID, &evt.TenantID, &evt.EventType, &evt.PartitionKey,
 		&evt.WorkflowID, &evt.Payload, &evt.Headers, &evt.ScheduledAt,
-		&evt.Status, &evt.CreatedAt, &releasedAt,
+		&evt.Status, &evt.CreatedAt, &releasedAt, &evt.RetryAt, &evt.RetryCount, &evt.LastError,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
