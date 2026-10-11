@@ -19,7 +19,10 @@ type fakePublisher struct {
 	fail     bool
 }
 
-func (p *fakePublisher) Publish(_ context.Context, subject string, payload []byte) error {
+func (p *fakePublisher) Publish(ctx context.Context, subject string, payload []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if p.fail {
 		return errors.New("broker unavailable")
 	}
