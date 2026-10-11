@@ -32,31 +32,39 @@ func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	tenantID := middleware.GetTenantID(r.Context())
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if evt.TenantID != "" && evt.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, "tenant_id does not match request tenant", responses.CodeValidationFailed)
+		return
+	}
+	evt.TenantID = tenantID
+
 	if evt.EventID == "" {
 		evt.EventID = domain.NewID()
 	}
-	// Use tenant from middleware if not provided
-	if evt.TenantID == "" {
-		evt.TenantID = middleware.GetTenantID(r.Context())
-	}
-	if evt.TenantID == "" || evt.EventType == "" || evt.PartitionKey == "" {
-		responses.WriteError(w, http.StatusBadRequest, "tenant_id, event_type, and partition_key are required", responses.CodeValidationFailed)
+	if evt.EventType == "" || evt.PartitionKey == "" {
+		responses.WriteError(w, http.StatusBadRequest, "event_type and partition_key are required", responses.CodeValidationFailed)
 		return
 	}
 	if evt.ScheduledAt.IsZero() {
 		responses.WriteError(w, http.StatusBadRequest, "scheduled_at is required", responses.CodeValidationFailed)
 		return
 	}
-
-	evt.Status = "pending"
-	evt.CreatedAt = time.Now().UTC()
-
-	ctx := r.Context()
-	if err := h.repo.Save(ctx, &evt); err != nil {
-		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+	if !evt.ScheduledAt.After(time.Now().UTC()) {
+		responses.WriteError(w, http.StatusBadRequest, "scheduled_at must be in the future", responses.CodeValidationFailed)
 		return
 	}
 
+	evt.Status = "pending"
+	evt.CreatedAt = time.Now().UTC()
+	if err := h.repo.Save(r.Context(), &evt); err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
 	responses.WriteCreated(w, evt)
 }
 
@@ -67,27 +75,26 @@ func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctx := r.Context()
-	evt, err := h.repo.Get(ctx, eventID)
+	evt, err := h.repo.Get(r.Context(), eventID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if evt == nil {
+	if evt == nil || evt.TenantID != middleware.GetTenantID(r.Context()) {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
-
 	responses.WriteOK(w, evt)
 }
 
 func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Request) {
-	// This requires a List method in the repository interface
-	// For now, return empty with proper response format
-	responses.WriteOK(w, map[string]interface{}{
-		"events": []interface{}{},
-		"total":  0,
-	})
+	if middleware.GetTenantID(r.Context()) == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	// The repository has no tenant-scoped list operation yet. Do not report a
+	// successful empty result for data the API cannot actually query.
+	responses.WriteError(w, http.StatusNotImplemented, "scheduled event listing is not implemented", responses.CodeInternalError)
 }
 
 func (h *ScheduledHandler) CancelScheduledEvent(w http.ResponseWriter, r *http.Request) {
@@ -97,12 +104,17 @@ func (h *ScheduledHandler) CancelScheduledEvent(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Mark as failed/cancelled
-	ctx := r.Context()
-	if err := h.repo.MarkFailed(ctx, eventID, "cancelled by user"); err != nil {
+	evt, err := h.repo.Get(r.Context(), eventID)
+	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
+	if evt == nil || evt.TenantID != middleware.GetTenantID(r.Context()) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		return
+	}
 
-	responses.WriteNoContent(w)
+	// MarkFailed cannot represent a cancellation state. Returning 501 is safer
+	// than silently changing the event to failed while claiming it was cancelled.
+	responses.WriteError(w, http.StatusNotImplemented, "scheduled event cancellation is not implemented by the repository", responses.CodeInternalError)
 }
