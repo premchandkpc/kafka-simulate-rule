@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -12,6 +13,31 @@ import (
 
 	"github.com/flowrule/flowrule/internal/domain"
 )
+
+var workflowTypeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}package mongo
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/flowrule/flowrule/internal/domain"
+)
+
+)
+
+func validateWorkflowTypeName(value string) error {
+	if !workflowTypeNamePattern.MatchString(value) {
+		return fmt.Errorf("invalid workflow type: expected 1-128 letters, digits, dots, underscores or hyphens")
+	}
+	return nil
+}
 
 type WorkflowRepository struct {
 	querier Querier
@@ -219,6 +245,12 @@ func (r *WorkflowDefinitionRepository) collection(name string) *mongo.Collection
 }
 
 func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.WorkflowDefinition) error {
+	if def == nil {
+		return fmt.Errorf("workflow definition is required")
+	}
+	if err := validateWorkflowTypeName(def.WorkflowType); err != nil {
+		return err
+	}
 	coll := r.collection(collectionWorkflowDefinitions)
 	doc := WorkflowDefinitionDocFromDomain(def)
 	_, err := coll.UpdateOne(ctx,
@@ -233,6 +265,9 @@ func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.Wor
 }
 
 func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
+	if err := validateWorkflowTypeName(workflowType); err != nil {
+		return nil, err
+	}
 	coll := r.collection(collectionWorkflowDefinitions)
 	var doc WorkflowDefinitionDoc
 	err := coll.FindOne(ctx, bson.D{
@@ -268,6 +303,9 @@ func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.Work
 }
 
 func (r *WorkflowDefinitionRepository) Delete(ctx context.Context, workflowType string, version int64) error {
+	if err := validateWorkflowTypeName(workflowType); err != nil {
+		return err
+	}
 	coll := r.collection(collectionWorkflowDefinitions)
 	_, err := coll.DeleteOne(ctx, bson.D{{Key: "workflow_type", Value: workflowType}, {Key: "version", Value: version}})
 	if err != nil {
