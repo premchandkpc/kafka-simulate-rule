@@ -283,6 +283,9 @@ func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.Work
 		}
 		defs = append(defs, doc.ToDomain())
 	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workflow definitions: %w", err)
+	}
 	return defs, nil
 }
 
