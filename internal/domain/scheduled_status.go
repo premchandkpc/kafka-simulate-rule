@@ -1,11 +1,13 @@
 package domain
 
-// Scheduled-event lifecycle values are shared by the API, scheduler, and
-// storage adapters. Keep persisted values here to avoid drift across backends.
+// ScheduledEventStatus represents a persisted scheduled-event lifecycle state.
+// Keep values shared by API, scheduler, and storage adapters to prevent drift.
+type ScheduledEventStatus string
+
 const (
-	ScheduledEventStatusPending   = "pending"
-	ScheduledEventStatusClaimed   = "claimed"
-	ScheduledEventStatusReleased  = "released"
-	ScheduledEventStatusFailed    = "failed"
-	ScheduledEventStatusCancelled = "cancelled"
+	ScheduledEventStatusPending   ScheduledEventStatus = "pending"
+	ScheduledEventStatusClaimed   ScheduledEventStatus = "claimed"
+	ScheduledEventStatusReleased  ScheduledEventStatus = "released"
+	ScheduledEventStatusFailed    ScheduledEventStatus = "failed"
+	ScheduledEventStatusCancelled ScheduledEventStatus = "cancelled"
 )
