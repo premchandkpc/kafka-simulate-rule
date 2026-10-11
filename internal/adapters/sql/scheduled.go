@@ -37,7 +37,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	rows, err := r.db.Query(ctx, `
 		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error
 		FROM scheduled_events
-		WHERE (status = $2 AND COALESCE(retry_at, scheduled_at) <= $1)
+		WHERE (status = $2 AND ((retry_at IS NOT NULL AND retry_at <= $1) OR (retry_at IS NULL AND scheduled_at <= $1)))
 		   OR (status = $3 AND claim_expires_at <= $1)
 		ORDER BY COALESCE(retry_at, scheduled_at)
 		LIMIT $4
@@ -81,7 +81,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		SET status = $%d, claimant = $1, claim_expires_at = $2, claimed_at = $3
 		WHERE event_id IN (%s)
 		  AND (
-		    (status = $%d AND COALESCE(retry_at, scheduled_at) <= $3)
+		    (status = $%d AND ((retry_at IS NOT NULL AND retry_at <= $3) OR (retry_at IS NULL AND scheduled_at <= $3)))
 		    OR (status = $%d AND claim_expires_at <= $3)
 		  )
 		RETURNING event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error
