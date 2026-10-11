@@ -8,6 +8,8 @@ Reviewed the main-branch snapshot at commit ce533ad522a5616a9c5e0118d7d37aba00da
 
 - Fixed emitted child-event routing: worker effect publishing is now wired through the effect router; the router publishes to the same events.shard.N subject family used by the stream/consumer and uses the configured shard count rather than a hardcoded 4096/topic-derived broker subject.
 - Added a regression test for the actual broker subject contract and configurable shard count.
+- Aligned api/rule-schema.json with emit_event actions and valid composite predicate shapes; the compiler now rejects ambiguous multiple-composite and empty-composite predicates, with regression tests.
+- Fixed the standalone SDK build discovered by expanded CI: moved the duplicate Effect declaration out of envelope.go, aligned its JetStream dependency with the supported parent NATS module, and added sdk/go/go.sum.
 - Replaced the rules service N+1 ListActiveRules query with the existing activation repository List method so repository errors are propagated rather than silently skipped.
 - Removed a redundant execution status update inside the event transaction by persisting the final completed status once.
 - Added POST /v1/rules/{ruleSet}/revisions so documented/example rule deployment uses a real registered route. It accepts one bounded JSON or YAML rule document, normalizes YAML to JSON, validates that the body rule_set matches the route, and compiles/activates through the use-case interface.
@@ -82,7 +84,7 @@ Next step: benchmark realistic event/effect sizes and contention, inspect actual
 
 ## Verification record
 
-This review was authored against main commit ce533ad522a5616a9c5e0118d7d37aba00da97cc; the change branch adds the source changes above. Remote file edits were committed through the GitHub API. No local test run is claimed. The widened Go CI workflow is the source of truth for build/test/vet outcomes; update this section with the actual PR run IDs and status before merging. A green build does not close the open security/storage findings above.
+This review was authored against main commit ce533ad522a5616a9c5e0118d7d37aba00da97cc; the change branch adds the source changes above. Remote file edits were committed through the GitHub API. No local test run is claimed. An early widened-CI run passed root build/tests/vet but exposed the standalone SDK's duplicate Effect declaration; that defect and its module checksums were fixed on the current branch. The final widened Go CI and default CodeQL runs must be checked at the current PR head before merging. A green build does not close the open security/storage findings above.
 
 ## Recommended order
 
