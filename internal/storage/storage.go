@@ -25,7 +25,7 @@ type Repositories struct {
 	Quarantine          ports.QuarantineRepository
 	Contracts           ports.ContractRegistry
 	Transactions        ports.TransactionManager
-	NewTxRepositories   ports.RepositoryFactory
+	NewTxRepositories   ports.EventTxRepositoryFactory
 }
 
 type Storage struct {
