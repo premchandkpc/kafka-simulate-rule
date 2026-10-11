@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
-
-	"github.com/flowrule/flowrule/internal/auth"
 	"os"
 	"strings"
 	"unicode"
+
+	"github.com/flowrule/flowrule/internal/auth"
 )
 
 // TenantContextKey is the context key for tenant information.
