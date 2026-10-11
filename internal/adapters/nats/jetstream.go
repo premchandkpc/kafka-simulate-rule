@@ -325,13 +325,14 @@ func (c *Consumer) ConsumeOrderCreate(ctx context.Context, maxMessages int, shar
 	return c.FetchShards(ctx, maxMessages, shards)
 }
 
-// Publish is the generic adapter-level primitive that implements ports.BrokerPublisher.
+// Compile-time assertions keep the adapter aligned with consumer-owned contracts.
 var _ ports.EventConsumer = (*Consumer)(nil)
 var _ ports.EventPublisher = (*Consumer)(nil)
 var _ ports.OrderEventBroker = (*Consumer)(nil)
 var _ ports.EventPublisher = (*Publisher)(nil)
 
-// func (c *Consumer) Publish(ctx context.Context, subject string, data []byte) error {
+// Publish is the generic adapter-level primitive that implements ports.BrokerPublisher.
+func (c *Consumer) Publish(ctx context.Context, subject string, data []byte) error {
 	_, err := c.js.Publish(ctx, subject, data)
 	if err != nil {
 		return fmt.Errorf("publish subject %q: %w", subject, err)
