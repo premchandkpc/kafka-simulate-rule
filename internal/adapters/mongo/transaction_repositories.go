@@ -26,7 +26,7 @@ func NewEventTxRepositories(tx ports.Transaction) (ports.EventTxRepos, error) {
 	}, nil
 }
 
- // NewRuleTxRepositories builds only the repositories required for atomic rule activation.
+// NewRuleTxRepositories builds only the repositories required for atomic rule activation.
 func NewRuleTxRepositories(tx ports.Transaction) (ports.RuleTxRepos, error) {
 	mongoTx, ok := tx.(*Transaction)
 	if !ok {
