@@ -113,4 +113,4 @@ Start with docs/README.md for the documentation index.
 
 ## Random producer simulation
 
-An opt-in random producer can publish 1–100 messages per simulated client through NATS JetStream using Compose service discovery. See [docs/simulation.md](docs/simulation.md) for run commands, ACK semantics, shard routing, and the current limits around master election and dynamic worker membership.
+An opt-in random producer can publish 1–100 messages per simulated client through NATS JetStream using Compose service discovery. See [random producer README](examples/random-producer/README.md) for run commands, ACK semantics, shard routing, and the current limits around master election and dynamic worker membership.

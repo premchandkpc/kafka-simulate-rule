@@ -27,7 +27,7 @@ Delivery is at-least-once. Inbox/outbox patterns improve recovery and handoff co
 
 ## HTTP API
 
-Routes are registered in internal/adapters/http/handlers. Rule creation/activation is POST /v1/rules/{ruleSet}/revisions; rule revisions and active rules are exposed through GET routes; DELETE on a revision path deactivates a rule set. Contract routes are under /v1/contracts. Workflow definition routes are under /v1/workflows/definitions. See ../../../README.md for the route matrix.
+Routes are registered in internal/adapters/http/handlers. Rule creation/activation is POST /v1/rules/{ruleSet}/revisions; rule revisions and active rules are exposed through GET routes; DELETE on a revision path deactivates a rule set. Contract routes are under /v1/contracts. Workflow definition routes are under /v1/workflows/definitions. See ../../README.md for the route matrix.
 
 Security limitation: authentication and authorization are not implemented. TenantExtractor trusts X-Tenant-ID or tenant_id query values and falls back to default. ../../AGENTS.md had mistakenly described a trusted-proxy token mode that is not implemented; do not rely on such a setting. The API must not be exposed to untrusted networks until verified identity and tenant authorization are implemented. /health is process liveness only; the API has no gRPC listener. The default native HTTP bind is loopback.
 
@@ -59,4 +59,4 @@ The local Docker Compose file uses development settings and example credentials.
 - Root Go checks, SDK checks and example-module checks run as separate Go module steps in CI.
 - Production guarantees require actual PostgreSQL/NATS tests for rollback, redelivery, ACK loss, competing claimants, worker pause/lease expiry, broker restart and destination timeout/idempotency.
 
-See ../../AGENTS.md for the detailed package/file map and docs/audit/2026-10-11-repository-review.md for the prioritized unresolved issues.
+See ../../AGENTS.md for the detailed package/file map and ../audit/2026-10-11-repository-review.md for the prioritized unresolved issues.
