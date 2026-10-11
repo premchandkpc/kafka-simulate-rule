@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
+	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
@@ -54,6 +56,10 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	batch, err := h.batchSvc.CreateBatch(ctx, req.TenantID, req.PartitionKey, req.RuleSet, req.EventIDs)
 	if err != nil {
+		if errors.Is(err, domain.ErrBatchProcessingUnavailable) {
+			responses.WriteError(w, http.StatusServiceUnavailable, "batch processing is not configured for this API process", responses.CodeInternalError)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
@@ -69,7 +75,7 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	batch, err := h.batchSvc.GetBatch(ctx, batchID)
+	batch, err := h.batchSvc.GetBatch(ctx, middleware.GetTenantID(ctx), batchID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -90,15 +96,21 @@ func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 
 	limit := 100
 	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+		l, err := strconv.Atoi(limitStr)
+		if err != nil || l < 1 || l > 500 {
+			responses.WriteError(w, http.StatusBadRequest, "limit must be an integer between 1 and 500", responses.CodeValidationFailed)
+			return
 		}
+		limit = l
 	}
 	offset := 0
 	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			offset = o
+		o, err := strconv.Atoi(offsetStr)
+		if err != nil || o < 0 {
+			responses.WriteError(w, http.StatusBadRequest, "offset must be a non-negative integer", responses.CodeValidationFailed)
+			return
 		}
+		offset = o
 	}
 
 	ctx := r.Context()
