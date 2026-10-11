@@ -171,7 +171,7 @@ services:
       - --scenario
       - "${RANDOM_PRODUCER_SCENARIO:-all}"
       - --tenant
-      - "${FLOWRULE_TENANT_ID:-acme-corp}"
+      - "${RANDOM_PRODUCER_TENANT_ID:-acme-corp}"
     depends_on:
       nats:
         condition: service_healthy
