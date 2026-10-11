@@ -264,6 +264,7 @@ func (m *LeaseManager) renewOwned(ctx context.Context) {
 
 	m.rebalanceIfNeeded(ctx)
 }
+
 // targetOwnedShards rounds up so the configured replicas can cover every shard,
 // including configurations where the shard count is not divisible by replicas.
 func (m *LeaseManager) targetOwnedShards() uint32 {
