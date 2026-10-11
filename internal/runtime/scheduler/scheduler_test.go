@@ -24,6 +24,10 @@ type schedulerTestRepo struct {
 	claimErr    error
 	releasedErr error
 	failedErr   error
+	retryBy     string
+	retryAt     time.Time
+	retryMsg    string
+	retryErr    error
 }
 
 func (r *schedulerTestRepo) Save(context.Context, *domain.ScheduledEvent) error { return nil }
@@ -43,6 +47,10 @@ func (r *schedulerTestRepo) Claim(_ context.Context, _ []string, claimant string
 func (r *schedulerTestRepo) MarkReleased(_ context.Context, _ string, claimant string, _ time.Time) error {
 	r.releasedBy = claimant
 	return r.releasedErr
+}
+func (r *schedulerTestRepo) ScheduleRetry(_ context.Context, _ string, claimant string, retryAt time.Time, errMsg string) error {
+	r.retryBy, r.retryAt, r.retryMsg = claimant, retryAt, errMsg
+	return r.retryErr
 }
 func (r *schedulerTestRepo) MarkFailed(_ context.Context, _ string, claimant, errMsg string) error {
 	r.failedBy, r.failedMsg = claimant, errMsg
@@ -95,7 +103,7 @@ func TestTickSettlesWithTheUniqueClaimToken(t *testing.T) {
 	}
 }
 
-func TestTickFencesFailedSettlementWithTheClaimToken(t *testing.T) {
+func TestTickSchedulesRetryForPublishFailure(t *testing.T) {
 	now := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
 	repo := &schedulerTestRepo{event: &domain.ScheduledEvent{
 		EventID: "scheduled-2", TenantID: "tenant-a", EventType: "order.reminder",
@@ -106,10 +114,48 @@ func TestTickFencesFailedSettlementWithTheClaimToken(t *testing.T) {
 
 	s.tick(context.Background())
 
+	if repo.retryBy != repo.claimant {
+		t.Fatalf("retry scheduled by %q, claimed by %q", repo.retryBy, repo.claimant)
+	}
+	if !repo.retryAt.Equal(now.Add(time.Second)) {
+		t.Fatalf("retry at %s, want %s", repo.retryAt, now.Add(time.Second))
+	}
+	if repo.retryMsg == "" {
+		t.Fatal("expected the publish error to be persisted")
+	}
+	if repo.failedBy != "" {
+		t.Fatalf("event should be retried before terminal failure, failed by %q", repo.failedBy)
+	}
+}
+
+func TestTickMarksEventFailedAfterRetryLimit(t *testing.T) {
+	now := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
+	repo := &schedulerTestRepo{event: &domain.ScheduledEvent{
+		EventID: "scheduled-final", TenantID: "tenant-a", EventType: "order.reminder",
+		PartitionKey: "order-final", Payload: []byte(`{"reminder":true}`), ScheduledAt: now.Add(-time.Minute),
+		RetryCount: maxScheduledEventAttempts - 1,
+	}}
+	publisher := &schedulerTestPublisher{publishErr: errors.New("permanent publish failure")}
+	s := NewScheduler(repo, publisher, schedulerTestClock{now: now}, time.Second, 10, 64)
+
+	s.tick(context.Background())
+
 	if repo.failedBy != repo.claimant {
 		t.Fatalf("failed by %q, claimed by %q", repo.failedBy, repo.claimant)
 	}
 	if repo.failedMsg == "" {
-		t.Fatal("expected the publish error to be persisted")
+		t.Fatal("expected the terminal publish error to be persisted")
+	}
+	if repo.retryBy != "" {
+		t.Fatalf("event should be terminal after retry limit, retry scheduled by %q", repo.retryBy)
+	}
+}
+
+func TestScheduledRetryDelayIsBounded(t *testing.T) {
+	if got, want := scheduledRetryDelay(1), time.Second; got != want {
+		t.Fatalf("scheduledRetryDelay(1) = %s, want %s", got, want)
+	}
+	if got, want := scheduledRetryDelay(20), time.Minute; got != want {
+		t.Fatalf("scheduledRetryDelay(20) = %s, want %s", got, want)
 	}
 }
