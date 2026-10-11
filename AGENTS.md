@@ -56,7 +56,7 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Entry point: cmd/api/main.go.
 - Loads internal/config, opens and initializes internal/storage, constructs compiler and use-case services, registers HTTP handlers, and starts the HTTP server. The default HTTP bind is loopback; Compose publishes service ports on host loopback only.
 - Route registration: internal/adapters/http/router.go.
-- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go.
+- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go. Shared HTTP request helpers live in handlers/utils.go and query_params.go.
 - Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
 - Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
 - /health is liveness only; it does not check storage or broker readiness.
