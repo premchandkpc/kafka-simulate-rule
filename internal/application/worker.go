@@ -103,7 +103,12 @@ func NewWorker(
 	}
 
 	defaults := DefaultWorkerConfig()
-	if config.MaxGlobalInFlight <= 0 {
+	// Preserve the legacy zero-value behavior: an omitted WorkerConfig means
+	// production-safe defaults, including mandatory sharded mode.
+	if config.MaxGlobalInFlight == 0 {
+		config = defaults
+	}
+	if config.MaxGlobalInFlight < 0 {
 		config.MaxGlobalInFlight = defaults.MaxGlobalInFlight
 	}
 	if config.FetchBatchSize <= 0 {
@@ -129,6 +134,9 @@ func NewWorker(
 	}
 	if config.HotKeyCheckInterval <= 0 {
 		config.HotKeyCheckInterval = defaults.HotKeyCheckInterval
+	}
+	if config.FetchBatchSize > config.MaxGlobalInFlight {
+		return nil, fmt.Errorf("worker fetch batch size (%d) must not exceed max global in-flight (%d)", config.FetchBatchSize, config.MaxGlobalInFlight)
 	}
 
 	var sc shardedConsumer
