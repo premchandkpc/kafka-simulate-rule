@@ -15,7 +15,8 @@ help:
 	@echo ""
 	@echo "Test targets:"
 	@echo "  test            Run all tests"
-	@echo "  test-unit       Run internal unit tests"\n\t@echo "  test-examples   Run random-producer scenario tests"
+	@echo "  test-unit       Run internal unit tests"
+	@echo "  test-examples   Run random-producer scenario tests"
 	@echo "  test-integration Run integration tests"
 	@echo ""
 	@echo "Code quality:"
@@ -105,6 +106,10 @@ test: test-unit test-examples test-integration
 test-unit:
 	@echo "Running unit tests..."
 	$(GO) test $(GOTESTFLAGS) ./internal/...
+
+test-examples:
+	@echo "Running example scenario tests..."
+	$(GO) test $(GOTESTFLAGS) ./examples/random-producer/...
 
 test-integration:
 	@echo "Running integration tests..."
