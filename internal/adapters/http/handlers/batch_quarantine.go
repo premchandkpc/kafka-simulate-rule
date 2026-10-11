@@ -80,7 +80,7 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if batch == nil {
+	if batch == nil || batch.TenantID != middleware.GetTenantID(r.Context()) {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
@@ -197,7 +197,7 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil {
+	if entry == nil || entry.TenantID != middleware.GetTenantID(r.Context()) {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
@@ -208,6 +208,15 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	id := r.PathValue("id")
 	if id == "" {
 		responses.WriteError(w, http.StatusBadRequest, "id is required", responses.CodeBadRequest)
+		return
+	}
+	entry, err := h.quarantineSvc.Get(r.Context(), id)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if entry == nil || entry.TenantID != middleware.GetTenantID(r.Context()) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
 	if err := h.quarantineSvc.Replay(r.Context(), id); err != nil {
@@ -221,6 +230,15 @@ func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Requ
 	id := r.PathValue("id")
 	if id == "" {
 		responses.WriteError(w, http.StatusBadRequest, "id is required", responses.CodeBadRequest)
+		return
+	}
+	entry, err := h.quarantineSvc.Get(r.Context(), id)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if entry == nil || entry.TenantID != middleware.GetTenantID(r.Context()) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
 	if err := h.quarantineSvc.Delete(r.Context(), id); err != nil {
