@@ -2,6 +2,7 @@ package batches
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -363,5 +364,43 @@ func TestComputeBatchID_DifferentPartitions(t *testing.T) {
 
 	if id1 == id2 {
 		t.Error("batch ID should differ for different partition keys")
+	}
+}
+
+func TestBatchService_ListBatchesScopesTenantAndRuleSet(t *testing.T) {
+	batches := newMemBatches()
+	batches.runs["batch-a"] = &domain.BatchRun{BatchID: "batch-a", TenantID: "tenant-a", RuleSet: "orders", CreatedAt: time.Now()}
+	batches.runs["batch-b"] = &domain.BatchRun{BatchID: "batch-b", TenantID: "tenant-b", RuleSet: "orders", CreatedAt: time.Now()}
+	batches.runs["batch-c"] = &domain.BatchRun{BatchID: "batch-c", TenantID: "tenant-a", RuleSet: "payments", CreatedAt: time.Now()}
+
+	svc := NewService(batches, newMemEventProcessor(), domain.SystemClock{}, domain.BatchConfig{Mode: domain.BatchModeNone})
+	got, err := svc.ListBatches(context.Background(), "tenant-a", "orders", 10, 0)
+	if err != nil {
+		t.Fatalf("ListBatches() error = %v", err)
+	}
+	if len(got) != 1 || got[0].BatchID != "batch-a" {
+		t.Fatalf("ListBatches() = %#v, want only tenant-a/orders batch", got)
+	}
+}
+
+func TestBatchService_GetBatchScopesTenant(t *testing.T) {
+	batches := newMemBatches()
+	batches.runs["batch-a"] = &domain.BatchRun{BatchID: "batch-a", TenantID: "tenant-a"}
+
+	svc := NewService(batches, newMemEventProcessor(), domain.SystemClock{}, domain.BatchConfig{Mode: domain.BatchModeNone})
+	got, err := svc.GetBatch(context.Background(), "tenant-b", "batch-a")
+	if err != nil {
+		t.Fatalf("GetBatch() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetBatch() = %#v, want nil for another tenant", got)
+	}
+}
+
+func TestBatchService_CreateBatchFailsWhenProcessorIsNotConfigured(t *testing.T) {
+	svc := NewService(newMemBatches(), nil, domain.SystemClock{}, domain.BatchConfig{Mode: domain.BatchModeNone})
+	_, err := svc.CreateBatch(context.Background(), "tenant-a", "partition", "orders", []string{"event-1"})
+	if !errors.Is(err, domain.ErrBatchProcessingUnavailable) {
+		t.Fatalf("CreateBatch() error = %v, want ErrBatchProcessingUnavailable", err)
 	}
 }
