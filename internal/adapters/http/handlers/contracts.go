@@ -205,7 +205,6 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	})
 }
 
- 
 // requireContractAdmin protects global contract mutations and code generation.
 // Tenant identity alone is not sufficient authorization for platform-wide data.
 func requireContractAdmin(w http.ResponseWriter, r *http.Request) bool {
