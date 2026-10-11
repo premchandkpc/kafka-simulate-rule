@@ -58,7 +58,7 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Route registration: internal/adapters/http/router.go.
 - Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go. Shared HTTP request helpers live in handlers/utils.go and query_params.go.
 - Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
-- Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
+- Workflow definitions are global platform configuration in the current schema. The tenant-facing API exposes read-only GET routes under /v1/workflows/definitions; create/delete routes are deliberately not registered until an authenticated admin API and explicit ownership model exist.
 - /health is liveness only; it does not check storage or broker readiness.
 - The HTTP SDK transport targets POST /v1/events/{type}; verify that route is implemented and contract-tested before selecting HTTP transport. Do not assume the management API accepts producer events.
 - Scheduled-event list/get/cancel operations use tenant-scoped repository queries. Cancellation is allowed only while the event is pending; repository conflicts return an HTTP conflict rather than reporting success.
@@ -69,7 +69,7 @@ SECURITY / DEPLOYMENT REQUIREMENT:
 - In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN and validates X-Proxy-Auth with a constant-time comparison. It takes tenant identity only from X-Authenticated-Tenant-ID; it does not fall back to caller-controlled tenant headers/query values.
 - This is a trusted-proxy integration contract, not first-party authentication. The proxy must authenticate and authorize the caller, strip any inbound X-Proxy-Auth and X-Authenticated-Tenant-ID headers, then set fresh trusted values. Protect the token as a secret and keep API ingress private to the proxy.
 - Health is intentionally exempt from tenant identity extraction. It is liveness only, not a readiness/security check.
-- Resource-level tenant checks and tenant-scoped repository queries are required for every resource path. This is not yet complete for all resources; production multi-tenant exposure remains blocked until workflow definitions, quarantine records, and all remaining reads/writes have verified tenant scoping and cross-tenant negative tests.
+- Workflow definitions are treated as global, read-only platform configuration at the tenant-facing HTTP boundary; do not re-enable mutations without an authenticated admin API and an explicit ownership model. Quarantine GET/replay/delete operations now carry tenant identity into repository queries, and unscoped list queries fail closed. Quarantine records created from some effect paths may still lack tenant context; fix the source model and migrate old records before relying on tenant quarantine visibility. Production multi-tenant exposure remains blocked until proxy deployment, every resource path, and cross-tenant negative tests are verified.
 
 ### Worker
 
@@ -183,7 +183,7 @@ HTTP:
 - internal/adapters/http/handlers/scheduled.go — scheduled-event endpoints.
 - internal/adapters/http/handlers/utils.go — JSON/YAML decoder, 1 MiB request-body limit, strict single-document handling.
 - internal/adapters/http/handlers/safe_output_path.go and safe_output_path_test.go — code-generation output containment, symlink resolution, and path traversal regression tests.
-- internal/adapters/http/handlers/scheduled_test.go, workflows_test.go, batch_quarantine_test.go — API behavior and tenant-body mismatch regression tests.
+- internal/adapters/http/handlers/scheduled_test.go, workflows_test.go, batch_quarantine_test.go, quarantine_tenant_test.go — API behavior, tenant-body mismatch, read-only global workflow definitions, and tenant-scoped quarantine regression tests.
 - internal/adapters/http/middleware/middleware.go — current tenant extraction and panic recovery; not authentication.
 - internal/adapters/http/responses/responses.go — response and error helpers.
 
