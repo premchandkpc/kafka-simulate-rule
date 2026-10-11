@@ -26,8 +26,8 @@ func (r *QuarantineRepository) collection(name string) *mongo.Collection {
 }
 
 // BackfillEffectTenantIDs repairs legacy effect quarantine records using their
- // outbox effect and execution as the authoritative tenant source. Records whose
- // source chain no longer exists are left unscoped and remain invisible to tenants.
+// outbox effect and execution as the authoritative tenant source. Records whose
+// source chain no longer exists are left unscoped and remain invisible to tenants.
 func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) error {
 	coll := r.collection("quarantine")
 	cursor, err := coll.Find(ctx, bson.M{
@@ -114,7 +114,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 	var doc QuarantineDoc
 	err := coll.FindOne(ctx, bson.M{
 		"quarantine_id": id,
-		"tenant_id": tenantID,
+		"tenant_id":     tenantID,
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
