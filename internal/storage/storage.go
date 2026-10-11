@@ -25,7 +25,8 @@ type Repositories struct {
 	Quarantine          ports.QuarantineRepository
 	Contracts           ports.ContractRegistry
 	Transactions        ports.TransactionManager
-	NewTxRepositories   ports.EventTxRepositoryFactory
+	NewEventTxRepositories ports.EventTxRepositoryFactory
+	NewRuleTxRepositories  ports.RuleTxRepositoryFactory
 }
 
 type Storage struct {
@@ -64,7 +65,8 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 				Quarantine:          sqladapter.NewQuarantineRepository(pool),
 				Contracts:           sqladapter.NewContractRegistry(pool),
 				Transactions:        sqladapter.NewTransactionManager(pool),
-				NewTxRepositories: sqladapter.NewEventTxRepositories,
+				NewEventTxRepositories: sqladapter.NewEventTxRepositories,
+				NewRuleTxRepositories:  sqladapter.NewRuleTxRepositories,
 			},
 			initialize: db.RunMigrations,
 			close:      db.Close,
@@ -96,7 +98,8 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 				Quarantine:          quarantineRepo,
 				Contracts:           mongoadapter.NewContractRegistry(q),
 				Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
-				NewTxRepositories: mongoadapter.NewEventTxRepositories,
+				NewEventTxRepositories: mongoadapter.NewEventTxRepositories,
+				NewRuleTxRepositories:  mongoadapter.NewRuleTxRepositories,
 			},
 			initialize: quarantineRepo.BackfillEffectTenantIDs,
 			close:      db.Close,
