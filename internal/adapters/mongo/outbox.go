@@ -33,6 +33,9 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 
 	docs := make([]interface{}, len(effects))
 	for i, ef := range effects {
+		if ef.TenantID == "" {
+			return fmt.Errorf("insert outbox: tenant_id is required")
+		}
 		docs[i] = OutboxDocFromDomain(&ef)
 	}
 
