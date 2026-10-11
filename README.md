@@ -28,13 +28,16 @@ NATS delivery is at-least-once. The inbox prevents duplicate event execution whe
 
 ## Run locally
 
-Start the local development stack:
+Start the local development stack from the repository root:
 
 ~~~sh
+cp .env.example .env
+# Edit .env before using non-development credentials.
+docker compose config
 docker compose up --build -d
 ~~~
 
-Local endpoints: API at localhost:8080, NATS client at localhost:4222, NATS monitoring at localhost:8222, PostgreSQL at localhost:5432, and Redis at localhost:6379. Compose publishes these ports on 127.0.0.1 only. The stack uses development settings and demo credentials; do not reuse those credentials in production.
+Open the React operations console at http://localhost:3000. Compose starts three worker replicas by default (`WORKER_REPLICAS=3`); check them with `docker compose ps worker`. It proxies the API, worker metrics, and Loki through Docker DNS so browser clients do not need to resolve container names. API is also available at localhost:8080, NATS at localhost:4222, NATS monitoring at localhost:8222, PostgreSQL at localhost:5432, and Redis at localhost:6379. Published ports bind to 127.0.0.1 only. Promtail discovers local Docker container logs and ships them to Loki for the console Logs page. The stack uses development settings and demo credentials; do not reuse those credentials in production. See [docs/deployment-compose.md](docs/deployment-compose.md) for service discovery, environment variables, log collection, and troubleshooting.
 
 For root-module development:
 
@@ -107,3 +110,7 @@ Start with docs/README.md for the documentation index.
 - Scheduled-event SQL claim columns are introduced in migration 015. Expired claims can be reclaimed; list/get/cancel are tenant-filtered and cancel only pending events. Publish errors still mark scheduled events failed without retry/backoff.
 - Batch reads are tenant-scoped, but batch event execution has not been integrated with owned-shard fencing and the per-key queue. Non-none BATCH_MODE values are rejected until this is fixed; do not bypass the validation guard.
 - The shard lease manager currently targets NUM_SHARDS/3 per worker without membership/rebalancing, so the current implementation implicitly assumes three worker replicas. Validate all shards remain assigned before changing replica count.
+
+## Random producer simulation
+
+An opt-in random producer can publish 1–100 messages per simulated client through NATS JetStream using Compose service discovery. See [docs/simulation.md](docs/simulation.md) for run commands, ACK semantics, shard routing, and the current limits around master election and dynamic worker membership.

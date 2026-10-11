@@ -17,13 +17,14 @@ import (
 )
 
 type Config struct {
-	NatsURL    string
-	Stream     string
-	Consumer   string
-	Subjects   []string
-	AckWait    time.Duration
-	MaxDeliver int
-	NumShards  uint32
+	NatsURL        string
+	ConnectTimeout time.Duration
+	Stream         string
+	Consumer       string
+	Subjects       []string
+	AckWait        time.Duration
+	MaxDeliver     int
+	NumShards      uint32
 }
 
 // Consumer implements both ports.ShardedConsumer and ports.BrokerPublisher
@@ -40,6 +41,13 @@ type Consumer struct {
 	mu          sync.RWMutex
 }
 
+func connect(cfg Config) (*natslib.Conn, error) {
+	if cfg.ConnectTimeout > 0 {
+		return natslib.Connect(cfg.NatsURL, natslib.Timeout(cfg.ConnectTimeout))
+	}
+	return natslib.Connect(cfg.NatsURL)
+}
+
 func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 	if cfg.NumShards == 0 {
 		cfg.NumShards = 4096
@@ -54,7 +62,7 @@ func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 		cfg.MaxDeliver = 10
 	}
 
-	conn, err := natslib.Connect(cfg.NatsURL)
+	conn, err := connect(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
 	}
@@ -368,7 +376,7 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 	if cfg.NumShards == 0 {
 		cfg.NumShards = 4096
 	}
-	conn, err := natslib.Connect(cfg.NatsURL)
+	conn, err := connect(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
 	}

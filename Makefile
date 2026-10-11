@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-worker build-codegen test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
+.PHONY: help build build-api build-worker build-codegen build-random-producer test test-unit test-examples test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
 
 # Default target
 help:
@@ -11,10 +11,12 @@ help:
 	@echo "  build-api       Build API server binary"
 	@echo "  build-worker    Build worker binary"
 	@echo "  build-codegen   Build codegen binary"
+	@echo "  build-random-producer Build opt-in random producer example"
 	@echo ""
 	@echo "Test targets:"
 	@echo "  test            Run all tests"
-	@echo "  test-unit       Run unit tests only"
+	@echo "  test-unit       Run internal unit tests"
+	@echo "  test-examples   Run random-producer scenario tests"
 	@echo "  test-integration Run integration tests"
 	@echo ""
 	@echo "Code quality:"
@@ -49,6 +51,7 @@ BIN_DIR := bin
 API_BINARY := $(BIN_DIR)/api
 WORKER_BINARY := $(BIN_DIR)/worker
 CODEGEN_BINARY := $(BIN_DIR)/codegen
+RANDOM_PRODUCER_BINARY := $(BIN_DIR)/random-producer
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
@@ -76,6 +79,12 @@ build-codegen:
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(CODEGEN_BINARY) ./cmd/codegen
 
+# Optional developer utility; intentionally excluded from the default build.
+build-random-producer:
+	@echo "Building opt-in random producer example..."
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(GOFLAGS) -o $(RANDOM_PRODUCER_BINARY) ./examples/random-producer
+
 # Run targets
 run-api: build-api
 	@echo "Starting API server..."
@@ -92,11 +101,15 @@ run-all: docker-up
 	@echo "Run 'make docker-down' to stop"
 
 # Test targets
-test: test-unit test-integration
+test: test-unit test-examples test-integration
 
 test-unit:
 	@echo "Running unit tests..."
 	$(GO) test $(GOTESTFLAGS) ./internal/...
+
+test-examples:
+	@echo "Running example scenario tests..."
+	$(GO) test $(GOTESTFLAGS) ./examples/random-producer/...
 
 test-integration:
 	@echo "Running integration tests..."
@@ -181,7 +194,7 @@ verify-generated:
 
 # CI pipeline
 check-fmt:
-	@files="$$(gofmt -l $$(find cmd internal tests -name '*.go' -type f))"; \
+	@files="$$(gofmt -l $$(find cmd internal tests examples/random-producer -name '*.go' -type f))"; \
 	if [ -n "$$files" ]; then printf "%s\n" "$$files"; gofmt -d $$files; exit 1; fi
 
 ci: deps check-fmt vet lint test verify-generated

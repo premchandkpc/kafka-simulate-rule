@@ -25,11 +25,13 @@ jobs:
       - name: Check Go formatting
         run: make check-fmt
 
-      - name: Validate JSON schemas and deployment scripts
+      - name: Validate schemas, scripts, and Compose configuration
         run: |
           python -m json.tool api/envelope-schema.json > /dev/null
           python -m json.tool api/rule-schema.json > /dev/null
           bash -n examples/*/deploy.sh
+          cp .env.example .env
+          docker compose config --quiet
 
       - name: Build root-module commands
         run: go build ./cmd/...
@@ -80,3 +82,24 @@ jobs:
 
       - name: Build React console
         run: npm run build
+
+  container-images:
+    name: Build Docker images and validate Compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate Compose configuration
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+
+      - name: Build application images
+        run: docker compose build api worker console
+
+      - name: Build code generation utility
+        run: docker compose --profile tools build codegen
+
+      - name: Build random-producer example image
+        run: docker compose --profile examples build random-producer
