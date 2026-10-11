@@ -97,6 +97,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 			return nil, fmt.Errorf("open mongodb storage: %w", err)
 		}
 		q := mongoadapter.NewQuerier(db.Database())
+		quarantineRepo := mongoadapter.NewQuarantineRepository(q)
 		return &Storage{
 			backend: backend,
 			repositories: Repositories{
@@ -110,7 +111,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 				WorkflowDefinitions: mongoadapter.NewWorkflowDefinitionRepository(q),
 				ScheduledEvents:     mongoadapter.NewScheduledEventRepository(q),
 				Batches:             mongoadapter.NewBatchRepository(q),
-				Quarantine:          mongoadapter.NewQuarantineRepository(q),
+				Quarantine:          quarantineRepo,
 				Contracts:           mongoadapter.NewContractRegistry(q),
 				Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
 				NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
@@ -133,7 +134,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 					}, nil
 				},
 			},
-			initialize: func(context.Context) error { return nil },
+			initialize: quarantineRepo.BackfillEffectTenantIDs,
 			close:      db.Close,
 		}, nil
 
