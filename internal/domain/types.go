@@ -421,7 +421,7 @@ func NewID() string { return uuid.New().String() }
 // ComputeExecutionID returns a stable identity for an event evaluated against a rule revision.
 // Re-evaluating the same event under a different revision intentionally yields a different ID.
 func ComputeExecutionID(tenantID, eventID, ruleSet string, revision int64) string {
-	raw := fmt.Sprintf("execution|%s|%s|%s|%d", tenantID, eventID, ruleSet, revision)
+	raw := fmt.Sprintf("execution|%d:%s|%d:%s|%d:%s|%d", len(tenantID), tenantID, len(eventID), eventID, len(ruleSet), ruleSet, revision)
 	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h)
 }
