@@ -98,6 +98,8 @@ type ScheduledEventRepository interface {
 type BatchRepository interface {
 	SaveRun(ctx context.Context, run *domain.BatchRun) error
 	GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error)
+	GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error)
+	ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error)
 	ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error)
 	MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error
 }
