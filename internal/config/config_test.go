@@ -117,3 +117,10 @@ func TestValidateRejectsBatchModeWithoutLeaseAndQueueIntegration(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want explanation of missing runtime integration", err)
 	}
 }
+
+func TestLoadRejectsMalformedRequireAuth(t *testing.T) {
+	t.Setenv("REQUIRE_AUTH", "definitely-not-a-boolean")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REQUIRE_AUTH must be a boolean") {
+		t.Fatalf("Load() error = %v, want invalid REQUIRE_AUTH boolean error", err)
+	}
+}

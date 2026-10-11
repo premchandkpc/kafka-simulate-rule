@@ -114,7 +114,7 @@ func Load() (*Config, error) {
 			DB:       getIntEnv("REDIS_DB", 0),
 		},
 		Worker: WorkerConfig{
-			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", 4096))),
+			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", int(DefaultNumShards)))),
 			WorkerID:                getEnv("WORKER_ID", ""),
 			MaxGlobalInFlight:       toInt(getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100)),
 			FetchBatchSize:          toInt(getIntEnv("FETCH_BATCH_SIZE", 100)),
@@ -297,6 +297,11 @@ func validateRawEnv() error {
 	if value, ok := os.LookupEnv("SHUTDOWN_TIMEOUT"); ok {
 		if _, err := time.ParseDuration(strings.TrimSpace(value)); err != nil {
 			return fmt.Errorf("SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
+		}
+	}
+	if value, ok := os.LookupEnv("REQUIRE_AUTH"); ok {
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("REQUIRE_AUTH must be a boolean: %w", err)
 		}
 	}
 	if value, ok := os.LookupEnv("NUM_SHARDS"); ok {
