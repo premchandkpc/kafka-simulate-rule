@@ -13,16 +13,16 @@ import (
 
 type quarantineServiceStub struct {
 	ports.QuarantineService
-	entry       *domain.QuarantineEntry
-	getTenant   string
-	getID       string
+	entry        *domain.QuarantineEntry
+	getTenant    string
+	getID        string
 	replayTenant string
-	replayID    string
+	replayID     string
 	deleteTenant string
-	deleteID    string
-	getCalls    int
-	replayCalls int
-	deleteCalls int
+	deleteID     string
+	getCalls     int
+	replayCalls  int
+	deleteCalls  int
 }
 
 func (s *quarantineServiceStub) Get(_ context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
