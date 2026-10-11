@@ -168,6 +168,10 @@ services:
       - "${NUM_SHARDS:-4096}"
       - --concurrency
       - "${RANDOM_PRODUCER_CONCURRENCY:-16}"
+      - --scenario
+      - "${RANDOM_PRODUCER_SCENARIO:-all}"
+      - --tenant
+      - "${FLOWRULE_TENANT_ID:-acme-corp}"
     depends_on:
       nats:
         condition: service_healthy
