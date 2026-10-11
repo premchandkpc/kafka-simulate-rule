@@ -38,7 +38,7 @@ Start the development stack from the repository root:
 docker compose up --build -d
 ~~~
 
-Published host ports are loopback-bound: API `localhost:8080`, NATS client `localhost:4222`, NATS monitoring `localhost:8222`, PostgreSQL `localhost:5432`, Redis `localhost:6379`.
+Published host ports are loopback-bound: console `localhost:3000`, API `localhost:8080`, NATS client `localhost:4222`, NATS monitoring `localhost:8222`, PostgreSQL `localhost:5432`, and Redis `localhost:6379`. The console reverse-proxies API requests, worker `/metrics`, and Loki queries over the private Compose network. See [the Compose deployment guide](deployment-compose.md) for details.
 
 Stop it with:
 
@@ -52,7 +52,7 @@ API/worker startup initializes the configured storage backend and applies migrat
 
 ## Configuration
 
-The authoritative variable names and local examples are in `.env.example`; parsing and validation live in `internal/config/config.go`.
+The authoritative Compose variable template is `.env.example`; copy it to `.env` before starting the stack. Compose injects this file into API, worker, and codegen containers, and the Compose file only overrides container-specific addresses/paths. Values such as `DATABASE_URL`, `NATS_URL`, and `REDIS_ADDR` must use Docker DNS service names (`postgres`, `nats`, `redis`) inside containers. Parsing and validation live in `internal/config/config.go`. Never commit `.env`.
 
 | Setting | Default / behavior |
 |---|---|
