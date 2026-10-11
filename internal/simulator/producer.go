@@ -15,12 +15,12 @@ import (
 )
 
 const (
-	minClients       = 1
+	minClients        = 1
 	maxClients       = 1000
-	minMessages      = 1
-	maxMessages      = 100
-	minConcurrency   = 1
-	maxConcurrency   = 256
+	minMessages       = 1
+	maxMessages       = 100
+	minConcurrency    = 1
+	maxConcurrency    = 256
 	DefaultBaseSubject = "events"
 )
 
