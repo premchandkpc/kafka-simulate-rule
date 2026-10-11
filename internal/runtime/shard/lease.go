@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -249,32 +250,58 @@ func (m *LeaseManager) targetOwnedShards() uint32 {
 	return target
 }
 
-// rebalanceIfNeeded attempts to acquire more shards if we own fewer than our fair share.
+// rebalanceIfNeeded reconciles this worker's lease count to the configured
+// fixed-replica target. It does not discover membership or coordinate a cluster-wide
+// rebalance; every worker must use the same WORKER_REPLICAS value.
 func (m *LeaseManager) rebalanceIfNeeded(ctx context.Context) {
+	targetOwned := int(m.targetOwnedShards())
+
+	m.mu.RLock()
+	owned := make([]uint32, 0, len(m.ownedShards))
+	for shardID := range m.ownedShards {
+		owned = append(owned, shardID)
+	}
+	m.mu.RUnlock()
+
+	if len(owned) > targetOwned {
+		// Release highest-numbered shards first for deterministic behavior. A
+		// failed release remains in ownedShards and is retried on a later cycle.
+		sort.Slice(owned, func(i, j int) bool { return owned[i] > owned[j] })
+		excess := len(owned) - targetOwned
+		for _, shardID := range owned {
+			if excess == 0 {
+				break
+			}
+			if err := m.repo.Release(ctx, shardID, m.owner); err != nil {
+				log.Printf("shard %d: release excess lease: %v", shardID, err)
+				continue
+			}
+			m.mu.Lock()
+			if _, stillOwned := m.ownedShards[shardID]; stillOwned {
+				delete(m.ownedShards, shardID)
+				excess--
+			}
+			m.mu.Unlock()
+		}
+	}
+
 	m.mu.RLock()
 	currentOwned := len(m.ownedShards)
 	m.mu.RUnlock()
-
-	// Keep the target consistent with initial assignment. The configured
-	// replica count must match the deployment's fixed worker replica count.
-	targetOwned := int(m.targetOwnedShards())
-
 	if currentOwned >= targetOwned {
 		return
 	}
 
-	// Try to acquire shards up to our target
+	// Try to acquire shards up to our target.
 	needed := targetOwned - currentOwned
-	for i := uint32(0); i < m.numShards && needed > 0; i++ {
+	for shardID := uint32(0); shardID < m.numShards && needed > 0; shardID++ {
 		m.mu.RLock()
-		_, alreadyOwned := m.ownedShards[i]
+		_, alreadyOwned := m.ownedShards[shardID]
 		m.mu.RUnlock()
-
 		if alreadyOwned {
 			continue
 		}
-
-		if err := m.acquireShard(ctx, i); err == nil {
+		if err := m.acquireShard(ctx, shardID); err == nil {
 			needed--
 		}
 	}

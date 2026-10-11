@@ -181,7 +181,7 @@ Rules:
 | P0 | Production config now fails startup when neither JWT auth nor trusted-proxy tenant authentication is configured; resource-level authorization and cross-tenant denial coverage remain incomplete | Keep public exposure blocked until resource-level authorization and cross-tenant negative tests pass |
 | P1 | Outbox delivery/retry/quarantine transitions now require unique claimant tokens and unexpired claims; settlement errors propagate | Keep failure-injection tests and consider transactional quarantine/outbox settlement |
 | P1 | Sequential effect dispatch and fixed claim TTL | Add per-effect timeouts and bounded concurrency only after idempotency/claim recovery is verified |
-| P1 | Lease allocation uses a configured fixed replica count; no dynamic membership/rebalancing | Keep WORKER_REPLICAS consistent across the deployment; add membership and coordinated rebalancing before autoscaling |
+| P1 | Lease allocation uses a configured fixed replica count and releases excess leases when its target shrinks; no dynamic membership/rebalancing | Keep WORKER_REPLICAS consistent across the deployment; add membership and coordinated rebalancing before autoscaling |
 | P1 | Batch execution passes a zero fencing token and bypasses the key queue | BATCH_MODE is rejected unless none; integrate batch work with lease fencing and key ordering before enabling |
 | P1 | Mongo adapters previously treated JSON bytes as bson.Raw | JSON payloads/source/context now use BSON binary bytes; keep BSON round-trip tests for each JSON-backed field |
 | P1 | Scheduled SQL claim fields did not exist in migration 011 | Migrations 015/016 add claim and retry fields; expired claims can be reclaimed and settlement is claimant/expiry fenced |
