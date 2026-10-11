@@ -3,6 +3,7 @@ package flowrule
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -13,24 +14,33 @@ import (
 
 // Client is the main FlowRule client
 type Client struct {
-	cfg       *Config
-	transport Transport
-	contracts *ContractRegistry
-	mu        sync.RWMutex
-	closed    bool
+	cfg            *Config
+	transport      Transport
+	contracts      *ContractRegistry
+	lifecycleCtx   context.Context
+	lifecycleClose context.CancelFunc
+	mu             sync.RWMutex
+	closed         bool
+}
+
+// EventHandler processes a matching event received from the configured broker.
+type EventHandler func(ctx context.Context, envelope *Envelope) error
+
+type eventSubscriber interface {
+	Subscribe(ctx context.Context, ruleSet string, handler EventHandler) error
 }
 
 // SendOptions configures a send operation
 type SendOptions struct {
-	RuleSet        string                 // Required: the rule set to evaluate against
-	Payload        any                    // Required: the event payload
-	PartitionKey   string                 // Optional: explicit partition key
-	WorkflowID     string                 // Optional: workflow ID
-	CorrelationID  string                 // Optional: correlation ID
-	CausationID    string                 // Optional: causation ID
-	Headers        map[string]string      // Optional: additional headers
-	SchemaVersion  string                 // Optional: schema version
-	Opts           []EnvelopeOption       // Optional: envelope options
+	RuleSet       string            // Required: the rule set to evaluate against
+	Payload       any               // Required: the event payload
+	PartitionKey  string            // Optional: explicit partition key
+	WorkflowID    string            // Optional: workflow ID
+	CorrelationID string            // Optional: correlation ID
+	CausationID   string            // Optional: causation ID
+	Headers       map[string]string // Optional: additional headers
+	SchemaVersion string            // Optional: schema version
+	Opts          []EnvelopeOption  // Optional: envelope options
 }
 
 // New creates a new client from environment variables
@@ -51,15 +61,19 @@ func NewWithConfig(cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
+	lifecycleCtx, lifecycleClose := context.WithCancel(context.Background())
 	client := &Client{
-		cfg:       cfg,
-		transport: transport,
+		cfg:            cfg,
+		transport:      transport,
+		lifecycleCtx:   lifecycleCtx,
+		lifecycleClose: lifecycleClose,
 	}
 
 	// Initialize contract registry if validation enabled
 	if cfg.ValidateContracts {
 		client.contracts, err = NewContractRegistry(cfg.ContractRegistry)
 		if err != nil {
+			lifecycleClose()
 			transport.Close()
 			return nil, fmt.Errorf("init contract registry: %w", err)
 		}
@@ -171,6 +185,45 @@ func (c *Client) Send(ctx context.Context, ruleSet string, payload any, opts ...
 	}
 
 	return fmt.Errorf("send failed after %d attempts: %w", cfg.MaxRetries+1, lastErr)
+}
+
+// Subscribe handles live events for a rule set from the configured transport.
+// Subscriptions currently require NATS and are best-effort: they are not
+// durable, do not replay events published while disconnected, and do not ACK
+// or retry messages. The handler is called only for the configured tenant.
+func (c *Client) Subscribe(ctx context.Context, ruleSet string, handler EventHandler) error {
+	if ctx == nil {
+		return ErrInvalidArgument("context is required")
+	}
+	if ruleSet == "" {
+		return ErrInvalidArgument("rule set is required")
+	}
+	if handler == nil {
+		return ErrInvalidArgument("event handler is required")
+	}
+
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return ErrClientClosed
+	}
+	transport := c.transport
+	lifecycleCtx := c.lifecycleCtx
+	c.mu.RUnlock()
+
+	subscriber, ok := transport.(eventSubscriber)
+	if !ok {
+		return ErrSubscriptionsUnsupported
+	}
+
+	subscribeCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(lifecycleCtx, cancel)
+	defer func() {
+		stop()
+		cancel()
+	}()
+
+	return subscriber.Subscribe(subscribeCtx, ruleSet, handler)
 }
 
 // SendBatch sends multiple events in a batch
@@ -321,6 +374,9 @@ func (c *Client) Close() error {
 		return nil
 	}
 	c.closed = true
+	if c.lifecycleClose != nil {
+		c.lifecycleClose()
+	}
 
 	if c.transport != nil {
 		return c.transport.Close()
@@ -344,6 +400,10 @@ func (c *Client) Config() *Config {
 
 // ErrClientClosed is returned when using a closed client
 var ErrClientClosed = fmt.Errorf("client closed")
+
+// ErrSubscriptionsUnsupported is returned when the configured transport does
+// not support live event subscriptions.
+var ErrSubscriptionsUnsupported = errors.New("flowrule: live subscriptions require the NATS transport")
 
 // ErrInvalidArgument is returned for invalid arguments
 type ErrInvalidArgument string
