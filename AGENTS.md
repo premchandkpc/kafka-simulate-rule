@@ -40,7 +40,7 @@ Both SDK modules and each example module must be checked separately because nest
 
 Other useful commands:
 - make build builds API, worker and codegen binaries into bin.
-- make test-unit tests the internal packages.
+- make test-unit tests the internal packages.\n- make test-examples tests the domain-aware random producer and validates its generated payloads against the existing YAML contracts.
 - make test-integration runs the tests in tests/integration.
 - make lint, make vet, make fmt, and make check-fmt handle linting, static analysis, formatting and format verification.
 - make docker-up / make docker-down manage the local Compose stack.
