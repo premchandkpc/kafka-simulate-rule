@@ -35,10 +35,10 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	rows, err := r.db.Query(ctx, `
 		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
 		FROM scheduled_events
-		WHERE status = 'pending' AND scheduled_at <= $1
+		WHERE status = $1 AND scheduled_at <= $2
 		ORDER BY scheduled_at
-		LIMIT $2
-	`, before, limit)
+		LIMIT $3
+	`, domain.ScheduledEventStatusPending, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get due scheduled events: %w", err)
 	}
@@ -72,7 +72,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 	// Build placeholders for IN clause
 	placeholders := make([]string, len(eventIDs))
 	args := make([]interface{}, len(eventIDs)+3)
-	args[0] = claimant
+	args[0] = domain.ScheduledEventStatusClaimed
 	args[1] = expiresAt
 	args[2] = now
 	for i, id := range eventIDs {
@@ -82,10 +82,10 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 
 	query := fmt.Sprintf(`
 		UPDATE scheduled_events
-		SET status = 'claimed', claimant = $1, claim_expires_at = $2, claimed_at = $3
-		WHERE event_id IN (%s) AND status = 'pending'
+		SET status = $1, claim_expires_at = $2, claimed_at = $3
+		WHERE event_id IN (%s) AND status = '%s'
 		RETURNING event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
-	`, strings.Join(placeholders, ","))
+	`, strings.Join(placeholders, ","), domain.ScheduledEventStatusPending)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
@@ -113,9 +113,9 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
-		SET status = 'released', released_at = $2
+		SET status = $2, released_at = $3
 		WHERE event_id = $1
-	`, eventID, releasedAt)
+	`, eventID, domain.ScheduledEventStatusReleased, releasedAt)
 	if err != nil {
 		return fmt.Errorf("mark scheduled event released: %w", err)
 	}
@@ -125,9 +125,9 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID string, errMsg string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
-		SET status = 'failed', last_error = $2
+		SET status = $2, last_error = $3
 		WHERE event_id = $1
-	`, eventID, errMsg)
+	`, eventID, domain.ScheduledEventStatusFailed, errMsg)
 	if err != nil {
 		return fmt.Errorf("mark scheduled event failed: %w", err)
 	}

@@ -43,7 +43,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	coll := r.collection("scheduled_events")
 
 	filter := bson.M{
-		"status":       "pending",
+		"status":       domain.ScheduledEventStatusPending,
 		"scheduled_at": bson.M{"$lte": before},
 	}
 
@@ -71,11 +71,11 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
 			"event_id": eventID,
-			"status":   "claimed",
+			"status":   domain.ScheduledEventStatusClaimed,
 		},
 		bson.M{
 			"$set": bson.M{
-				"status":      "released",
+				"status":      domain.ScheduledEventStatusReleased,
 				"released_at": releasedAt,
 			},
 		},
@@ -90,9 +90,9 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, errM
 	coll := r.collection("scheduled_events")
 
 	result, err := coll.UpdateOne(ctx,
-		bson.M{"event_id": eventID, "status": "claimed"},
+		bson.M{"event_id": eventID, "status": domain.ScheduledEventStatusClaimed},
 		bson.M{"$set": bson.M{
-			"status":           "failed",
+			"status":           domain.ScheduledEventStatusFailed,
 			"last_error":       errMsg,
 			"claimant":         "",
 			"claimed_at":       nil,
@@ -123,11 +123,11 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		err := coll.FindOneAndUpdate(ctx,
 			bson.M{
 				"event_id": eventID,
-				"status":   "pending",
+				"status":   domain.ScheduledEventStatusPending,
 			},
 			bson.M{
 				"$set": bson.M{
-					"status":           "claimed",
+					"status":           domain.ScheduledEventStatusClaimed,
 					"claimant":         claimant,
 					"claimed_at":       now,
 					"claim_expires_at": expiresAt,

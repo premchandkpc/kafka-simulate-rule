@@ -454,10 +454,19 @@ type ScheduledEvent struct {
 	Payload      json.RawMessage   `json:"payload"`
 	Headers      map[string]string `json:"headers,omitempty"`
 	ScheduledAt  time.Time         `json:"scheduled_at"`
-	Status       string            `json:"status"`
+	Status       ScheduledEventStatus `json:"status"`
 	CreatedAt    time.Time         `json:"created_at"`
 	ReleasedAt   *time.Time        `json:"released_at,omitempty"`
 }
+
+type ScheduledEventStatus string
+
+const (
+	ScheduledEventStatusPending   ScheduledEventStatus = "pending"
+	ScheduledEventStatusReleased  ScheduledEventStatus = "released"
+	ScheduledEventStatusFailed    ScheduledEventStatus = "failed"
+	ScheduledEventStatusClaimed   ScheduledEventStatus = "claimed"
+)
 
 type WorkflowInstance struct {
 	WorkflowID      string          `json:"workflow_id"`

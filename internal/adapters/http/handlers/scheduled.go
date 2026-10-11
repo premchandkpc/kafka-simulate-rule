@@ -48,7 +48,7 @@ func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	evt.Status = "pending"
+	evt.Status = domain.ScheduledEventStatusPending
 	evt.CreatedAt = time.Now().UTC()
 
 	ctx := r.Context()
