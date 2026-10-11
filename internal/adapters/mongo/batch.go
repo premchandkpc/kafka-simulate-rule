@@ -132,10 +132,11 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if ruleSet != "" {
 		filter["rule_set"] = ruleSet
 	}
-	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find(). // codeql[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
-												SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
-												SetSkip(int64(offset)).
-												SetLimit(int64(limit)))
+	// codeql[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
+	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
+		SetSkip(int64(offset)).
+		SetLimit(int64(limit)))
 	if err != nil {
 		return nil, fmt.Errorf("list batch runs: %w", err)
 	}

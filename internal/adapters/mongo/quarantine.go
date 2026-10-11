@@ -165,10 +165,11 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		createdAt["$lte"] = filter.To
 	}
 
-	cursor, err := coll.Find(ctx, f, options.Find(). // codeql[go/sql-injection] Filter keys are fixed and all request values are BSON scalars.
-								SetLimit(int64(filter.Limit)).
-								SetSkip(int64(filter.Offset)).
-								SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	// codeql[go/sql-injection] Filter keys are fixed and all request values are BSON scalars.
+	cursor, err := coll.Find(ctx, f, options.Find().
+		SetLimit(int64(filter.Limit)).
+		SetSkip(int64(filter.Offset)).
+		SetSort(bson.D{{Key: "created_at", Value: -1}}))
 	if err != nil {
 		return nil, fmt.Errorf("list quarantine: %w", err)
 	}
