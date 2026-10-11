@@ -260,3 +260,94 @@ func TestKeyQueue_HotKeyDetection(t *testing.T) {
 		t.Errorf("expected hot-key, got %s", detected[0])
 	}
 }
+
+
+// TestKeyQueue_SameKeyNeverProcessesConcurrently guards the per-key ordering
+// invariant even when the queue has multiple worker goroutines.
+func TestKeyQueue_SameKeyNeverProcessesConcurrently(t *testing.T) {
+	const eventCount = 10
+
+	release := make(chan struct{}, eventCount)
+	entered := make(chan struct{}, eventCount)
+	done := make(chan struct{}, eventCount)
+
+	var mu sync.Mutex
+	active := 0
+	maxActive := 0
+
+	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+		mu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		mu.Unlock()
+
+		entered <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			mu.Lock()
+			active--
+			mu.Unlock()
+			done <- struct{}{}
+			return ctx.Err()
+		}
+
+		mu.Lock()
+		active--
+		mu.Unlock()
+		done <- struct{}{}
+		return nil
+	}
+
+	kq := NewKeyQueue(eventCount, eventCount, 5, processor, time.Now, 1000, time.Second, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	kq.Start(ctx)
+	defer func() {
+		cancel()
+		kq.Stop()
+	}()
+
+	for i := 0; i < eventCount; i++ {
+		env := &domain.EventEnvelope{
+			ID:           "same-key-" + string(rune('A'+i)),
+			PartitionKey: "same-key",
+		}
+		if err := kq.Submit(ctx, env, &mockDelivery{}, 1, 0, "worker"); err != nil {
+			t.Fatalf("Submit(%d): %v", i, err)
+		}
+	}
+
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first event was not processed")
+	}
+
+	// The first item is held in the processor. A broken queue lets another
+	// worker enter the same key here before the first item finishes.
+	select {
+	case <-entered:
+		t.Fatal("two events for the same partition key ran concurrently")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	for i := 0; i < eventCount; i++ {
+		release <- struct{}{}
+	}
+
+	for i := 0; i < eventCount; i++ {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for event %d to finish", i+1)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if maxActive != 1 {
+		t.Fatalf("max concurrent processors for one key = %d, want 1", maxActive)
+	}
+}

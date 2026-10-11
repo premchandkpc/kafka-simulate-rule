@@ -2,6 +2,7 @@ package keyqueue
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -13,11 +14,17 @@ import (
 type KeyQueue struct {
 	mu          sync.Mutex
 	queues      map[string]*keyQueue
+	lifecycleMu sync.Mutex
+	started     bool
+	stopped     bool
+	stopOnce    sync.Once
+	submitWG    sync.WaitGroup
 	maxPerKey   int
 	globalSem   chan struct{}
 	workerCount int
-	stopWorkers chan struct{}
-	wg          sync.WaitGroup
+	stopWorkers    chan struct{}
+	stopSubmitting chan struct{}
+	wg             sync.WaitGroup
 	processor   func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
 	clock       func() time.Time
 
@@ -35,6 +42,7 @@ type keyQueue struct {
 	ch           chan *queuedItem
 	partitionKey string
 	processing   bool
+	submitters   int
 	mu           sync.Mutex
 }
 
@@ -80,6 +88,7 @@ func NewKeyQueue(
 		globalSem:           make(chan struct{}, maxGlobalInFlight),
 		workerCount:         workerCount,
 		stopWorkers:         make(chan struct{}),
+		stopSubmitting:      make(chan struct{}),
 		processor:           processor,
 		clock:               clock,
 		hotKeyThreshold:     hotKeyThreshold,
@@ -90,21 +99,43 @@ func NewKeyQueue(
 	}
 }
 
+// Start launches the queue workers once. A stopped KeyQueue cannot be restarted.
 func (kq *KeyQueue) Start(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	kq.lifecycleMu.Lock()
+	if kq.started || kq.stopped {
+		kq.lifecycleMu.Unlock()
+		return
+	}
+	kq.started = true
 	for i := 0; i < kq.workerCount; i++ {
 		kq.wg.Add(1)
 		go kq.workerLoop(ctx, i)
 	}
-
 	if kq.hotKeyCallback != nil {
 		kq.wgHot.Add(1)
 		go kq.hotKeyCheckLoop(ctx)
 	}
+	kq.lifecycleMu.Unlock()
 }
 
+// Stop asks all queue goroutines to stop and waits for them. It is safe to call
+// Stop more than once.
 func (kq *KeyQueue) Stop() {
-	close(kq.stopWorkers)
-	close(kq.stopHotKeyCheck)
+	kq.stopOnce.Do(func() {
+		kq.lifecycleMu.Lock()
+		kq.stopped = true
+		close(kq.stopSubmitting)
+		kq.lifecycleMu.Unlock()
+
+		// Let submissions already admitted finish before closing the worker
+		// signal channels. Workers remain alive while these submissions drain.
+		kq.submitWG.Wait()
+		close(kq.stopWorkers)
+		close(kq.stopHotKeyCheck)
+	})
 	kq.wg.Wait()
 	kq.wgHot.Wait()
 }
@@ -135,30 +166,63 @@ func (kq *KeyQueue) checkHotKeys() {
 	kq.mu.Unlock()
 
 	now := kq.clock()
-	kq.muHot.Lock()
-	defer kq.muHot.Unlock()
+	type hotKeyNotice struct {
+		key   string
+		depth int
+	}
+	var notices []hotKeyNotice
 
+	kq.muHot.Lock()
 	for key, q := range queues {
 		depth := len(q.ch)
 		if depth >= kq.hotKeyThreshold {
 			if _, tracked := kq.hotKeys[key]; !tracked {
 				kq.hotKeys[key] = now
-				if kq.hotKeyCallback != nil {
-					go kq.hotKeyCallback(key, depth)
-				}
+				notices = append(notices, hotKeyNotice{key: key, depth: depth})
 			}
 		} else {
-			// Key cooled down
 			delete(kq.hotKeys, key)
 		}
+	}
+	// Queues may have been removed after draining. Remove their hot-key state too.
+	for key := range kq.hotKeys {
+		if _, exists := queues[key]; !exists {
+			delete(kq.hotKeys, key)
+		}
+	}
+	kq.muHot.Unlock()
+
+	// Run callbacks on the owned checker goroutine instead of leaking one goroutine
+	// per hot key. Callback implementations should be quick and non-blocking.
+	for _, notice := range notices {
+		kq.hotKeyCallback(notice.key, notice.depth)
 	}
 }
 
 func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	if ctx == nil {
+		return errors.New("submit event: context is nil")
+	}
+	if env == nil {
+		return errors.New("submit event: envelope is nil")
+	}
+
+	kq.lifecycleMu.Lock()
+	if !kq.started || kq.stopped {
+		kq.lifecycleMu.Unlock()
+		return errors.New("submit event: key queue is not running")
+	}
+	// Add while holding lifecycleMu so Stop cannot race Wait with a new Add.
+	kq.submitWG.Add(1)
+	kq.lifecycleMu.Unlock()
+	defer kq.submitWG.Done()
+
 	select {
 	case kq.globalSem <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-kq.stopSubmitting:
+		return errors.New("submit event: key queue is stopping")
 	}
 
 	kq.mu.Lock()
@@ -170,6 +234,9 @@ func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, deliv
 		}
 		kq.queues[env.PartitionKey] = q
 	}
+	q.mu.Lock()
+	q.submitters++
+	q.mu.Unlock()
 	kq.mu.Unlock()
 
 	select {
@@ -180,11 +247,31 @@ func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, deliv
 		vshard:       vshard,
 		workerID:     workerID,
 	}:
+		kq.finishSubmit(q)
 		return nil
 	case <-ctx.Done():
 		<-kq.globalSem
+		kq.finishSubmit(q)
 		return ctx.Err()
+	case <-kq.stopSubmitting:
+		<-kq.globalSem
+		kq.finishSubmit(q)
+		return errors.New("submit event: key queue is stopping")
 	}
+}
+
+func (kq *KeyQueue) finishSubmit(q *keyQueue) {
+	kq.mu.Lock()
+	q.mu.Lock()
+	q.submitters--
+	if q.submitters < 0 {
+		q.submitters = 0
+	}
+	if kq.queues[q.partitionKey] == q && !q.processing && q.submitters == 0 && len(q.ch) == 0 {
+		delete(kq.queues, q.partitionKey)
+	}
+	q.mu.Unlock()
+	kq.mu.Unlock()
 }
 
 func (kq *KeyQueue) workerLoop(ctx context.Context, workerID int) {
@@ -199,13 +286,33 @@ func (kq *KeyQueue) workerLoop(ctx context.Context, workerID int) {
 		default:
 			item := kq.nextEvent()
 			if item == nil {
-				time.Sleep(10 * time.Millisecond)
+				timer := time.NewTimer(10 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					return
+				case <-kq.stopWorkers:
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					return
+				case <-timer.C:
+				}
 				continue
 			}
 
 			if err := kq.processor(ctx, item.env, item.delivery, item.fencingToken, item.vshard, item.workerID); err != nil {
 				log.Printf("keyqueue worker %d: process error for key %s: %v", workerID, item.env.PartitionKey, err)
 			}
+			kq.finishEvent(item.env.PartitionKey)
 			<-kq.globalSem
 		}
 	}
@@ -232,10 +339,25 @@ func (kq *KeyQueue) nextEvent() *queuedItem {
 	}
 
 	item := <-selected.ch
-	selected.mu.Lock()
-	selected.processing = false
-	selected.mu.Unlock()
+	// Keep selected.processing true until the processor has completed. Otherwise
+	// another worker can dequeue the next event for this key concurrently.
 	return item
+}
+
+func (kq *KeyQueue) finishEvent(partitionKey string) {
+	kq.mu.Lock()
+	q := kq.queues[partitionKey]
+	if q == nil {
+		kq.mu.Unlock()
+		return
+	}
+	q.mu.Lock()
+	q.processing = false
+	if q.submitters == 0 && len(q.ch) == 0 {
+		delete(kq.queues, partitionKey)
+	}
+	q.mu.Unlock()
+	kq.mu.Unlock()
 }
 
 func (kq *KeyQueue) Stats() map[string]int {

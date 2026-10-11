@@ -40,6 +40,10 @@ type WorkerConfig struct {
 	NumShards              uint32
 	WorkerID               string
 	MaxGlobalInFlight      int
+	FetchBatchSize         int
+	EffectPublishIntervalMS int
+	EffectPublishBatchSize  int
+	RetryDelayMS            int
 	MaxPerKeyQueue         int
 	KeyQueueWorkers        int
 	BatchMode              string
@@ -50,6 +54,10 @@ type WorkerConfig struct {
 	LeaseTTLMS             int
 	LeaseRenewalIntervalMS int
 	EffectDestinationURL   string // HTTP endpoint for effect delivery (required in production)
+	NATSAckWaitMS          int
+	NATSMaxDeliver         int
+	HotKeyThreshold        int
+	HotKeyCheckIntervalMS  int
 }
 
 type GenerationConfig struct {
@@ -69,6 +77,10 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	if err := validateRawEnv(); err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		App: AppConfig{
 			Env:             getEnv("APP_ENV", "development"),
@@ -98,6 +110,10 @@ func Load() (*Config, error) {
 			NumShards:              uint32(getIntEnv("NUM_SHARDS", 4096)),
 			WorkerID:               getEnv("WORKER_ID", ""),
 			MaxGlobalInFlight:      getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100),
+			FetchBatchSize:         getIntEnv("FETCH_BATCH_SIZE", 100),
+			EffectPublishIntervalMS: getIntEnv("EFFECT_PUBLISH_INTERVAL_MS", 5000),
+			EffectPublishBatchSize:  getIntEnv("EFFECT_PUBLISH_BATCH_SIZE", 10),
+			RetryDelayMS:            getIntEnv("EVENT_RETRY_DELAY_MS", 5000),
 			MaxPerKeyQueue:         getIntEnv("MAX_PER_KEY_QUEUE", 100),
 			KeyQueueWorkers:        getIntEnv("KEY_QUEUE_WORKERS", 1),
 			BatchMode:              getEnv("BATCH_MODE", "none"),
@@ -108,6 +124,10 @@ func Load() (*Config, error) {
 			LeaseTTLMS:             getIntEnv("LEASE_TTL_MS", 30000),
 			LeaseRenewalIntervalMS: getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000),
 			EffectDestinationURL:   getEnv("EFFECT_DESTINATION_URL", ""),
+			NATSAckWaitMS:          getIntEnv("NATS_ACK_WAIT_MS", 30000),
+			NATSMaxDeliver:         getIntEnv("NATS_MAX_DELIVER", 10),
+			HotKeyThreshold:        getIntEnv("HOT_KEY_THRESHOLD", 1000),
+			HotKeyCheckIntervalMS:  getIntEnv("HOT_KEY_CHECK_INTERVAL_MS", 10000),
 		},
 		Generation: GenerationConfig{
 			ProtocPath:          getEnv("PROTOC_PATH", "protoc"),
@@ -130,6 +150,9 @@ func (c *Config) Validate() error {
 	}
 	if c.App.GRPCAddr == "" {
 		return fmt.Errorf("GRPC_ADDR is required")
+	}
+	if c.App.ShutdownTimeout <= 0 {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT must be > 0")
 	}
 	backend := strings.ToLower(strings.TrimSpace(c.Database.StorageBackend))
 	if backend == "" {
@@ -159,6 +182,21 @@ func (c *Config) Validate() error {
 	if c.Worker.MaxGlobalInFlight <= 0 {
 		return fmt.Errorf("MAX_GLOBAL_IN_FLIGHT must be > 0")
 	}
+	if c.Worker.FetchBatchSize <= 0 {
+		return fmt.Errorf("FETCH_BATCH_SIZE must be > 0")
+	}
+	if c.Worker.FetchBatchSize > c.Worker.MaxGlobalInFlight {
+		return fmt.Errorf("FETCH_BATCH_SIZE must be <= MAX_GLOBAL_IN_FLIGHT")
+	}
+	if c.Worker.EffectPublishIntervalMS <= 0 {
+		return fmt.Errorf("EFFECT_PUBLISH_INTERVAL_MS must be > 0")
+	}
+	if c.Worker.EffectPublishBatchSize <= 0 {
+		return fmt.Errorf("EFFECT_PUBLISH_BATCH_SIZE must be > 0")
+	}
+	if c.Worker.RetryDelayMS <= 0 {
+		return fmt.Errorf("EVENT_RETRY_DELAY_MS must be > 0")
+	}
 	if c.Worker.MaxPerKeyQueue <= 0 {
 		return fmt.Errorf("MAX_PER_KEY_QUEUE must be > 0")
 	}
@@ -183,6 +221,71 @@ func (c *Config) Validate() error {
 	if c.Worker.LeaseRenewalIntervalMS <= 0 {
 		return fmt.Errorf("LEASE_RENEWAL_INTERVAL_MS must be > 0")
 	}
+	if c.Worker.LeaseRenewalIntervalMS > c.Worker.LeaseTTLMS/3 {
+		return fmt.Errorf("LEASE_RENEWAL_INTERVAL_MS * 3 must be <= LEASE_TTL_MS")
+	}
+	if c.Worker.NATSAckWaitMS <= 0 {
+		return fmt.Errorf("NATS_ACK_WAIT_MS must be > 0")
+	}
+	if c.Worker.NATSMaxDeliver <= 0 {
+		return fmt.Errorf("NATS_MAX_DELIVER must be > 0")
+	}
+	if c.Worker.HotKeyThreshold <= 0 {
+		return fmt.Errorf("HOT_KEY_THRESHOLD must be > 0")
+	}
+	if c.Worker.HotKeyCheckIntervalMS <= 0 {
+		return fmt.Errorf("HOT_KEY_CHECK_INTERVAL_MS must be > 0")
+	}
+	return nil
+}
+
+
+func validateRawEnv() error {
+	integerKeys := []string{
+		"REDIS_DB",
+		"NUM_SHARDS",
+		"MAX_GLOBAL_IN_FLIGHT",
+		"FETCH_BATCH_SIZE",
+		"EFFECT_PUBLISH_INTERVAL_MS",
+		"EFFECT_PUBLISH_BATCH_SIZE",
+		"EVENT_RETRY_DELAY_MS",
+		"MAX_PER_KEY_QUEUE",
+		"KEY_QUEUE_WORKERS",
+		"BATCH_MAX",
+		"BATCH_WINDOW_MS",
+		"SCHEDULER_POLL_MS",
+		"SCHEDULER_BATCH_SIZE",
+		"LEASE_TTL_MS",
+		"LEASE_RENEWAL_INTERVAL_MS",
+		"NATS_ACK_WAIT_MS",
+		"NATS_MAX_DELIVER",
+		"HOT_KEY_THRESHOLD",
+		"HOT_KEY_CHECK_INTERVAL_MS",
+	}
+	for _, key := range integerKeys {
+		value, ok := os.LookupEnv(key)
+		if !ok {
+			continue
+		}
+		if _, err := strconv.Atoi(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("%s must be an integer: %w", key, err)
+		}
+	}
+
+	if value, ok := os.LookupEnv("SHUTDOWN_TIMEOUT"); ok {
+		if _, err := time.ParseDuration(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
+		}
+	}
+	if value, ok := os.LookupEnv("NUM_SHARDS"); ok {
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("NUM_SHARDS must be an integer: %w", err)
+		}
+		if n <= 0 {
+			return fmt.Errorf("NUM_SHARDS must be > 0")
+		}
+	}
 	return nil
 }
 
@@ -195,7 +298,7 @@ func getEnv(key, fallback string) string {
 
 func getIntEnv(key string, fallback int) int {
 	if value, ok := os.LookupEnv(key); ok {
-		if i, err := strconv.Atoi(value); err == nil {
+		if i, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
 			return i
 		}
 	}
@@ -204,7 +307,7 @@ func getIntEnv(key string, fallback int) int {
 
 func getDurationEnv(key string, fallback time.Duration) time.Duration {
 	if value, ok := os.LookupEnv(key); ok {
-		if d, err := time.ParseDuration(value); err == nil {
+		if d, err := time.ParseDuration(strings.TrimSpace(value)); err == nil {
 			return d
 		}
 	}
@@ -233,6 +336,22 @@ func (c *Config) LeaseTTL() time.Duration {
 
 func (c *Config) LeaseRenewalInterval() time.Duration {
 	return time.Duration(c.Worker.LeaseRenewalIntervalMS) * time.Millisecond
+}
+
+func (c *Config) NATSAckWait() time.Duration {
+	return time.Duration(c.Worker.NATSAckWaitMS) * time.Millisecond
+}
+
+func (c *Config) HotKeyCheckInterval() time.Duration {
+	return time.Duration(c.Worker.HotKeyCheckIntervalMS) * time.Millisecond
+}
+
+func (c *Config) EffectPublishInterval() time.Duration {
+	return time.Duration(c.Worker.EffectPublishIntervalMS) * time.Millisecond
+}
+
+func (c *Config) EventRetryDelay() time.Duration {
+	return time.Duration(c.Worker.RetryDelayMS) * time.Millisecond
 }
 
 func (c *Config) ShutdownTimeoutDuration() time.Duration {

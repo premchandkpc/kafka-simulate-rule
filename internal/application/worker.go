@@ -2,7 +2,10 @@ package application
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -14,6 +17,10 @@ import (
 // WorkerConfig holds configuration for the worker.
 type WorkerConfig struct {
 	MaxGlobalInFlight   int
+	FetchBatchSize      int
+	EffectPublishInterval time.Duration
+	EffectPublishBatchSize int
+	RetryDelay           time.Duration
 	MaxPerKeyQueue      int
 	KeyQueueWorkers     int
 	HotKeyThreshold     int
@@ -26,6 +33,10 @@ type WorkerConfig struct {
 func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{
 		MaxGlobalInFlight:   100,
+		FetchBatchSize:         100,
+		EffectPublishInterval:  5 * time.Second,
+		EffectPublishBatchSize: 10,
+		RetryDelay:              5 * time.Second,
 		MaxPerKeyQueue:      100,
 		KeyQueueWorkers:     1,
 		HotKeyThreshold:     1000,
@@ -57,7 +68,6 @@ type Worker struct {
 	workerID        string
 	numShards       uint32
 	config          WorkerConfig
-	lastOwnedShards []uint32
 	shardedConsumer shardedConsumer
 }
 
@@ -72,51 +82,107 @@ func NewWorker(
 	workerID string,
 	numShards uint32,
 	config WorkerConfig,
-) *Worker {
+) (*Worker, error) {
+	if consumer == nil {
+		return nil, errors.New("worker consumer is required")
+	}
+	if events == nil {
+		return nil, errors.New("worker event processor is required")
+	}
+	if effects == nil {
+		return nil, errors.New("worker effect publisher is required")
+	}
+	if clock == nil {
+		return nil, errors.New("worker clock is required")
+	}
+	if workerID == "" {
+		return nil, errors.New("worker ID is required")
+	}
 	if numShards == 0 {
 		numShards = 4096
 	}
+
+	defaults := DefaultWorkerConfig()
+	// Preserve the legacy zero-value behavior: an omitted WorkerConfig means
+	// production-safe defaults, including mandatory sharded mode.
 	if config.MaxGlobalInFlight == 0 {
-		config = DefaultWorkerConfig()
+		config = defaults
+	}
+	if config.MaxGlobalInFlight < 0 {
+		config.MaxGlobalInFlight = defaults.MaxGlobalInFlight
+	}
+	if config.FetchBatchSize <= 0 {
+		config.FetchBatchSize = defaults.FetchBatchSize
+	}
+	if config.EffectPublishInterval <= 0 {
+		config.EffectPublishInterval = defaults.EffectPublishInterval
+	}
+	if config.EffectPublishBatchSize <= 0 {
+		config.EffectPublishBatchSize = defaults.EffectPublishBatchSize
+	}
+	if config.RetryDelay <= 0 {
+		config.RetryDelay = defaults.RetryDelay
+	}
+	if config.MaxPerKeyQueue <= 0 {
+		config.MaxPerKeyQueue = defaults.MaxPerKeyQueue
+	}
+	if config.KeyQueueWorkers <= 0 {
+		config.KeyQueueWorkers = defaults.KeyQueueWorkers
+	}
+	if config.HotKeyThreshold <= 0 {
+		config.HotKeyThreshold = defaults.HotKeyThreshold
+	}
+	if config.HotKeyCheckInterval <= 0 {
+		config.HotKeyCheckInterval = defaults.HotKeyCheckInterval
+	}
+	if config.FetchBatchSize > config.MaxGlobalInFlight {
+		return nil, fmt.Errorf("worker fetch batch size (%d) must not exceed max global in-flight (%d)", config.FetchBatchSize, config.MaxGlobalInFlight)
 	}
 
-	// Validate required dependencies
+	var sc shardedConsumer
+	if candidate, ok := consumer.(shardedConsumer); ok {
+		sc = candidate
+	}
 	if config.RequireSharded {
 		if leaseManager == nil {
-			panic("LeaseManager is required when RequireSharded is true")
+			return nil, errors.New("lease manager is required when sharded mode is enabled")
 		}
-		if _, ok := consumer.(shardedConsumer); !ok {
-			panic("Consumer must implement shardedConsumer interface when RequireSharded is true")
+		if sc == nil {
+			return nil, errors.New("consumer must implement sharded consumer when sharded mode is enabled")
 		}
 	}
 
-	w := &Worker{
-		consumer:      consumer,
-		events:        events,
-		effects:       effects,
-		batches:       batches,
-		batchInterval: batchInterval,
-		clock:         clock,
-		leaseManager:  leaseManager,
-		workerID:      workerID,
-		numShards:     numShards,
-		config:        config,
-	}
-
-	// Initialize shardedConsumer if the consumer supports shard management
-	if sc, ok := consumer.(shardedConsumer); ok {
-		w.shardedConsumer = sc
-	}
-
-	return w
+	return &Worker{
+		consumer:        consumer,
+		events:          events,
+		effects:         effects,
+		batches:         batches,
+		batchInterval:   batchInterval,
+		clock:           clock,
+		leaseManager:    leaseManager,
+		workerID:        workerID,
+		numShards:       numShards,
+		config:          config,
+		shardedConsumer: sc,
+	}, nil
 }
 
-func (w *Worker) Run(ctx context.Context) {
+func (w *Worker) Run(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("worker context is required")
+	}
 	if w.leaseManager != nil {
 		if err := w.leaseManager.Start(ctx); err != nil {
-			log.Printf("lease manager start failed: %v", err)
+			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			w.leaseManager.Stop(shutdownCtx)
+			cancel()
+			return fmt.Errorf("start lease manager: %w", err)
 		}
-		defer w.leaseManager.Stop(ctx)
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			w.leaseManager.Stop(shutdownCtx)
+		}()
 	}
 
 	w.keyQueue = keyqueue.NewKeyQueue(
@@ -124,7 +190,7 @@ func (w *Worker) Run(ctx context.Context) {
 		w.config.MaxPerKeyQueue,
 		w.config.KeyQueueWorkers,
 		func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
-			return w.processDelivery(ctx, delivery, fencingToken, vshard, workerID)
+			return w.processDelivery(ctx, env, delivery, fencingToken, vshard, workerID)
 		},
 		w.clock.Now,
 		w.config.HotKeyThreshold,
@@ -134,65 +200,72 @@ func (w *Worker) Run(ctx context.Context) {
 	w.keyQueue.Start(ctx)
 	defer w.keyQueue.Stop()
 
-	go w.publishLoop(ctx)
+	var background sync.WaitGroup
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		w.publishLoop(ctx)
+	}()
 	if w.batches != nil && w.batchInterval > 0 {
-		go w.batchLoop(ctx)
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			w.batchLoop(ctx)
+		}()
 	}
+	// Wait for periodic loops before stopping the queue, releasing leases,
+	// and allowing the caller to close shared resources.
+	defer background.Wait()
 
-	// Sharded mode: sync consumers and fetch from owned shards
-	if w.shardedConsumer != nil {
+	if w.shardedConsumer != nil && w.leaseManager != nil {
 		w.runSharded(ctx)
-		return
+		return nil
 	}
-
-	// Non-sharded mode: fetch from base consumer
 	w.runNonSharded(ctx)
+	return nil
 }
 
 func (w *Worker) syncConsumers(ctx context.Context) {
-	currentOwned := w.leaseManager.OwnedShards()
+	if w.leaseManager == nil || w.shardedConsumer == nil {
+		return
+	}
 
-	// Add new shards
-	for _, shard := range currentOwned {
-		found := false
-		for _, old := range w.lastOwnedShards {
-			if old == shard {
-				found = true
-				break
-			}
+	owned := w.leaseManager.OwnedShards()
+	ownedSet := make(map[uint32]struct{}, len(owned))
+	for _, shardID := range owned {
+		ownedSet[shardID] = struct{}{}
+	}
+
+	// Reconcile against the consumer's actual state every time. If removing an
+	// unowned shard fails, it remains visible here and removal is retried next poll.
+	active := w.shardedConsumer.OwnedShards()
+	activeSet := make(map[uint32]struct{}, len(active))
+	for _, shardID := range active {
+		activeSet[shardID] = struct{}{}
+		if _, stillOwned := ownedSet[shardID]; stillOwned {
+			continue
 		}
-		if !found {
-			if w.shardedConsumer != nil {
-				if err := w.shardedConsumer.EnsureShardConsumer(ctx, shard); err != nil {
-					log.Printf("ensure consumer for shard %d: %v", shard, err)
-				}
-			}
+		if err := w.shardedConsumer.RemoveShardConsumer(ctx, shardID); err != nil {
+			log.Printf("remove consumer for unowned shard %d: %v", shardID, err)
+		} else {
+			delete(activeSet, shardID)
 		}
 	}
 
-	// Remove old shards
-	for _, shard := range w.lastOwnedShards {
-		found := false
-		for _, current := range currentOwned {
-			if current == shard {
-				found = true
-				break
-			}
+	// Failed EnsureShardConsumer calls are retried because only actual consumers
+	// count as active on the next synchronization pass.
+	for _, shardID := range owned {
+		if _, exists := activeSet[shardID]; exists {
+			continue
 		}
-		if !found {
-			if w.shardedConsumer != nil {
-				if err := w.shardedConsumer.RemoveShardConsumer(ctx, shard); err != nil {
-					log.Printf("remove consumer for shard %d: %v", shard, err)
-				}
-			}
+		if err := w.shardedConsumer.EnsureShardConsumer(ctx, shardID); err != nil {
+			log.Printf("ensure consumer for shard %d: %v", shardID, err)
 		}
 	}
-
-	w.lastOwnedShards = currentOwned
 }
 
 func (w *Worker) publishLoop(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(w.config.EffectPublishInterval)
 	defer ticker.Stop()
 
 	for {
@@ -200,47 +273,45 @@ func (w *Worker) publishLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.effects.PublishBatch(ctx, 10); err != nil {
+			if err := w.effects.PublishBatch(ctx, w.config.EffectPublishBatchSize); err != nil {
 				log.Printf("publish effects: %v", err)
 			}
 		}
 	}
 }
 
-func (w *Worker) processDelivery(ctx context.Context, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
-	env, err := delivery.Event()
-	if err != nil || env == nil {
-		log.Printf("invalid event: %s", string(delivery.Raw()))
-		if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
-			log.Printf("quarantine invalid event: %v", qErr)
-		}
-		if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
-			log.Printf("retry invalid event: %v", retryErr)
-		}
-		return nil
+func (w *Worker) processDelivery(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	if env == nil {
+		return errors.New("process delivery: event envelope is nil")
 	}
 
 	exec, err := w.events.Process(ctx, env, fencingToken, vshard, workerID)
+	if err == nil && exec == nil {
+		err = errors.New("event processor returned a nil execution without an error")
+	}
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
 	if err != nil {
 		log.Printf("process event %s: %v", env.ID, err)
 		if domain.IsPermanent(err) {
-			if qErr := w.events.QuarantineEvent(ctx, env.ID, env.ID, env.TenantID, domain.ClassifyError(err), err.Error()); qErr != nil {
-				log.Printf("quarantine event %s: %v", env.ID, qErr)
+			if qErr := w.events.QuarantineEvent(settleCtx, env.ID, env.ID, env.TenantID, domain.ClassifyError(err), err.Error()); qErr != nil {
+				retryErr := delivery.Retry(settleCtx, w.config.RetryDelay)
+				return errors.Join(fmt.Errorf("quarantine permanent event %s: %w", env.ID, qErr), retryErr)
 			}
-			if err := delivery.Ack(ctx); err != nil {
-				log.Printf("ack permanent error event %s: %v", env.ID, err)
+			if ackErr := delivery.Ack(settleCtx); ackErr != nil {
+				return fmt.Errorf("ack quarantined event %s: %w", env.ID, ackErr)
 			}
 			return nil
 		}
-		if err := delivery.Retry(ctx, 5*time.Second); err != nil {
-			log.Printf("retry event %s: %v", env.ID, err)
+		if retryErr := delivery.Retry(settleCtx, w.config.RetryDelay); retryErr != nil {
+			return errors.Join(fmt.Errorf("process event %s: %w", env.ID, err), fmt.Errorf("retry event %s: %w", env.ID, retryErr))
 		}
 		return err
 	}
 
-	if err := delivery.Ack(ctx); err != nil {
-		log.Printf("ack %s: %v", env.ID, err)
-		return err
+	if err := delivery.Ack(settleCtx); err != nil {
+		return fmt.Errorf("ack event %s: %w", env.ID, err)
 	}
 	log.Printf("processed event %s -> execution %s", env.ID, exec.ID)
 	return nil
@@ -270,14 +341,8 @@ func (w *Worker) batchLoop(ctx context.Context) {
 
 // runSharded runs the worker in sharded mode with lease management.
 func (w *Worker) runSharded(ctx context.Context) {
-	// Ensure consumers for initially owned shards
-	ownedShards := w.leaseManager.OwnedShards()
-	for _, shard := range ownedShards {
-		if err := w.shardedConsumer.EnsureShardConsumer(ctx, shard); err != nil {
-			log.Printf("ensure consumer for shard %d: %v", shard, err)
-		}
-	}
-	w.lastOwnedShards = ownedShards
+	// Synchronize initial ownership through the same retryable path used later.
+	w.syncConsumers(ctx)
 
 	for {
 		select {
@@ -290,35 +355,42 @@ func (w *Worker) runSharded(ctx context.Context) {
 		// Sync consumers with current owned shards
 		w.syncConsumers(ctx)
 
-		ownedShards := w.shardedConsumer.OwnedShards()
+		// Fetch only shards for which this worker currently holds a lease.
+		// Consumer-side removal can fail temporarily; stale consumers must not
+		// remain in the fetch set while reconciliation retries.
+		ownedShards := w.leaseManager.OwnedShards()
 		if len(ownedShards) == 0 {
-			time.Sleep(1 * time.Second)
+			if !waitForRetry(ctx, time.Second) {
+				return
+			}
 			continue
 		}
 
-		deliveries, err := w.shardedConsumer.FetchShards(ctx, 10, ownedShards)
+		deliveries, err := w.shardedConsumer.FetchShards(ctx, w.config.FetchBatchSize, ownedShards)
 		if err != nil {
-			log.Printf("fetch: %v", err)
-			time.Sleep(1 * time.Second)
+			log.Printf("fetch shards: %v", err)
+		}
+		if len(deliveries) == 0 {
+			delay := 100 * time.Millisecond
+			if err != nil {
+				delay = time.Second
+			}
+			if !waitForRetry(ctx, delay) {
+				return
+			}
 			continue
 		}
 
 		for _, delivery := range deliveries {
 			env, err := delivery.Event()
 			if err != nil || env == nil {
-				log.Printf("invalid event: %s", string(delivery.Raw()))
-				if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
-					log.Printf("quarantine invalid event: %v", qErr)
-				}
-				if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
-					log.Printf("retry invalid event: %v", retryErr)
-				}
+				w.quarantineInvalidDelivery(ctx, delivery, err)
 				continue
 			}
 
 			vshard := w.leaseManager.VirtualShardForEvent(env)
 			if !w.leaseManager.IsOwner(vshard) {
-				if err := delivery.Nak(ctx); err != nil {
+				if err := settleNak(ctx, delivery); err != nil {
 					log.Printf("nak non-owned shard %d: %v", vshard, err)
 				}
 				continue
@@ -331,7 +403,7 @@ func (w *Worker) runSharded(ctx context.Context) {
 
 			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
 				log.Printf("keyqueue submit failed: %v", err)
-				if err := delivery.Nak(ctx); err != nil {
+				if err := settleNak(ctx, delivery); err != nil {
 					log.Printf("nak failed: %v", err)
 				}
 				continue
@@ -350,23 +422,25 @@ func (w *Worker) runNonSharded(ctx context.Context) {
 		default:
 		}
 
-		deliveries, err := w.consumer.Fetch(ctx, 10)
+		deliveries, err := w.consumer.Fetch(ctx, w.config.FetchBatchSize)
 		if err != nil {
 			log.Printf("fetch: %v", err)
-			time.Sleep(1 * time.Second)
+			if !waitForRetry(ctx, time.Second) {
+				return
+			}
+			continue
+		}
+		if len(deliveries) == 0 {
+			if !waitForRetry(ctx, 100*time.Millisecond) {
+				return
+			}
 			continue
 		}
 
 		for _, delivery := range deliveries {
 			env, err := delivery.Event()
 			if err != nil || env == nil {
-				log.Printf("invalid event: %s", string(delivery.Raw()))
-				if qErr := w.events.QuarantineEvent(ctx, domain.ComputeSourceHash(delivery.Raw()), "", "", domain.ErrorClassValidation, "invalid event envelope JSON"); qErr != nil {
-					log.Printf("quarantine invalid event: %v", qErr)
-				}
-				if retryErr := delivery.Retry(ctx, 5*time.Second); retryErr != nil {
-					log.Printf("retry invalid event: %v", retryErr)
-				}
+				w.quarantineInvalidDelivery(ctx, delivery, err)
 				continue
 			}
 
@@ -378,11 +452,51 @@ func (w *Worker) runNonSharded(ctx context.Context) {
 
 			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
 				log.Printf("keyqueue submit failed: %v", err)
-				if err := delivery.Nak(ctx); err != nil {
+				if err := settleNak(ctx, delivery); err != nil {
 					log.Printf("nak failed: %v", err)
 				}
 				continue
 			}
 		}
 	}
+}
+
+// quarantineInvalidDelivery persists malformed broker messages before acknowledging
+// them. If quarantine fails, the message is retried so the payload is not lost.
+func (w *Worker) quarantineInvalidDelivery(ctx context.Context, delivery ports.Delivery, parseErr error) {
+	sourceID := domain.ComputeSourceHash(delivery.Raw())
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	message := "invalid event envelope JSON"
+	if parseErr != nil {
+		log.Printf("invalid event envelope: subject=%q bytes=%d error=%v", delivery.Subject(), len(delivery.Raw()), parseErr)
+	}
+	if err := w.events.QuarantineEvent(settleCtx, sourceID, "", "", domain.ErrorClassValidation, message); err != nil {
+		log.Printf("quarantine invalid event %s: %v", sourceID, err)
+		if retryErr := delivery.Retry(settleCtx, w.config.RetryDelay); retryErr != nil {
+			log.Printf("retry invalid event %s: %v", sourceID, retryErr)
+		}
+		return
+	}
+	if err := delivery.Ack(settleCtx); err != nil {
+		log.Printf("ack quarantined invalid event %s: %v", sourceID, err)
+	}
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func settleNak(ctx context.Context, delivery ports.Delivery) error {
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return delivery.Nak(settleCtx)
 }

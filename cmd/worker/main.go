@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/effects"
 	"github.com/flowrule/flowrule/internal/adapters/nats"
@@ -23,101 +25,134 @@ import (
 	"github.com/flowrule/flowrule/internal/storage"
 )
 
+const (
+	serviceName  = "flowrule-worker"
+	eventSubject = "events"
+)
+
+// main owns process exit behavior. run returns errors so deferred cleanup executes.
 func main() {
+	if err := run(); err != nil {
+		log.Printf("%s stopped with error: %v", serviceName, err)
+		os.Exit(1)
+	}
+}
+
+func run() (runErr error) {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
 
-	// Initialize observability
 	obsConfig := observability.DefaultConfig()
-	obsConfig.ServiceName = "flowrule-worker"
+	obsConfig.ServiceName = serviceName
 	obs, err := observability.New(obsConfig)
 	if err != nil {
-		log.Fatalf("observability init: %v", err)
+		return fmt.Errorf("initialize observability: %w", err)
 	}
-	defer func() { _ = obs.Shutdown(ctx) }()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeoutDuration())
+		defer cancel()
+		if err := obs.Shutdown(shutdownCtx); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("shutdown observability: %w", err))
+		}
+	}()
 
-	obs.Logger.Info("worker starting")
+	obs.Logger.Info("worker starting", "environment", cfg.App.Env)
 
-	// Initialize database
 	db, err := storage.Open(ctx, cfg.Database)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		return fmt.Errorf("open storage: %w", err)
 	}
+	// Storage.Close currently has no error return; keep it deferred so all
+	// startup failure paths release the database resources.
 	defer db.Close()
 
 	if err := db.Initialize(ctx); err != nil {
-		log.Fatalf("migrations: %v", err)
+		return fmt.Errorf("initialize storage: %w", err)
 	}
-
 	repositories := db.Repositories()
 
-	// Initialize NATS
 	natsCfg := nats.Config{
 		NatsURL:    cfg.NATS.URL,
 		Stream:     cfg.NATS.Stream,
 		Consumer:   cfg.NATS.Consumer,
-		Subjects:   []string{"events"},
-		AckWait:    30 * time.Second,
-		MaxDeliver: 10,
+		Subjects:   []string{eventSubject},
+		AckWait:    cfg.NATSAckWait(),
+		MaxDeliver: cfg.Worker.NATSMaxDeliver,
 		NumShards:  cfg.Worker.NumShards,
 	}
 	consumer, err := nats.NewConsumer(ctx, natsCfg)
 	if err != nil {
-		log.Fatalf("NATS JetStream: %v", err)
+		return fmt.Errorf("initialize NATS JetStream: %w", err)
 	}
-	defer consumer.Close()
+	defer func() {
+		if err := consumer.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close NATS consumer: %w", err))
+		}
+	}()
 
-	// Create core services
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	evaluator := rules.NewEvaluator()
 	clock := domain.SystemClock{}
 
-	// Create effect sender - use HTTP destination in production, fail if not configured
 	var effectSender ports.EffectSender
-	if cfg.Worker.EffectDestinationURL != "" {
+	switch {
+	case cfg.Worker.EffectDestinationURL != "":
 		effectSender = effects.NewHTTPDestination(cfg.Worker.EffectDestinationURL)
-	} else if cfg.App.Env == "development" || cfg.App.Env == "test" {
+	case cfg.App.Env == "development" || cfg.App.Env == "test":
 		effectSender = effects.NewFakeDestination()
-	} else {
-		log.Fatalf("EFFECT_DESTINATION_URL is required in production environment")
+	default:
+		return fmt.Errorf("EFFECT_DESTINATION_URL is required when APP_ENV=%q", cfg.App.Env)
 	}
 
-	// Create repositories
-	// Create services
 	workerID := cfg.WorkerID()
-
 	eventsSvc := svcevents.NewService(
-		compiler, evaluator, repositories.Quarantine, clock,
-		repositories.Transactions, repositories.NewTxRepositories,
+		compiler,
+		evaluator,
+		repositories.Quarantine,
+		clock,
+		repositories.Transactions,
+		repositories.NewTxRepositories,
 	)
-	effectsSvc := svceffects.NewService(repositories.Outbox, effectSender, repositories.Quarantine, clock, workerID)
+	effectsSvc := svceffects.NewService(
+		repositories.Outbox,
+		effectSender,
+		repositories.Quarantine,
+		clock,
+		workerID,
+	)
 
-	// Batch service
-	batchMode := domain.BatchMode(cfg.Worker.BatchMode)
 	batchCfg := domain.BatchConfig{
-		Mode:     batchMode,
+		Mode:     domain.BatchMode(cfg.Worker.BatchMode),
 		MaxBatch: cfg.Worker.BatchMax,
 		Window:   cfg.BatchWindow(),
 	}
 	batchSvc := batches.NewService(repositories.Batches, eventsSvc, clock, batchCfg)
 
-	// Create lease manager
-	leaseManager := shard.NewLeaseManager(repositories.ShardLeases, clock, workerID, cfg.Worker.NumShards, cfg.LeaseTTL())
+	leaseManager := shard.NewLeaseManagerWithRenewInterval(
+		repositories.ShardLeases,
+		clock,
+		workerID,
+		cfg.Worker.NumShards,
+		cfg.LeaseTTL(),
+		cfg.LeaseRenewalInterval(),
+	)
+	workerConfig := application.DefaultWorkerConfig()
+	workerConfig.MaxGlobalInFlight = cfg.Worker.MaxGlobalInFlight
+	workerConfig.FetchBatchSize = cfg.Worker.FetchBatchSize
+	workerConfig.EffectPublishInterval = cfg.EffectPublishInterval()
+	workerConfig.EffectPublishBatchSize = cfg.Worker.EffectPublishBatchSize
+	workerConfig.RetryDelay = cfg.EventRetryDelay()
+	workerConfig.MaxPerKeyQueue = cfg.Worker.MaxPerKeyQueue
+	workerConfig.KeyQueueWorkers = cfg.Worker.KeyQueueWorkers
+	workerConfig.HotKeyThreshold = cfg.Worker.HotKeyThreshold
+	workerConfig.HotKeyCheckInterval = cfg.HotKeyCheckInterval()
 
-	workerConfig := application.WorkerConfig{
-		MaxGlobalInFlight:   cfg.Worker.MaxGlobalInFlight,
-		MaxPerKeyQueue:      cfg.Worker.MaxPerKeyQueue,
-		KeyQueueWorkers:     cfg.Worker.KeyQueueWorkers,
-		HotKeyThreshold:     1000,
-		HotKeyCheckInterval: 10 * time.Second,
-	}
-
-	worker := application.NewWorker(
+	worker, err := application.NewWorker(
 		consumer,
 		eventsSvc,
 		effectsSvc,
@@ -129,17 +164,25 @@ func main() {
 		cfg.Worker.NumShards,
 		workerConfig,
 	)
-
-	obs.Logger.Info("worker started",
-		"worker_id", workerID,
-		"shards", cfg.Worker.NumShards,
+	if err != nil {
+		return fmt.Errorf("construct worker: %w", err)
+	}
+	sched := scheduler.NewScheduler(
+		repositories.ScheduledEvents,
+		consumer,
+		clock,
+		cfg.SchedulerPollInterval(),
+		cfg.Worker.SchedulerBatchSize,
+		cfg.Worker.NumShards,
 	)
 
-	// Start scheduler
-	sched := scheduler.NewScheduler(repositories.ScheduledEvents, consumer, clock, cfg.SchedulerPollInterval(), cfg.Worker.SchedulerBatchSize, cfg.Worker.NumShards)
+	obs.Logger.Info("worker initialized", "worker_id", workerID, "shards", cfg.Worker.NumShards)
 	sched.Start(ctx)
 	defer sched.Stop()
 
-	// Run worker
-	worker.Run(ctx)
+	if err := worker.Run(ctx); err != nil {
+		return fmt.Errorf("run worker: %w", err)
+	}
+	obs.Logger.Info("worker stopped", "worker_id", workerID)
+	return nil
 }
