@@ -19,7 +19,7 @@ func NewEventTxRepositories(tx ports.Transaction) (ports.EventTxRepos, error) {
 	return ports.EventTxRepos{
 		Inbox:       NewInboxRepository(q),
 		Activations: NewActivationRepository(q),
-		RuleRepo:    NewRepository(q),
+		RuleRepo:    NewRuleRepository(q),
 		Executions:  NewExecutionRepository(q),
 		Outbox:      NewOutboxRepository(q),
 		ShardLeases: NewShardLeaseRepository(q),
@@ -35,7 +35,7 @@ func NewRuleTxRepositories(tx ports.Transaction) (ports.RuleTxRepos, error) {
 
 	q := NewTxQuerier(mongoTx.Session(), mongoTx.Database())
 	return ports.RuleTxRepos{
-		RuleRepo:    NewRepository(q),
+		RuleRepo:    NewRuleRepository(q),
 		Activations: NewActivationRepository(q),
 	}, nil
 }
