@@ -28,7 +28,7 @@ FLOWRULE_METRICS_ADDR=127.0.0.1:9090
 FLOWRULE_CONSOLE_ORIGIN=http://127.0.0.1:5173
 ```
 
-`FLOWRULE_METRICS_ADDR` is opt-in. Set a unique reachable address per worker host/container and keep it on a private network. Set `FLOWRULE_CONSOLE_ORIGIN` to the exact browser origin only when the console must scrape metrics cross-origin; leave it unset when a same-origin reverse proxy is used. The metrics server exposes only `GET /metrics`, allows preflight only for the configured origin, and does not enable wildcard CORS. Do not expose raw metrics to the public internet. Prometheus counters and gauges are process-local; scrape each worker separately for per-worker views. This endpoint does not provide log tailing; use the approved centralized log backend for logs.
+`FLOWRULE_METRICS_ADDR` is opt-in. Set a unique reachable address per worker host/container and keep it on a private network. Set `FLOWRULE_CONSOLE_ORIGIN` to the exact browser origin only when the console must scrape metrics cross-origin; leave it unset when a same-origin reverse proxy is used. The metrics server exposes only `GET /metrics`, allows preflight only for the configured origin, and does not enable wildcard CORS. The metrics listener does not authenticate requests; do not expose it to untrusted networks. Put it behind an authenticated reverse proxy if browser access crosses a trust boundary. Do not expose raw metrics to the public internet. Prometheus counters and gauges are process-local; scrape each worker separately for per-worker views. This endpoint does not provide log tailing; use the approved centralized log backend for logs.
 
 ## Local development
 
