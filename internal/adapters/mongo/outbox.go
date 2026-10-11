@@ -88,12 +88,44 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 			}
 			return nil, fmt.Errorf("claim pending: %w", err)
 		}
-		effects = append(effects, *doc.ToDomain())
+		effect := doc.ToDomain()
+		if effect.TenantID == "" {
+			if err := r.resolveLegacyTenant(ctx, effect); err != nil {
+				return nil, fmt.Errorf("resolve tenant for legacy outbox effect %s: %w", effect.ID, err)
+			}
+		}
+		effects = append(effects, *effect)
 	}
 
 	return effects, nil
 }
 
+
+// resolveLegacyTenant backfills tenant identity for effects written before the
+ // outbox schema carried tenant_id. The execution record is the authoritative source.
+func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *domain.OutboxEffect) error {
+	var execution struct {
+		TenantID string `bson:"tenant_id"`
+	}
+	if err := r.collection("executions").FindOne(ctx, bson.M{
+		"execution_id": effect.ExecutionID,
+	}).Decode(&execution); err != nil {
+		return fmt.Errorf("load source execution: %w", err)
+	}
+	if execution.TenantID == "" {
+		return fmt.Errorf("source execution has no tenant identity")
+	}
+
+	_, err := r.collection("outbox_effects").UpdateOne(ctx,
+		bson.M{"effect_id": effect.ID, "tenant_id": bson.M{"$exists": false}},
+		bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
+	)
+	if err != nil {
+		return fmt.Errorf("persist tenant identity: %w", err)
+	}
+	effect.TenantID = execution.TenantID
+	return nil
+}
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
 		return nil
