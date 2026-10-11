@@ -28,7 +28,11 @@ func (r *QuarantineRepository) collection(name string) *mongo.Collection {
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	coll := r.collection("quarantine")
 	doc := QuarantineDocFromDomain(entry)
-	_, err := coll.InsertOne(ctx, doc)
+	_, err := coll.UpdateOne(ctx,
+		bson.M{"quarantine_id": entry.ID},
+		bson.M{"$setOnInsert": doc},
+		options.Update().SetUpsert(true),
+	)
 	if err != nil {
 		return fmt.Errorf("save quarantine entry: %w", err)
 	}
