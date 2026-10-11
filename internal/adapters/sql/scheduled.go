@@ -115,7 +115,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 		UPDATE scheduled_events
 		SET status = $4, last_error = $3,
 		    claimant = NULL, claimed_at = NULL, claim_expires_at = NULL
-		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2 AND claim_expires_at > NOW()
+		WHERE event_id = $1 AND status = $5 AND claimant = $2 AND claim_expires_at > NOW()
 	`, eventID, claimant, errMsg, domain.ScheduledEventStatusFailed, domain.ScheduledEventStatusClaimed)
 	if err != nil {
 		return fmt.Errorf("mark scheduled event failed: %w", err)
@@ -133,7 +133,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
 		FROM scheduled_events
 		WHERE tenant_id = $1 AND event_id = $2
-	`, tenantID, eventID, domain.ScheduledEventStatusCancelled, domain.ScheduledEventStatusPending).Scan(
+	`, tenantID, eventID).Scan(
 		&evt.EventID, &evt.TenantID, &evt.EventType, &evt.PartitionKey,
 		&evt.WorkflowID, &evt.Payload, &evt.Headers, &evt.ScheduledAt,
 		&evt.Status, &evt.CreatedAt, &releasedAt,
@@ -179,7 +179,7 @@ func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID
 		UPDATE scheduled_events
 		SET status = $3
 		WHERE tenant_id = $1 AND event_id = $2 AND status = $4
-	`, tenantID, eventID)
+	`, tenantID, eventID, domain.ScheduledEventStatusCancelled, domain.ScheduledEventStatusPending)
 	if err != nil {
 		return fmt.Errorf("cancel scheduled event: %w", err)
 	}
