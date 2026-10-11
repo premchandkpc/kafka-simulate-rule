@@ -203,8 +203,8 @@ func (f *Factory) OutboxRepository(db *mongo.DB) *mongo.OutboxRepository {
 	return mongo.NewOutboxRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) RuleRepository(db *mongo.DB) *mongo.Repository {
-	return mongo.NewRepository(mongo.NewQuerier(db.Database()))
+func (f *Factory) RuleRepository(db *mongo.DB) *mongo.RuleRepository {
+	return mongo.NewRuleRepository(mongo.NewQuerier(db.Database()))
 }
 
 func (f *Factory) ActivationRepository(db *mongo.DB) *mongo.ActivationRepository {
