@@ -131,8 +131,8 @@ type RevisionDoc struct {
 	TenantScope     string              `bson:"tenant_scope"`
 	RuleID          string              `bson:"rule_id"`
 	Revision        int64               `bson:"revision"`
-	Source          bson.Raw            `bson:"source"`
-	Compiled        bson.Raw            `bson:"compiled"`
+	Source          []byte              `bson:"source"`
+	Compiled        []byte              `bson:"compiled"`
 	ContentHash     string              `bson:"content_hash"`
 	CompilerVersion string              `bson:"compiler_version"`
 	MatchMode       string              `bson:"match_mode"`
@@ -142,13 +142,13 @@ type RevisionDoc struct {
 
 func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 	var compiled []domain.CompiledRule
-	_ = bson.Unmarshal(d.Compiled, &compiled)
+	_ = json.Unmarshal(d.Compiled, &compiled)
 
 	return &domain.RuleRevision{
 		TenantScope:     d.TenantScope,
 		RuleID:          d.RuleID,
 		Revision:        d.Revision,
-		Source:          json.RawMessage(d.Source),
+		Source:          json.RawMessage(append([]byte(nil), d.Source...)),
 		Compiled:        compiled,
 		ContentHash:     d.ContentHash,
 		CompilerVersion: d.CompilerVersion,
@@ -159,14 +159,13 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 }
 
 func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *RevisionDoc {
-	compiled, _ := bson.Marshal(revision.Compiled)
-	source, _ := bson.Marshal(revision.Source)
+	compiled, _ := json.Marshal(revision.Compiled)
 
 	return &RevisionDoc{
 		TenantScope:     tenantScope,
 		RuleID:          revision.RuleID,
 		Revision:        revision.Revision,
-		Source:          source,
+		Source:          append([]byte(nil), revision.Source...),
 		Compiled:        compiled,
 		ContentHash:     revision.ContentHash,
 		CompilerVersion: revision.CompilerVersion,
