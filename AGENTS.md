@@ -119,7 +119,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - IMPLEMENTATION_PLAN.md — historical/forward-looking plan; not an authoritative status board unless checkboxes are maintained.
 - go.mod / go.sum — root Go module and dependency checksums.
 - Makefile — developer build, tests, checks, Docker, migration and codegen targets. Keep target recipes consistent with implemented CLI flags.
-- .env.example — configuration names and local-only placeholder defaults, including opt-in SIM_CLIENTS, SIM_MESSAGES_MAX and SIM_CONCURRENCY settings. Never place secrets here.
+- .env.example — configuration names and local-only placeholder defaults, including opt-in RANDOM_PRODUCER_CLIENTS, RANDOM_PRODUCER_MESSAGES_MAX and RANDOM_PRODUCER_CONCURRENCY settings. Never place secrets here.
 - .gitignore / .dockerignore — build artifacts, generated output, local data, secrets and Docker context exclusions. Do not commit executable binaries.
 - .golangci.yml — lint and package-boundary checks.
 - SECURITY.md — vulnerability-reporting process and security status.
