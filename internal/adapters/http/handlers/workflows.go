@@ -42,14 +42,16 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Use tenant from middleware context if not provided
-	if wf.TenantID == "" {
-		wf.TenantID = middleware.GetTenantID(r.Context())
-	}
-	if wf.TenantID == "" {
-		responses.WriteError(w, http.StatusBadRequest, "tenant_id is required", responses.CodeTenantRequired)
+	tenantID := middleware.GetTenantID(r.Context())
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
 		return
 	}
+	if wf.TenantID != "" && wf.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, "tenant_id does not match request tenant", responses.CodeValidationFailed)
+		return
+	}
+	wf.TenantID = tenantID
 	if wf.WorkflowType == "" {
 		responses.WriteError(w, http.StatusBadRequest, "workflow_type is required", responses.CodeWorkflowTypeReq)
 		return
@@ -80,7 +82,7 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if wf == nil {
+	if wf == nil || wf.TenantID != middleware.GetTenantID(r.Context()) {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
@@ -110,11 +112,24 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	var err error
+	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if wf == nil || wf.TenantID != middleware.GetTenantID(ctx) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		return
+	}
+	if body.FromState != "" && body.FromState != wf.State {
+		responses.WriteError(w, http.StatusConflict, "from_state does not match current workflow state", responses.CodeTransitionFailed)
+		return
+	}
+
 	if body.FromState != "" {
 		err = h.workflowSvc.Transition(ctx, workflowID, body.FromState, body.ToState)
 	} else {
-		err = h.workflowSvc.UpdateState(ctx, workflowID, body.ToState, 0)
+		err = h.workflowSvc.UpdateState(ctx, workflowID, body.ToState, wf.Version)
 	}
 
 	if err != nil {
@@ -133,25 +148,36 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 
 	limit := 100
 	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+		parsed, err := strconv.Atoi(limitStr)
+		if err != nil || parsed < 1 || parsed > 1000 {
+			responses.WriteError(w, http.StatusBadRequest, "limit must be between 1 and 1000", responses.CodeValidationFailed)
+			return
 		}
+		limit = parsed
 	}
 	offset := 0
 	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			offset = o
+		parsed, err := strconv.Atoi(offsetStr)
+		if err != nil || parsed < 0 || parsed > 10000 {
+			responses.WriteError(w, http.StatusBadRequest, "offset must be between 0 and 10000", responses.CodeValidationFailed)
+			return
 		}
+		offset = parsed
+	}
+	if middleware.GetTenantID(r.Context()) == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
 	}
 
 	ctx := r.Context()
 	var workflows []*domain.WorkflowInstance
 	var err error
 
+	fetchLimit := limit + offset
 	if state != "" {
-		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, state, limit)
+		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, state, fetchLimit)
 	} else {
-		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, "", limit)
+		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, "", fetchLimit)
 	}
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
