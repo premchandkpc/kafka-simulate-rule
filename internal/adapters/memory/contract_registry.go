@@ -23,7 +23,7 @@ func (r *ContractRegistry) key(name, version string) string {
 	return name + ":" + version
 }
 
-func (r *ContractRegistry) Get(ctx context.Context, name string, version string) (*domain.ContractSchema, error) {
+func (r *ContractRegistry) Get(_ context.Context, name string, version string) (*domain.ContractSchema, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	schema, ok := r.schemas[r.key(name, version)]
@@ -33,14 +33,14 @@ func (r *ContractRegistry) Get(ctx context.Context, name string, version string)
 	return schema, nil
 }
 
-func (r *ContractRegistry) Register(ctx context.Context, schema *domain.ContractSchema) error {
+func (r *ContractRegistry) Register(_ context.Context, schema *domain.ContractSchema) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.schemas[r.key(schema.Name, schema.Version)] = schema
 	return nil
 }
 
-func (r *ContractRegistry) List(ctx context.Context, name string) ([]domain.ContractSchema, error) {
+func (r *ContractRegistry) List(_ context.Context, name string) ([]domain.ContractSchema, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var result []domain.ContractSchema

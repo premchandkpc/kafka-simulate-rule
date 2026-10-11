@@ -102,19 +102,19 @@ func (s *Service) GetByCorrelation(ctx context.Context, correlationID string) ([
 	return s.repo.GetByCorrelation(ctx, correlationID)
 }
 
-func (s *Service) ListDefinitions(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
+func (s *Service) ListDefinitions(_ context.Context, _ string) ([]*domain.WorkflowDefinition, error) {
 	// This requires a WorkflowDefinitionRepository - not available in base WorkflowRepository
 	// The caller should use the definition repository directly
 	return nil, fmt.Errorf("not implemented - use WorkflowDefinitionRepository directly")
 }
 
-func (s *Service) GetDefinition(ctx context.Context, tenantID, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
+func (s *Service) GetDefinition(_ context.Context, _, _ string, _ int64) (*domain.WorkflowDefinition, error) {
 	// This requires a WorkflowDefinitionRepository - not available in base WorkflowRepository
 	// The caller should use the definition repository directly
 	return nil, fmt.Errorf("not implemented - use WorkflowDefinitionRepository directly")
 }
 
-func (s *Service) SaveDefinition(ctx context.Context, def *domain.WorkflowDefinition) error {
+func (s *Service) SaveDefinition(_ context.Context, _ *domain.WorkflowDefinition) error {
 	// This requires a WorkflowDefinitionRepository - not available in base WorkflowRepository
 	// The caller should use the definition repository directly
 	return fmt.Errorf("not implemented - use WorkflowDefinitionRepository directly")

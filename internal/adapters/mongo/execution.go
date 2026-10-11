@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,7 +44,7 @@ func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*dom
 		"execution_id": executionID,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get execution: %w", err)

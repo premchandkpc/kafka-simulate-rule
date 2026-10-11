@@ -76,7 +76,7 @@ type WorkflowRepository interface {
 type WorkflowDefinitionRepository interface {
 	Save(ctx context.Context, def *domain.WorkflowDefinition) error
 	Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error)
-	List(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error)
+	List(ctx context.Context) ([]*domain.WorkflowDefinition, error)
 	Delete(ctx context.Context, workflowType string, version int64) error
 }
 

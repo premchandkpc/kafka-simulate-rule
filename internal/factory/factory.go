@@ -166,7 +166,7 @@ func (f *Factory) NATSConsumer(ctx context.Context) (*nats.Consumer, error) {
 	return consumer, nil
 }
 
-func (f *Factory) NATSPublisher(ctx context.Context) (*nats.Publisher, error) {
+func (f *Factory) NATSPublisher(_ context.Context) (*nats.Publisher, error) {
 	if f.natsPublisher != nil {
 		return f.natsPublisher, nil
 	}

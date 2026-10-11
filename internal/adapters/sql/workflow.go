@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,7 +42,7 @@ func (r *WorkflowRepository) Get(ctx context.Context, workflowID string) (*domai
 		&w.CurrentRevision, &w.Context, &w.CreatedAt, &w.UpdatedAt, &completedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow: %w", err)
@@ -166,7 +167,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 		&def.WorkflowType, &def.Version, &def.States, &def.Transitions, &def.Rules, &def.CreatedAt, &def.UpdatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow definition: %w", err)
@@ -174,7 +175,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 	return def, nil
 }
 
-func (r *WorkflowDefinitionRepository) List(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
+func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.WorkflowDefinition, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT workflow_type, version, states, transitions, rules, created_at, updated_at
 		FROM workflow_definitions

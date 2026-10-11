@@ -21,7 +21,7 @@ func (m *memInbox) key(tenantID, eventID string) string {
 	return tenantID + ":" + eventID
 }
 
-func (m *memInbox) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
+func (m *memInbox) Insert(_ context.Context, entry *domain.InboxEntry) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := m.key(entry.TenantID, entry.EventID)
@@ -33,7 +33,7 @@ func (m *memInbox) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, 
 	return true, nil
 }
 
-func (m *memInbox) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
+func (m *memInbox) Get(_ context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.entries[m.key(tenantID, eventID)]
@@ -44,7 +44,7 @@ func (m *memInbox) Get(ctx context.Context, tenantID string, eventID string) (*d
 	return &cp, nil
 }
 
-func (m *memInbox) MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error {
+func (m *memInbox) MarkCommitted(_ context.Context, tenantID string, eventID string, executionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := m.key(tenantID, eventID)
@@ -68,7 +68,7 @@ func newMemExecution() *memExecution {
 	return &memExecution{entries: make(map[string]*domain.Execution)}
 }
 
-func (m *memExecution) Save(ctx context.Context, execution *domain.Execution) error {
+func (m *memExecution) Save(_ context.Context, execution *domain.Execution) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := *execution
@@ -76,7 +76,7 @@ func (m *memExecution) Save(ctx context.Context, execution *domain.Execution) er
 	return nil
 }
 
-func (m *memExecution) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
+func (m *memExecution) Get(_ context.Context, executionID string) (*domain.Execution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.entries[executionID]
@@ -87,7 +87,7 @@ func (m *memExecution) Get(ctx context.Context, executionID string) (*domain.Exe
 	return &cp, nil
 }
 
-func (m *memExecution) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
+func (m *memExecution) UpdateStatus(_ context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.entries[executionID]
@@ -110,7 +110,7 @@ func newMemOutbox() *memOutbox {
 	return &memOutbox{effects: make(map[string]*domain.OutboxEffect)}
 }
 
-func (m *memOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
+func (m *memOutbox) Insert(_ context.Context, effects []domain.OutboxEffect) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range effects {
@@ -120,7 +120,7 @@ func (m *memOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) e
 	return nil
 }
 
-func (m *memOutbox) ClaimPending(ctx context.Context, batchSize int, owner string) ([]domain.OutboxEffect, error) {
+func (m *memOutbox) ClaimPending(_ context.Context, batchSize int, _ string) ([]domain.OutboxEffect, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var claimed []domain.OutboxEffect
@@ -136,7 +136,7 @@ func (m *memOutbox) ClaimPending(ctx context.Context, batchSize int, owner strin
 	return claimed, nil
 }
 
-func (m *memOutbox) MarkDelivered(ctx context.Context, effectID string) error {
+func (m *memOutbox) MarkDelivered(_ context.Context, effectID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if e, ok := m.effects[effectID]; ok {
@@ -145,7 +145,7 @@ func (m *memOutbox) MarkDelivered(ctx context.Context, effectID string) error {
 	return nil
 }
 
-func (m *memOutbox) ScheduleRetry(ctx context.Context, effectID string, availableAt time.Duration, attempts int, errMsg string) error {
+func (m *memOutbox) ScheduleRetry(_ context.Context, effectID string, availableAt time.Duration, attempts int, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if e, ok := m.effects[effectID]; ok {
@@ -157,7 +157,7 @@ func (m *memOutbox) ScheduleRetry(ctx context.Context, effectID string, availabl
 	return nil
 }
 
-func (m *memOutbox) Quarantine(ctx context.Context, effectID string, errMsg string) error {
+func (m *memOutbox) Quarantine(_ context.Context, effectID string, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if e, ok := m.effects[effectID]; ok {

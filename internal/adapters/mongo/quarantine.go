@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,7 +43,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.Quar
 		"quarantine_id": id,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get quarantine entry: %w", err)

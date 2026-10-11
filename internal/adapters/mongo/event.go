@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -46,7 +47,7 @@ func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*d
 		"event_id":  eventID,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get event: %w", err)

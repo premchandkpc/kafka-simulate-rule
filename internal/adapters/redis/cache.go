@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,7 +21,7 @@ func NewCache(client *Client) *Cache {
 func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 	val, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("cache get: %w", err)
@@ -263,7 +264,7 @@ func (r *RateLimiter) Limit(ctx context.Context, key string) (int, error) {
 	return int(count), err
 }
 
-func (r *RateLimiter) Remaining(ctx context.Context, key string) (int, error) {
+func (r *RateLimiter) Remaining(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
 

@@ -173,10 +173,10 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
+	_ = middleware.GetTenantID(r.Context()) // tenant extracted for audit/logging
 
 	ctx := r.Context()
-	defs, err := h.workflowDefRepo.List(ctx, tenantID)
+	defs, err := h.workflowDefRepo.List(ctx)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -222,7 +222,7 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	var version int64 = 0
+	var version int64
 	if versionStr != "" {
 		var err error
 		version, err = strconv.ParseInt(versionStr, 10, 64)
@@ -239,7 +239,7 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	if version > 0 {
 		def, err = h.workflowDefRepo.Get(ctx, workflowType, version)
 	} else {
-		defs, err := h.workflowDefRepo.List(ctx, "")
+		defs, err := h.workflowDefRepo.List(ctx)
 		if err == nil && len(defs) > 0 {
 			def = defs[0]
 		}

@@ -33,7 +33,7 @@ func NewRouter(
 	handler = middleware.TenantExtractor(handler)
 
 	// Health endpoint
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		responses.WriteOK(w, map[string]string{"status": "ok"})
 	})
 
@@ -88,9 +88,9 @@ func (r *Router) Run(ctx context.Context, addr string) error {
 	// Wait for context cancellation or server error
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:contextcheck // shutdown context is intentionally separate
 		defer cancel()
-		return server.Shutdown(shutdownCtx)
+		return server.Shutdown(shutdownCtx) //nolint:contextcheck // shutdown context is intentionally separate
 	case err := <-serverErr:
 		return err
 	}

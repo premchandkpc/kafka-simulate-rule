@@ -22,7 +22,7 @@ type Tx struct {
 	fencingToken int64
 }
 
-func NewTx(tx pgx.Tx, ctx context.Context) *Tx {
+func NewTx(ctx context.Context, tx pgx.Tx) *Tx {
 	return &Tx{tx: tx, ctx: ctx}
 }
 
@@ -71,7 +71,7 @@ func NewTxFromPool(ctx context.Context, pool *pgxpool.Pool) (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewTx(tx, ctx), nil
+	return NewTx(ctx, tx), nil
 }
 
 func NewTxQuerier(tx *Tx) Querier {

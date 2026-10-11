@@ -34,7 +34,7 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 
 	err = session.StartTransaction(txOpts)
 	if err != nil {
-		session.EndSession(context.Background())
+		session.EndSession(context.Background()) //nolint:contextcheck // cleanup on error
 		return nil, fmt.Errorf("start transaction: %w", err)
 	}
 
@@ -50,15 +50,15 @@ func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx co
 	if err != nil {
 		return fmt.Errorf("start session: %w", err)
 	}
-	defer session.EndSession(context.Background())
+	defer session.EndSession(context.Background()) //nolint:contextcheck // cleanup must proceed even if parent context is cancelled
 
 	txOpts := options.Transaction().
 		SetReadConcern(readconcern.Majority()).
 		SetWriteConcern(&writeconcern.WriteConcern{W: "majority"})
 
-	_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+	_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) { //nolint:contextcheck // session context passed to fn
 		return nil, fn(sc)
-	}, txOpts)
+	}, txOpts) //nolint:contextcheck // session context is intentionally used for transaction operations
 	return err
 }
 
@@ -80,7 +80,7 @@ func (t *Transaction) Commit(ctx context.Context) error {
 	err := t.session.CommitTransaction(ctx)
 	if err == nil {
 		t.done = true
-		t.session.EndSession(context.Background())
+		t.session.EndSession(context.Background()) //nolint:contextcheck // cleanup on commit
 	}
 	return err
 }
@@ -93,7 +93,7 @@ func (t *Transaction) Rollback(ctx context.Context) error {
 	}
 	err := t.session.AbortTransaction(ctx)
 	t.done = true
-	t.session.EndSession(context.Background())
+	t.session.EndSession(context.Background()) //nolint:contextcheck // cleanup on rollback
 	return err
 }
 

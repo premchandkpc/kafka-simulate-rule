@@ -81,7 +81,7 @@ func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, evt)
 }
 
-func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Request) {
+func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, _ *http.Request) {
 	// This requires a List method in the repository interface
 	// For now, return empty with proper response format
 	responses.WriteOK(w, map[string]interface{}{

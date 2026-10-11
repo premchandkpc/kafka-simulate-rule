@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -93,7 +94,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 		&run.WindowFrom, &run.WindowTo, &run.CreatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get batch run: %w", err)

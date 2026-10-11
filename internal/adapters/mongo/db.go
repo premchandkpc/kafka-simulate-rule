@@ -52,7 +52,7 @@ func New(ctx context.Context, cfg Config) (*DB, error) {
 	}
 
 	if err := client.Ping(ctx, nil); err != nil {
-		_ = client.Disconnect(context.Background())
+		_ = client.Disconnect(context.Background()) //nolint:contextcheck // cleanup must proceed even if parent context is cancelled
 		return nil, fmt.Errorf("ping mongo: %w", err)
 	}
 
@@ -60,11 +60,11 @@ func New(ctx context.Context, cfg Config) (*DB, error) {
 
 	// Create indexes
 	if err := createIndexes(ctx, db); err != nil {
-		_ = client.Disconnect(context.Background())
+		_ = client.Disconnect(context.Background()) //nolint:contextcheck // cleanup must proceed even if parent context is cancelled
 		return nil, fmt.Errorf("create indexes: %w", err)
 	}
 	if err := verifyTransactionSupport(ctx, client, db); err != nil {
-		_ = client.Disconnect(context.Background())
+		_ = client.Disconnect(context.Background()) //nolint:contextcheck // cleanup must proceed even if parent context is cancelled
 		return nil, fmt.Errorf("verify MongoDB transaction support (use a replica set or sharded cluster): %w", err)
 	}
 
@@ -76,7 +76,7 @@ func verifyTransactionSupport(ctx context.Context, client *mongo.Client, db *mon
 	if err != nil {
 		return fmt.Errorf("start transaction check session: %w", err)
 	}
-	defer session.EndSession(context.Background())
+	defer session.EndSession(context.Background()) //nolint:contextcheck // cleanup must proceed even if parent context is cancelled
 
 	sessionCtx := mongo.NewSessionContext(ctx, session)
 	if err := session.StartTransaction(); err != nil {
@@ -85,15 +85,15 @@ func verifyTransactionSupport(ctx context.Context, client *mongo.Client, db *mon
 
 	probeID := fmt.Sprintf("startup-check-%d", time.Now().UnixNano())
 	collection := db.Collection("_flowrule_transaction_checks")
-	if _, err := collection.InsertOne(sessionCtx, bson.M{"_id": probeID}); err != nil {
-		_ = session.AbortTransaction(sessionCtx)
+	if _, err := collection.InsertOne(sessionCtx, bson.M{"_id": probeID}); err != nil { //nolint:contextcheck // sessionCtx derived from parent ctx
+		_ = session.AbortTransaction(sessionCtx) //nolint:contextcheck // sessionCtx derived from parent ctx
 		return fmt.Errorf("insert transaction check record: %w", err)
 	}
-	if _, err := collection.DeleteOne(sessionCtx, bson.M{"_id": probeID}); err != nil {
-		_ = session.AbortTransaction(sessionCtx)
+	if _, err := collection.DeleteOne(sessionCtx, bson.M{"_id": probeID}); err != nil { //nolint:contextcheck // sessionCtx derived from parent ctx
+		_ = session.AbortTransaction(sessionCtx) //nolint:contextcheck // sessionCtx derived from parent ctx
 		return fmt.Errorf("delete transaction check record: %w", err)
 	}
-	if err := session.CommitTransaction(sessionCtx); err != nil {
+	if err := session.CommitTransaction(sessionCtx); err != nil { //nolint:contextcheck // sessionCtx derived from parent ctx
 		return fmt.Errorf("commit transaction check: %w", err)
 	}
 	return nil

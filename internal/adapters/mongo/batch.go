@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -103,7 +104,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 	var doc BatchRunDoc
 	err := coll.FindOne(ctx, bson.M{"batch_id": batchID}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get batch run: %w", err)

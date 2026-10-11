@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -45,7 +46,7 @@ func (r *WorkflowRepository) Get(ctx context.Context, workflowID string) (*domai
 		"workflow_id": workflowID,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow: %w", err)
@@ -229,7 +230,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 		"version":       version,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow definition: %w", err)
@@ -237,7 +238,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 	return doc.ToDomain(), nil
 }
 
-func (r *WorkflowDefinitionRepository) List(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
+func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.WorkflowDefinition, error) {
 	coll := r.collection("workflow_definitions")
 	cursor, err := coll.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "workflow_type", Value: 1}, {Key: "version", Value: -1}}))
 	if err != nil {

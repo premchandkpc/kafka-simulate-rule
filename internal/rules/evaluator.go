@@ -336,7 +336,7 @@ func compareIn(val interface{}, list interface{}) bool {
 
 // interpolateTemplates replaces template placeholders in the JSON data with actual values
 // Supports: {{new_id}}, {{now}}, {{$.path}}
-func interpolateTemplates(data json.RawMessage, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) (json.RawMessage, error) {
+func interpolateTemplates(data json.RawMessage, _ *domain.EventEnvelope, childID string, clock ports.Clock) (json.RawMessage, error) {
 	var dataMap map[string]interface{}
 	if err := json.Unmarshal(data, &dataMap); err != nil {
 		return nil, err
@@ -350,7 +350,7 @@ func interpolateTemplates(data json.RawMessage, parentEvent *domain.EventEnvelop
 	return json.RawMessage(result), nil
 }
 
-func interpolateMap(m map[string]interface{}, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) map[string]interface{} {
+func interpolateMap(m map[string]interface{}, _ map[string]interface{}, _ *domain.EventEnvelope, childID string, clock ports.Clock) map[string]interface{} {
 	result := make(map[string]interface{})
 	for k, v := range m {
 		result[k] = interpolateValue(v, m, nil, childID, clock)
@@ -358,7 +358,7 @@ func interpolateMap(m map[string]interface{}, root map[string]interface{}, paren
 	return result
 }
 
-func interpolateValue(v interface{}, m map[string]interface{}, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) interface{} {
+func interpolateValue(v interface{}, m map[string]interface{}, _ *domain.EventEnvelope, childID string, clock ports.Clock) interface{} {
 	switch val := v.(type) {
 	case string:
 		return interpolateString(val, m, nil, childID, clock)
@@ -375,7 +375,7 @@ func interpolateValue(v interface{}, m map[string]interface{}, parentEvent *doma
 	}
 }
 
-func interpolateString(s string, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) string {
+func interpolateString(s string, root map[string]interface{}, _ *domain.EventEnvelope, childID string, clock ports.Clock) string {
 	// Replace {{new_id}}
 	if strings.Contains(s, "{{new_id}}") {
 		s = strings.ReplaceAll(s, "{{new_id}}", childID)

@@ -188,12 +188,14 @@ func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []ui
 	}
 
 	c.mu.Lock()
-	start := int(c.fetchCursor % uint64(len(shardIDs)))
+	shardCount := len(shardIDs)
+	// shardCount is bounded by NUM_SHARDS (max 4096), so conversion is safe
+	start := int(c.fetchCursor % uint64(shardCount)) //nolint:gosec // shardCount <= 4096
 	selected := make([]uint32, selectedCount)
 	for i := 0; i < selectedCount; i++ {
-		selected[i] = shardIDs[(start+i)%len(shardIDs)]
+		selected[i] = shardIDs[(start+i)%shardCount]
 	}
-	c.fetchCursor = uint64((start + selectedCount) % len(shardIDs))
+	c.fetchCursor = uint64((start + selectedCount) % shardCount) //nolint:gosec // bounded by shardCount
 	c.mu.Unlock()
 
 	type fetchResult struct {
@@ -303,11 +305,11 @@ func (c *Consumer) Fetch(ctx context.Context, maxMessages int) ([]ports.Delivery
 	return c.FetchShards(ctx, maxMessages, c.OwnedShards())
 }
 
-func (c *Consumer) Subscribe(ctx context.Context, subjects []string) error {
+func (c *Consumer) Subscribe(_ context.Context, _ []string) error {
 	return nil
 }
 
-func (c *Consumer) Unsubscribe(ctx context.Context) error {
+func (c *Consumer) Unsubscribe(_ context.Context) error {
 	return nil
 }
 
@@ -414,15 +416,15 @@ func (d *jetstreamDelivery) Raw() []byte {
 	return d.msg.Data()
 }
 
-func (d *jetstreamDelivery) Ack(ctx context.Context) error {
+func (d *jetstreamDelivery) Ack(_ context.Context) error {
 	return d.msg.Ack()
 }
 
-func (d *jetstreamDelivery) Nak(ctx context.Context) error {
+func (d *jetstreamDelivery) Nak(_ context.Context) error {
 	return d.msg.Nak()
 }
 
-func (d *jetstreamDelivery) Retry(ctx context.Context, delay time.Duration) error {
+func (d *jetstreamDelivery) Retry(_ context.Context, delay time.Duration) error {
 	return d.msg.NakWithDelay(delay)
 }
 

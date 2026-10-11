@@ -117,7 +117,7 @@ func (m *LeaseManager) Start(ctx context.Context) error {
 
 // Stop is idempotent, waits for lease renewal to stop, and releases leases with
 // a bounded context that remains usable during signal-driven shutdown.
-func (m *LeaseManager) Stop(ctx context.Context) {
+func (m *LeaseManager) Stop(ctx context.Context) { //nolint:contextcheck // intentionally assign to parameter for fallback
 	if ctx == nil {
 		ctx = context.Background()
 	}

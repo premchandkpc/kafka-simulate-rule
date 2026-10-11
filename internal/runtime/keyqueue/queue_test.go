@@ -12,19 +12,19 @@ import (
 
 type mockDelivery struct{}
 
-func (m *mockDelivery) Event() (*domain.EventEnvelope, error)                { return nil, nil }
-func (m *mockDelivery) Ack(ctx context.Context) error                        { return nil }
-func (m *mockDelivery) Nak(ctx context.Context) error                        { return nil }
-func (m *mockDelivery) Retry(ctx context.Context, delay time.Duration) error { return nil }
-func (m *mockDelivery) Raw() []byte                                          { return nil }
-func (m *mockDelivery) Headers() map[string]string                           { return nil }
-func (m *mockDelivery) Subject() string                                      { return "" }
+func (m *mockDelivery) Event() (*domain.EventEnvelope, error)          { return nil, nil }
+func (m *mockDelivery) Ack(_ context.Context) error                    { return nil }
+func (m *mockDelivery) Nak(_ context.Context) error                    { return nil }
+func (m *mockDelivery) Retry(_ context.Context, _ time.Duration) error { return nil }
+func (m *mockDelivery) Raw() []byte                                    { return nil }
+func (m *mockDelivery) Headers() map[string]string                     { return nil }
+func (m *mockDelivery) Subject() string                                { return "" }
 
 func TestKeyQueue_PerKeySerialization(t *testing.T) {
 	var mu sync.Mutex
 	var processed []string
 
-	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	processor := func(_ context.Context, env *domain.EventEnvelope, _ ports.Delivery, _ int64, _ uint32, _ string) error {
 		mu.Lock()
 		processed = append(processed, env.PartitionKey+":"+env.ID)
 		mu.Unlock()
@@ -91,7 +91,7 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 	active := make(map[string]int)
 	maxConcurrent := 0
 
-	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	processor := func(_ context.Context, env *domain.EventEnvelope, _ ports.Delivery, _ int64, _ uint32, _ string) error {
 		mu.Lock()
 		active[env.PartitionKey]++
 		if len(active) > maxConcurrent {
@@ -153,7 +153,7 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 }
 
 func TestKeyQueue_Backpressure(t *testing.T) {
-	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	processor := func(_ context.Context, _ *domain.EventEnvelope, _ ports.Delivery, _ int64, _ uint32, _ string) error {
 		time.Sleep(50 * time.Millisecond) // Slow processing
 		return nil
 	}
@@ -188,7 +188,7 @@ func TestKeyQueue_Backpressure(t *testing.T) {
 }
 
 func TestKeyQueue_ContextCancellation(t *testing.T) {
-	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	processor := func(_ context.Context, _ *domain.EventEnvelope, _ ports.Delivery, _ int64, _ uint32, _ string) error {
 		time.Sleep(100 * time.Millisecond)
 		return nil
 	}
@@ -221,14 +221,14 @@ func TestKeyQueue_HotKeyDetection(t *testing.T) {
 	var detected []string
 	var mu sync.Mutex
 
-	callback := func(partitionKey string, depth int) {
+	callback := func(partitionKey string, _ int) {
 		mu.Lock()
 		detected = append(detected, partitionKey)
 		mu.Unlock()
 	}
 
 	// Use a slow processor so items accumulate in queue
-	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	processor := func(_ context.Context, _ *domain.EventEnvelope, _ ports.Delivery, _ int64, _ uint32, _ string) error {
 		time.Sleep(100 * time.Millisecond)
 		return nil
 	}
@@ -274,7 +274,7 @@ func TestKeyQueue_SameKeyNeverProcessesConcurrently(t *testing.T) {
 	active := 0
 	maxActive := 0
 
-	processor := func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+	processor := func(ctx context.Context, _ *domain.EventEnvelope, _ ports.Delivery, _ int64, _ uint32, _ string) error {
 		mu.Lock()
 		active++
 		if active > maxActive {

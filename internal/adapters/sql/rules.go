@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -33,7 +34,7 @@ func (r *RuleRepository) GetActive(ctx context.Context, tenantScope string, rule
 		&rev.ContentHash, &rev.CompilerVersion, &rev.MatchMode, &rev.CreatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("query active revision: %w", err)
@@ -77,7 +78,7 @@ func (r *RuleRepository) Get(ctx context.Context, tenantScope string, ruleSet st
 		&rev.ContentHash, &rev.CompilerVersion, &rev.MatchMode, &rev.CreatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -149,7 +150,7 @@ func (a *ActivationRepository) Get(ctx context.Context, tenantScope string, rule
 		&act.TenantScope, &act.RuleSet, &act.Revision, &act.Version, &act.Actor, &act.ActivatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)

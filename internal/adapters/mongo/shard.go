@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -118,7 +119,7 @@ func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*dom
 		"virtual_shard": shard,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get owner: %w", err)
@@ -136,7 +137,7 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 		"expires_at":    bson.M{"$gt": time.Now().UTC()},
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return domain.ErrFencingTokenMismatch
 		}
 		return fmt.Errorf("validate fencing token: %w", err)
@@ -156,7 +157,7 @@ func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, own
 		"expires_at":    bson.M{"$gt": time.Now().UTC()},
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return domain.ErrFencingTokenMismatch
 		}
 		return fmt.Errorf("assert held: %w", err)

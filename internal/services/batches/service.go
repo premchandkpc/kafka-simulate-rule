@@ -3,6 +3,7 @@ package batches
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -133,7 +134,7 @@ func (s *Service) GetBatch(ctx context.Context, batchID string) (*domain.BatchRu
 }
 
 // ListBatches lists batch runs with optional filters
-func (s *Service) ListBatches(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+func (s *Service) ListBatches(_ context.Context, _, _ string, _, _ int) ([]*domain.BatchRun, error) {
 	// This would need a new repository method. For now, return not implemented.
 	return nil, fmt.Errorf("ListBatches not implemented - requires repository method")
 }
@@ -221,7 +222,7 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 
 	exec, err := s.events.Process(ctx, envelope, 0, 0, "")
 	if err != nil {
-		if err == domain.ErrRuleNotActive || err == domain.ErrRuleNotFound {
+		if errors.Is(err, domain.ErrRuleNotActive) || errors.Is(err, domain.ErrRuleNotFound) {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("process batch: %w", err)

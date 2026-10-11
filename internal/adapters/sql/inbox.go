@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,7 +44,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 		&entry.PartitionKey, &entry.RuleSet, &entry.Payload, &entry.BatchID,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get inbox: %w", err)
@@ -95,7 +96,7 @@ func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*dom
 		&exec.DecisionHash, &exec.Status, &exec.Error, &exec.TraceID, &exec.CreatedAt, &exec.CompletedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get execution: %w", err)
@@ -130,7 +131,7 @@ func (r *ExecutionRepository) GetByEvent(ctx context.Context, eventID string) (*
 		&exec.DecisionHash, &exec.Status, &exec.Error, &exec.TraceID, &exec.CreatedAt, &exec.CompletedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get execution by event: %w", err)

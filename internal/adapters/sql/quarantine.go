@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -40,7 +41,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.Quar
 	`, id).Scan(&entry.ID, &entry.SourceType, &entry.SourceID, &entry.ErrorClass, &entry.PayloadRef,
 		&entry.EventID, &entry.TenantID, &entry.Error, &entry.CreatedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get quarantine entry: %w", err)

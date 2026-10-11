@@ -30,7 +30,7 @@ func NewLogger(serviceName, env string) *Logger {
 	return &Logger{Logger: logger}
 }
 
-func (l *Logger) WithContext(ctx context.Context) *Logger {
+func (l *Logger) WithContext(_ context.Context) *Logger {
 	// Extract trace ID from context if available
 	return &Logger{Logger: l.Logger}
 }

@@ -23,7 +23,7 @@ func newMemBatches() *memBatches {
 	}
 }
 
-func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
+func (m *memBatches) ListUnbatched(_ context.Context, limit int) ([]*domain.InboxEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []*domain.InboxEntry
@@ -38,7 +38,7 @@ func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.In
 	return result, nil
 }
 
-func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
+func (m *memBatches) MarkBatched(_ context.Context, tenantID, eventID, batchID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := tenantID + "|" + eventID
@@ -48,14 +48,14 @@ func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID
 	return nil
 }
 
-func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
+func (m *memBatches) SaveRun(_ context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runs[run.BatchID] = run
 	return nil
 }
 
-func (m *memBatches) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRun(_ context.Context, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.runs[batchID], nil
@@ -73,7 +73,7 @@ func newMemEventProcessor() *memEventProcessor {
 	}
 }
 
-func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
+func (m *memEventProcessor) Process(_ context.Context, envelope *domain.EventEnvelope, _ int64, _ uint32, _ string) (*domain.Execution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.envelopes = append(m.envelopes, envelope)
@@ -91,7 +91,7 @@ func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventE
 	return exec, nil
 }
 
-func (m *memEventProcessor) QuarantineEvent(ctx context.Context, sourceID, eventID, tenantID string, errClass domain.ErrorClass, errMsg string) error {
+func (m *memEventProcessor) QuarantineEvent(_ context.Context, _, _, _ string, _ domain.ErrorClass, _ string) error {
 	return nil
 }
 
@@ -180,7 +180,7 @@ func TestBatchService_AccumulateBelowThreshold(t *testing.T) {
 
 	for i := 1; i <= 2; i++ {
 		id := "evt-" + string(rune('0'+i))
-		batches.entries[id] = &domain.InboxEntry{
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 			TenantID:     "tenant-1",
 			EventID:      id,
 			PartitionKey: "pk-1",

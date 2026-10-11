@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -124,9 +125,9 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID str
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID string, errMsg string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
-		SET status = 'failed'
+		SET status = 'failed', last_error = $2
 		WHERE event_id = $1
-	`, eventID)
+	`, eventID, errMsg)
 	if err != nil {
 		return fmt.Errorf("mark scheduled event failed: %w", err)
 	}
@@ -146,7 +147,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*do
 		&evt.Status, &evt.CreatedAt, &releasedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get scheduled event: %w", err)

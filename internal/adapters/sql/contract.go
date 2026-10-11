@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,7 +67,7 @@ func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*doma
 	var cr contractSchemaRow
 	err := row.Scan(&cr.Name, &cr.Version, &cr.Namespace, &cr.Description, &cr.Fields, &cr.Compatibility, &cr.Owner, &cr.Deprecated, &cr.CreatedAt, &cr.UpdatedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get contract: %w", err)

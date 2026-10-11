@@ -22,7 +22,7 @@ func (p *testPublisher) Publish(_ context.Context, subject string, data []byte) 
 	return nil
 }
 
-func (p *testPublisher) PublishBatch(_ context.Context, messages []ports.PublishMessage) error {
+func (p *testPublisher) PublishBatch(_ context.Context, _ []ports.PublishMessage) error {
 	return nil
 }
 

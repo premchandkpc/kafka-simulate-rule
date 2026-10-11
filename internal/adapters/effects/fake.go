@@ -29,7 +29,7 @@ func NewFakeDestination() *FakeDestination {
 	}
 }
 
-func (f *FakeDestination) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
+func (f *FakeDestination) Send(_ context.Context, effect *domain.Effect, idempotencyKey string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
