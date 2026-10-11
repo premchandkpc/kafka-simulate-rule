@@ -45,7 +45,7 @@ type WorkflowService interface {
 type BatchService interface {
 	Tick(ctx context.Context) (int, error)
 	CreateBatch(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) (*domain.BatchRun, error)
-	GetBatch(ctx context.Context, batchID string) (*domain.BatchRun, error)
+	GetBatch(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error)
 	ListBatches(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error)
 }
 
