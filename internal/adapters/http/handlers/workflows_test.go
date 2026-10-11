@@ -15,6 +15,33 @@ import (
 type workflowServiceStub struct {
 	ports.WorkflowService
 	createCalls int
+	getTenant   string
+	getID       string
+	getCalls    int
+	transitionTenant string
+	transitionID string
+	transitionFrom string
+	transitionTo string
+	updateTenant string
+	updateID string
+	updateState string
+}
+
+func (s *workflowServiceStub) Get(_ context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
+	s.getCalls++
+	s.getTenant, s.getID = tenantID, workflowID
+	return &domain.WorkflowInstance{WorkflowID: workflowID, TenantID: tenantID, State: domain.WorkflowStatusPending, Version: 1}, nil
+}
+
+func (s *workflowServiceStub) Transition(_ context.Context, tenantID, workflowID, fromState, toState string) error {
+	s.transitionTenant, s.transitionID = tenantID, workflowID
+	s.transitionFrom, s.transitionTo = fromState, toState
+	return nil
+}
+
+func (s *workflowServiceStub) UpdateState(_ context.Context, tenantID, workflowID, newState string, _ int64) error {
+	s.updateTenant, s.updateID, s.updateState = tenantID, workflowID, newState
+	return nil
 }
 
 func (s *workflowServiceStub) Create(context.Context, *domain.WorkflowInstance) error {
@@ -63,5 +90,48 @@ func TestWorkflowDefinitionMutationRoutesAreNotExposed(t *testing.T) {
 				t.Fatalf("status = %d, want %d", res.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetWorkflowPassesTenantToService(t *testing.T) {
+	service := &workflowServiceStub{}
+	handler := NewWorkflowHandler(service, nil, nil)
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	req := httptest.NewRequest(http.MethodGet, "/v1/workflows/wf-1", nil)
+	req.Header.Set("X-Tenant-ID", "tenant-a")
+	response := httptest.NewRecorder()
+
+	middleware.TenantExtractor(mux).ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if service.getTenant != "tenant-a" || service.getID != "wf-1" {
+		t.Fatalf("Get args = tenant %q workflow %q", service.getTenant, service.getID)
+	}
+}
+
+func TestTransitionWorkflowPassesTenantToService(t *testing.T) {
+	service := &workflowServiceStub{}
+	handler := NewWorkflowHandler(service, nil, nil)
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	req := httptest.NewRequest(http.MethodPost, "/v1/workflows/wf-1/transition", strings.NewReader(
+		`{"from_state":"pending","to_state":"completed"}`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-a")
+	response := httptest.NewRecorder()
+
+	middleware.TenantExtractor(mux).ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if service.getTenant != "tenant-a" || service.transitionTenant != "tenant-a" ||
+		service.transitionID != "wf-1" || service.transitionFrom != "pending" || service.transitionTo != "completed" {
+		t.Fatalf("Get tenant %q, transition tenant %q workflow %q from %q to %q",
+			service.getTenant, service.transitionTenant, service.transitionID, service.transitionFrom, service.transitionTo)
 	}
 }
