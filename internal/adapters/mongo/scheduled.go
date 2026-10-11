@@ -25,7 +25,7 @@ func (r *ScheduledEventRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.ScheduledEvent) error {
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	doc := ScheduledDocFromDomain(event)
 	_, err := coll.InsertOne(ctx, doc)
 	if err != nil {
@@ -41,7 +41,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	if limit <= 0 {
 		limit = 100
 	}
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	filter := bson.M{
 		"$or": []bson.M{
 			{"status": domain.ScheduledEventStatusPending, "scheduled_at": bson.M{"$lte": before}},
@@ -81,7 +81,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
 	}
 
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
 	var events []*domain.ScheduledEvent
@@ -115,7 +115,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 }
 
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": releasedAt}},
 		bson.M{
@@ -135,7 +135,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 }
 
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error {
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": now}},
@@ -156,7 +156,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 }
 
 func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error) {
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	var doc ScheduledDoc
 	err := coll.FindOne(ctx, bson.M{"tenant_id": tenantID, "event_id": eventID}).Decode(&doc)
 	if err != nil {
@@ -178,7 +178,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 	if offset < 0 {
 		offset = 0
 	}
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	cursor, err := coll.Find(ctx,
 		bson.M{"tenant_id": tenantID},
 		options.Find().
@@ -206,7 +206,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 }
 
 func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID string) error {
-	coll := r.collection("scheduled_events")
+	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"tenant_id": tenantID, "event_id": eventID, "status": "pending"},
 		bson.M{"$set": bson.M{"status": domain.ScheduledEventStatusCancelled}},
