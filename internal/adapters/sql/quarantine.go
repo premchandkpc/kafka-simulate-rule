@@ -33,6 +33,9 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 }
 
 func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
+	if tenantID == "" {
+		return nil, nil
+	}
 	entry := &domain.QuarantineEntry{}
 	err := r.db.QueryRow(ctx, `
 		SELECT quarantine_id, source_type, source_id, error_class, COALESCE(payload_ref, ''),
@@ -50,6 +53,9 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 }
 
 func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
 	tag, err := r.db.Exec(ctx, `UPDATE quarantine SET updated_at = NOW() WHERE tenant_id = $1 AND quarantine_id = $2`, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("record quarantine replay: %w", err)
@@ -61,6 +67,9 @@ func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) 
 }
 
 func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
 	tag, err := r.db.Exec(ctx, `DELETE FROM quarantine WHERE tenant_id = $1 AND quarantine_id = $2`, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("delete quarantine entry: %w", err)
@@ -72,6 +81,9 @@ func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) 
 }
 
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	if filter.TenantID == "" {
+		return nil, fmt.Errorf("tenant_id is required")
+	}
 	if filter.Limit <= 0 {
 		filter.Limit = 100
 	}
@@ -84,11 +96,9 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	args := []interface{}{}
 	argIdx := 1
 
-	if filter.TenantID != "" {
-		query += fmt.Sprintf(" AND tenant_id = $%d", argIdx)
-		args = append(args, filter.TenantID)
-		argIdx++
-	}
+	query += fmt.Sprintf(" AND tenant_id = $%d", argIdx)
+	args = append(args, filter.TenantID)
+	argIdx++
 	if filter.SourceType != "" {
 		query += fmt.Sprintf(" AND source_type = $%d", argIdx)
 		args = append(args, filter.SourceType)
