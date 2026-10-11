@@ -150,6 +150,7 @@ func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, cor
 type WorkflowDoc struct {
 	WorkflowID      string     `bson:"workflow_id"`
 	TenantID        string     `bson:"tenant_id"`
+	CorrelationID   string     `bson:"correlation_id,omitempty"`
 	WorkflowType    string     `bson:"workflow_type"`
 	State           string     `bson:"state"`
 	Version         int64      `bson:"version"`
@@ -161,9 +162,16 @@ type WorkflowDoc struct {
 }
 
 func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
+	var contextFields struct {
+		CorrelationID string `json:"correlation_id"`
+	}
+	if len(w.Context) > 0 {
+		_ = json.Unmarshal(w.Context, &contextFields)
+	}
 	return &WorkflowDoc{
 		WorkflowID:      w.WorkflowID,
 		TenantID:        w.TenantID,
+		CorrelationID:   contextFields.CorrelationID,
 		WorkflowType:    w.WorkflowType,
 		State:           w.State,
 		Version:         w.Version,
