@@ -14,7 +14,7 @@ import (
 
 type Scheduler struct {
 	repo         ports.ScheduledEventRepository
-	publisher    ports.BrokerPublisher
+	publisher    ports.EventPublisher
 	clock        ports.Clock
 	pollInterval time.Duration
 	batchSize    int
@@ -29,7 +29,7 @@ type Scheduler struct {
 
 func NewScheduler(
 	repo ports.ScheduledEventRepository,
-	publisher ports.BrokerPublisher,
+	publisher ports.EventPublisher,
 	clock ports.Clock,
 	pollInterval time.Duration,
 	batchSize int,

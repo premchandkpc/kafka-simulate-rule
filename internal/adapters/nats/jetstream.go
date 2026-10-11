@@ -313,28 +313,47 @@ func (c *Consumer) Unsubscribe(_ context.Context) error {
 	return nil
 }
 
-// Publish implements ports.BrokerPublisher
-func (c *Consumer) Publish(ctx context.Context, subject string, data []byte) error {
-	_, err := c.js.Publish(ctx, subject, data)
-	return err
+// SendOrderCreate publishes the order-create contract payload to its assigned shard.
+// The NATS subject and JetStream acknowledgement details remain inside this adapter.
+func (c *Consumer) SendOrderCreate(ctx context.Context, shard uint32, payload []byte) error {
+	return c.PublishToShard(ctx, "orders.create", shard, payload)
 }
 
-// PublishBatch implements ports.BrokerPublisher
+// ConsumeOrderCreate fetches order-create deliveries for the requested owned shards.
+// It returns ports.Delivery values so callers never need JetStream message types.
+func (c *Consumer) ConsumeOrderCreate(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error) {
+	return c.FetchShards(ctx, maxMessages, shards)
+}
+
+// Compile-time assertions keep the adapter aligned with consumer-owned contracts.
+var _ ports.EventConsumer = (*Consumer)(nil)
+var _ ports.EventPublisher = (*Consumer)(nil)
+var _ ports.OrderEventBroker = (*Consumer)(nil)
+var _ ports.EventPublisher = (*Publisher)(nil)
+
+// Publish is the generic adapter-level primitive that implements ports.BrokerPublisher.
+func (c *Consumer) Publish(ctx context.Context, subject string, data []byte) error {
+	_, err := c.js.Publish(ctx, subject, data)
+	if err != nil {
+		return fmt.Errorf("publish subject %q: %w", subject, err)
+	}
+	return nil
+}
+
+// PublishBatch implements ports.BrokerPublisher.
 func (c *Consumer) PublishBatch(ctx context.Context, messages []ports.PublishMessage) error {
-	for _, msg := range messages {
-		_, err := c.js.Publish(ctx, msg.Subject, msg.Data)
-		if err != nil {
-			return err
+	for i, msg := range messages {
+		if _, err := c.js.Publish(ctx, msg.Subject, msg.Data); err != nil {
+			return fmt.Errorf("publish batch message %d to %q: %w", i, msg.Subject, err)
 		}
 	}
 	return nil
 }
 
-// PublishToShard implements ports.BrokerPublisher
+// PublishToShard implements ports.BrokerPublisher.
 func (c *Consumer) PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error {
 	subject := fmt.Sprintf("%s.shard.%d", baseSubject, shard)
-	_, err := c.js.Publish(ctx, subject, data)
-	return err
+	return c.Publish(ctx, subject, data)
 }
 
 // Publisher provides a dedicated publisher for sending messages without consuming
@@ -371,25 +390,25 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
 	_, err := p.js.Publish(ctx, subject, data)
 	if err != nil {
-		return fmt.Errorf("publish: %w", err)
+		return fmt.Errorf("publish subject %q: %w", subject, err)
 	}
 	return nil
+}
+
+// SendOrderCreate publishes the order-create contract payload to its assigned shard.
+func (p *Publisher) SendOrderCreate(ctx context.Context, shard uint32, payload []byte) error {
+	return p.PublishToShard(ctx, "orders.create", shard, payload)
 }
 
 func (p *Publisher) PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error {
 	subject := fmt.Sprintf("%s.shard.%d", baseSubject, shard)
-	_, err := p.js.Publish(ctx, subject, data)
-	if err != nil {
-		return fmt.Errorf("publish to shard %d: %w", shard, err)
-	}
-	return nil
+	return p.Publish(ctx, subject, data)
 }
 
 func (p *Publisher) PublishBatch(ctx context.Context, messages []ports.PublishMessage) error {
-	for _, msg := range messages {
-		_, err := p.js.Publish(ctx, msg.Subject, msg.Data)
-		if err != nil {
-			return fmt.Errorf("publish batch: %w", err)
+	for i, msg := range messages {
+		if err := p.Publish(ctx, msg.Subject, msg.Data); err != nil {
+			return fmt.Errorf("publish batch message %d: %w", i, err)
 		}
 	}
 	return nil

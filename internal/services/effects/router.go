@@ -12,20 +12,20 @@ import (
 // Router sends internal child events to the broker and delegates all other
 // effects to the configured external destination.
 type Router struct {
-	publisher   ports.BrokerPublisher
+	publisher   ports.EventPublisher
 	external    ports.EffectSender
 	baseSubject string
 	numShards   uint32
 }
 
 // NewRouter creates a router using the default event subject and shard count.
-func NewRouter(publisher ports.BrokerPublisher, external ports.EffectSender) *Router {
+func NewRouter(publisher ports.EventPublisher, external ports.EffectSender) *Router {
 	return NewRouterWithConfig(publisher, external, "events", 4096)
 }
 
 // NewRouterWithConfig creates a router aligned with the stream's subject family
 // and the shard count used by producers, consumers, and the scheduler.
-func NewRouterWithConfig(publisher ports.BrokerPublisher, external ports.EffectSender, baseSubject string, numShards uint32) *Router {
+func NewRouterWithConfig(publisher ports.EventPublisher, external ports.EffectSender, baseSubject string, numShards uint32) *Router {
 	if baseSubject == "" {
 		baseSubject = "events"
 	}

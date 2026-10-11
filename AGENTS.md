@@ -76,6 +76,7 @@ SECURITY / DEPLOYMENT REQUIREMENT:
 - Entry point: cmd/worker/main.go.
 - Loads config, initializes observability and storage, constructs the NATS JetStream consumer, event/effect/batch services, lease manager, scheduler, and application.Worker. The batch service is constructed, but non-none BATCH_MODE values are rejected by config because batch execution is not integrated with shard fencing and the per-key queue.
 - NATS adapter: internal/adapters/nats/jetstream.go. The worker subject base is events; consumers filter events.shard.N.
+- Transport boundary: only internal/adapters/nats/jetstream.go imports github.com/nats-io/nats.go and its jetstream subpackage. Application/runtime services depend on transport-neutral internal/ports contracts (EventConsumer, EventPublisher, OrderEventBroker) and ports.Delivery. Keep NATS connection, JetStream, Message, FetchBatch, ACK/NAK, stream configuration and subject mapping details inside the adapter. Fixed domain contracts such as SendOrderCreate and ConsumeOrderCreate should delegate to the adapter's transport implementation; do not leak third-party types into ports or use-case packages. The current generic FlowRule event subject family remains events.shard.N, so don't wire the example order-specific contract into the generic event pipeline without a matching domain/schema requirement.
 - Runtime loop and polling: internal/application/worker.go.
 - Bounded per-key queue and hot-key observation: internal/runtime/keyqueue/queue.go.
 - Lease ownership, renewal, and fencing cache: internal/runtime/shard/lease.go.

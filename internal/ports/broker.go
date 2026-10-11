@@ -26,12 +26,39 @@ type Delivery interface {
 	Subject() string
 }
 
-// BrokerPublisher defines the interface for publishing messages to a broker
+// BrokerPublisher is the generic transport-level publishing contract.
+// Business use cases should prefer a narrower contract such as EventPublisher.
 type BrokerPublisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error
 	PublishBatch(ctx context.Context, messages []PublishMessage) error
 	PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error
 	Close() error
+}
+
+// EventConsumer is the worker-facing contract for broker deliveries.
+// Implementations own all transport-specific consumer and delivery types.
+type EventConsumer interface {
+	Fetch(ctx context.Context, maxMessages int) ([]Delivery, error)
+	FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
+	EnsureShardConsumer(ctx context.Context, shard uint32) error
+	RemoveShardConsumer(ctx context.Context, shard uint32) error
+	OwnedShards() []uint32
+	Close() error
+}
+
+// EventPublisher is the fixed publishing contract used by application services.
+// Callers provide a base subject and shard; adapters encode transport-specific routing.
+type EventPublisher interface {
+	PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error
+	PublishBatch(ctx context.Context, messages []PublishMessage) error
+	Close() error
+}
+
+// OrderEventBroker is a domain-specific contract for order event flows.
+// It deliberately exposes payloads and deliveries, never broker client types.
+type OrderEventBroker interface {
+	SendOrderCreate(ctx context.Context, shard uint32, payload []byte) error
+	ConsumeOrderCreate(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
 }
 
 type PublishMessage struct {
