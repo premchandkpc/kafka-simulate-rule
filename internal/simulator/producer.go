@@ -32,11 +32,11 @@ type Publisher interface {
 
 // Config bounds one simulation run. NumShards must match the running workers.
 type Config struct {
-	Clients             int
+	Clients              int
 	MaxMessagesPerClient int
-	NumShards           uint32
-	Concurrency         int
-	BaseSubject         string
+	NumShards            uint32
+	Concurrency          int
+	BaseSubject          string
 }
 
 // Summary distinguishes generated attempts from durable broker acknowledgements.
