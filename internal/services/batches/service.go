@@ -86,6 +86,9 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 
 // CreateBatch creates a new batch from unbatched entries (manual batch formation)
 func (s *Service) CreateBatch(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) (*domain.BatchRun, error) {
+	if s.events == nil {
+		return nil, domain.ErrBatchProcessingUnavailable
+	}
 	if len(eventIDs) == 0 {
 		return nil, fmt.Errorf("no event IDs provided")
 	}
@@ -128,14 +131,13 @@ func (s *Service) CreateBatch(ctx context.Context, tenantID, partitionKey, ruleS
 }
 
 // GetBatch retrieves a batch run by ID
-func (s *Service) GetBatch(ctx context.Context, batchID string) (*domain.BatchRun, error) {
-	return s.batches.GetRun(ctx, batchID)
+func (s *Service) GetBatch(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+	return s.batches.GetRunForTenant(ctx, tenantID, batchID)
 }
 
 // ListBatches lists batch runs with optional filters
 func (s *Service) ListBatches(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
-	// This would need a new repository method. For now, return not implemented.
-	return nil, fmt.Errorf("ListBatches not implemented - requires repository method")
+	return s.batches.ListRuns(ctx, tenantID, ruleSet, limit, offset)
 }
 
 func (s *Service) ready(members []*domain.InboxEntry) bool {
@@ -150,6 +152,9 @@ func (s *Service) ready(members []*domain.InboxEntry) bool {
 }
 
 func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry) (int, error) {
+	if s.events == nil {
+		return 0, domain.ErrBatchProcessingUnavailable
+	}
 	if len(members) == 0 {
 		return 0, nil
 	}
