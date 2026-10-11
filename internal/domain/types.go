@@ -456,6 +456,7 @@ type ScheduledEvent struct {
 	Headers      map[string]string    `json:"headers,omitempty"`
 	ScheduledAt  time.Time            `json:"scheduled_at"`
 	Status       ScheduledEventStatus `json:"status"`
+	RetryAt      *time.Time           `json:"retry_at,omitempty"`
 	RetryCount   int                  `json:"retry_count,omitempty"`
 	LastError    string               `json:"last_error,omitempty"`
 	CreatedAt    time.Time            `json:"created_at"`
