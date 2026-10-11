@@ -298,8 +298,8 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	}
 	txManager := newMockTxManager(mockTx)
 
-	newRepos := func(tx ports.Transaction) (svcevents.TxRepos, error) {
-		return svcevents.TxRepos{
+	newRepos := func(tx ports.Transaction) (ports.EventTxRepos, error) {
+		return ports.EventTxRepos{
 			Inbox:       inbox,
 			Activations: activations,
 			RuleRepo:    ruleRepo,
@@ -511,13 +511,10 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 		activations: activations,
 	})
 	// Mock RepositoryFactory that returns tx-scoped repos
-	newTxRepos := func(tx ports.Transaction) (ports.TxRepos, error) {
+	newTxRepos := func(tx ports.Transaction) (ports.RuleTxRepos, error) {
 		return ports.TxRepos{
-			Inbox:       nil,
 			Activations: activations,
 			RuleRepo:    ruleRepo,
-			Executions:  executions,
-			Outbox:      nil,
 		}, nil
 	}
 	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{}, txManager, newTxRepos)
