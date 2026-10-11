@@ -16,7 +16,7 @@ type Router struct {
 	handler http.Handler
 }
 
-// NewRouter creates a new HTTP router with all routes registered
+// NewRouter creates a management API router without event publication configured.
 func NewRouter(
 	ruleSvc ports.RuleService,
 	workflowSvc ports.WorkflowService,
@@ -25,6 +25,21 @@ func NewRouter(
 	batchSvc ports.BatchService,
 	quarantineSvc ports.QuarantineService,
 	scheduledRepo ports.ScheduledEventRepository,
+) *Router {
+	return NewRouterWithPublisher(ruleSvc, workflowSvc, workflowDefRepo, contractRegistry, batchSvc, quarantineSvc, scheduledRepo, nil, 4096)
+}
+
+// NewRouterWithPublisher also registers the SDK-compatible event ingestion endpoint.
+func NewRouterWithPublisher(
+	ruleSvc ports.RuleService,
+	workflowSvc ports.WorkflowService,
+	workflowDefRepo ports.WorkflowDefinitionRepository,
+	contractRegistry ports.ContractRegistry,
+	batchSvc ports.BatchService,
+	quarantineSvc ports.QuarantineService,
+	scheduledRepo ports.ScheduledEventRepository,
+	publisher ports.BrokerPublisher,
+	numShards uint32,
 ) *Router {
 	mux := http.NewServeMux()
 
@@ -60,6 +75,10 @@ func NewRouter(
 	// Scheduled event handlers
 	scheduledHandler := handlers.NewScheduledHandler(scheduledRepo)
 	scheduledHandler.RegisterRoutes(mux)
+
+	// Event ingestion used by the Go SDK's HTTP transport.
+	eventHandler := handlers.NewEventIngestionHandler(publisher, numShards)
+	eventHandler.RegisterRoutes(mux)
 
 	return &Router{handler: handler}
 }
