@@ -2,97 +2,46 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
+	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
 	transactioninitiated "examples/banking/generated/go/transaction_initiated"
 )
 
-type EventEnvelope struct {
-	ID           string            `json:"id"`
-	Type         string            `json:"type"`
-	TenantID     string            `json:"tenant_id"`
-	PartitionKey string            `json:"partition_key"`
-	WorkflowID   string            `json:"workflow_id,omitempty"`
-	OccurredAt   time.Time         `json:"occurred_at"`
-	Data         json.RawMessage   `json:"data"`
-	Headers      map[string]string `json:"headers,omitempty"`
+func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+	}
 }
 
-func main() {
-	natsURL := os.Getenv("NATS_URL")
-	if natsURL == "" {
-		natsURL = "nats://localhost:4222"
-	}
-
-	ctx := context.Background()
-
-	nc, err := nats.Connect(natsURL)
+func run() error {
+	client, err := flowrule.New()
 	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
+		return fmt.Errorf("create FlowRule client: %w", err)
 	}
-	defer nc.Drain()
+	defer client.Close()
 
-	js, err := jetstream.New(nc)
-	if err != nil {
-		log.Fatalf("Failed to create JetStream context: %v", err)
-	}
-
-	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     "flowrule",
-		Subjects: []string{"events.>"},
-	})
-	if err != nil {
-		log.Fatalf("Failed to create stream: %v", err)
-	}
-
-	// Create transaction using generated types
 	transaction := transactioninitiated.Initiated{
-		TransactionId:     "txn-001",
-		AccountId:         "account-456",
-		Amount:            2500000,
-		Currency:          "USD",
-		TransactionType:   "wire_transfer",
+		TransactionId:       "txn-001",
+		AccountId:           "account-456",
+		Amount:              2500000,
+		Currency:            "USD",
+		TransactionType:     "wire_transfer",
 		CounterpartyAccount: "INTL-789",
-		Description:       "INV-2024-001",
-		InitiatedAt:       time.Now().UTC().Format(time.RFC3339),
+		Description:         "INV-2024-001",
+		InitiatedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 
-	transactionData, err := json.Marshal(transaction)
-	if err != nil {
-		log.Fatalf("Failed to marshal transaction: %v", err)
-	}
-
-	transactionEvent := EventEnvelope{
-		ID:           "txn-001",
-		Type:         "transaction.initiated",
-		TenantID:     "global-bank",
-		PartitionKey: "account-456",
-		OccurredAt:   time.Now().UTC(),
-		Data:         transactionData,
-	}
-
-	data, err := json.Marshal(transactionEvent)
-	if err != nil {
-		log.Fatalf("Failed to marshal event: %v", err)
-	}
-
-	shard := uint32(456)
-	subject := fmt.Sprintf("events.shard.%d", shard)
-
-	_, err = js.Publish(ctx, subject, data)
-	if err != nil {
-		log.Fatalf("Failed to publish event: %v", err)
+	typed := transactioninitiated.NewClient(client)
+	if err := typed.Send(context.Background(), &transaction, flowrule.WithPartitionKey(transaction.AccountId)); err != nil {
+		return fmt.Errorf("send transaction.initiated: %w", err)
 	}
 
 	fmt.Println("Transaction initiated event published successfully!")
-	fmt.Printf("Event ID: %s\n", transactionEvent.ID)
-	fmt.Printf("Type: %s\n", transactionEvent.Type)
-	fmt.Printf("Tenant: %s\n", transactionEvent.TenantID)
+	fmt.Printf("Type: %s\n", transactioninitiated.DefaultRuleSet)
+	fmt.Printf("Partition key: %s\n", transaction.AccountId)
+	return nil
 }

@@ -107,5 +107,5 @@ flowrule-codegen -contract transaction.initiated -version 1.0 -target go -output
 1. **Regulatory compliance** - Built-in audit trail for all transactions
 2. **Risk-based routing** - Automatic compliance checks for high-risk transactions
 3. **Type-safe contracts** - Generated types prevent schema drift
-4. **Exactly-once processing** - Inbox pattern prevents duplicate settlements
+4. **Duplicate-resistant processing** - Inbox deduplication reduces duplicate rule execution
 5. **Observable** - Full lineage from transaction → compliance → settlement

@@ -114,5 +114,5 @@ flowrule-codegen -contract order.placed -version 1.0 -target go -output generate
 2. **Rating-based automation** - High-rated restaurants get auto-acceptance
 3. **Real-time tracking** - Workflow state machine provides live order status
 4. **Type-safe contracts** - Generated types for order, restaurant, driver entities
-5. **Exactly-once processing** - No duplicate deliveries or charges
+5. **Duplicate-resistant processing** - Inbox deduplication reduces duplicate rule execution
 6. **Observable** - Full lineage from order → restaurant → driver → delivery

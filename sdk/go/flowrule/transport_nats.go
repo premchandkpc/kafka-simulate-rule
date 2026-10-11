@@ -3,6 +3,7 @@ package flowrule
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -130,6 +131,63 @@ func (t *natsTransport) SendBatch(ctx context.Context, envs []*Envelope) error {
 	}
 
 	return nil
+}
+
+func (t *natsTransport) Subscribe(ctx context.Context, ruleSet string, handler EventHandler) (retErr error) {
+	t.mu.RLock()
+	if t.closed {
+		t.mu.RUnlock()
+		return ErrTransportClosed
+	}
+	conn := t.conn
+	cfg := t.cfg.Config
+	t.mu.RUnlock()
+
+	messages := make(chan *nats.Msg, 128)
+	subscriptions := make([]*nats.Subscription, 0, len(cfg.NATSSubjects))
+	defer func() {
+		for _, subscription := range subscriptions {
+			if err := subscription.Unsubscribe(); err != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("unsubscribe from NATS: %w", err))
+			}
+		}
+	}()
+
+	for _, subject := range cfg.NATSSubjects {
+		subscription, err := conn.ChanSubscribe(fmt.Sprintf("%s.shard.*", subject), messages)
+		if err != nil {
+			return fmt.Errorf("subscribe to NATS subject %q: %w", subject, err)
+		}
+		subscriptions = append(subscriptions, subscription)
+	}
+	if err := conn.FlushWithContext(ctx); err != nil {
+		return fmt.Errorf("activate NATS subscriptions: %w", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case message := <-messages:
+			if message == nil {
+				continue
+			}
+
+			var envelope Envelope
+			if err := json.Unmarshal(message.Data, &envelope); err != nil {
+				return fmt.Errorf("decode NATS event envelope: %w", err)
+			}
+			if envelope.Type == "" || envelope.TenantID == "" {
+				return ErrInvalidArgument("NATS event envelope must include type and tenant ID")
+			}
+			if envelope.TenantID != cfg.TenantID || envelope.Type != ruleSet {
+				continue
+			}
+			if err := handler(ctx, &envelope); err != nil {
+				return fmt.Errorf("handle NATS event for rule set %q: %w", ruleSet, err)
+			}
+		}
+	}
 }
 
 func (t *natsTransport) Close() error {
