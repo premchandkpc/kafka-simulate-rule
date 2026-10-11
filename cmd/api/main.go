@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/flowrule/flowrule/internal/adapters/http"
+	natsadapter "github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
@@ -25,7 +28,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (runErr error) {
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,
@@ -47,6 +50,25 @@ func run() error {
 	if err := db.Initialize(ctx); err != nil {
 		return err
 	}
+
+	natsCfg := natsadapter.Config{
+		NatsURL:    cfg.NATS.URL,
+		Stream:     cfg.NATS.Stream,
+		Consumer:   cfg.NATS.Consumer,
+		Subjects:   []string{"events"},
+		AckWait:    cfg.NATSAckWait(),
+		MaxDeliver: cfg.Worker.NATSMaxDeliver,
+		NumShards:  cfg.Worker.NumShards,
+	}
+	publisher, err := natsadapter.NewConsumer(ctx, natsCfg)
+	if err != nil {
+		return fmt.Errorf("initialize NATS event publisher: %w", err)
+	}
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close NATS event publisher: %w", err))
+		}
+	}()
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	repositories := db.Repositories()
@@ -77,7 +99,7 @@ func run() error {
 
 	workflowDefRepo := repositories.WorkflowDefinitions
 
-	router := http.NewRouter(
+	router := http.NewRouterWithPublisher(
 		rulesSvc,
 		workflowSvc,
 		workflowDefRepo,
@@ -85,6 +107,8 @@ func run() error {
 		batchSvc,
 		quarantineSvc,
 		repositories.ScheduledEvents,
+		publisher,
+		cfg.Worker.NumShards,
 	)
 
 	log.Printf("API server listening on %s", cfg.App.HTTPAddr)
