@@ -252,7 +252,7 @@ func (m *mockQuarantine) Save(ctx context.Context, entry *domain.QuarantineEntry
 	return nil
 }
 
-func (m *mockQuarantine) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
+func (m *mockQuarantine) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	return m.entries[id], nil
 }
 
@@ -267,11 +267,11 @@ func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter
 	return result, nil
 }
 
-func (m *mockQuarantine) Replay(ctx context.Context, id string) error {
+func (m *mockQuarantine) Replay(ctx context.Context, tenantID, id string) error {
 	return nil
 }
 
-func (m *mockQuarantine) Delete(ctx context.Context, id string) error {
+func (m *mockQuarantine) Delete(ctx context.Context, tenantID, id string) error {
 	delete(m.entries, id)
 	return nil
 }
@@ -512,7 +512,7 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	})
 	// Mock RepositoryFactory that returns tx-scoped repos
 	newTxRepos := func(tx ports.Transaction) (ports.RuleTxRepos, error) {
-		return ports.TxRepos{
+		return ports.RuleTxRepos{
 			Activations: activations,
 			RuleRepo:    ruleRepo,
 		}, nil
