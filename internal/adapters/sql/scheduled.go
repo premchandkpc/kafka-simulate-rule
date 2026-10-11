@@ -31,10 +31,14 @@ func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.Sched
 }
 
 func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
 	rows, err := r.db.Query(ctx, `
 		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
 		FROM scheduled_events
-		WHERE status = 'pending' AND scheduled_at <= $1
+		WHERE (status = 'pending' AND scheduled_at <= $1)
+		   OR (status = 'claimed' AND claim_expires_at <= $1)
 		ORDER BY scheduled_at
 		LIMIT $2
 	`, before, limit)
@@ -42,35 +46,24 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 		return nil, fmt.Errorf("get due scheduled events: %w", err)
 	}
 	defer rows.Close()
-
-	var events []*domain.ScheduledEvent
-	for rows.Next() {
-		var evt domain.ScheduledEvent
-		var releasedAt *time.Time
-		if err := rows.Scan(
-			&evt.EventID, &evt.TenantID, &evt.EventType, &evt.PartitionKey,
-			&evt.WorkflowID, &evt.Payload, &evt.Headers, &evt.ScheduledAt,
-			&evt.Status, &evt.CreatedAt, &releasedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan scheduled event: %w", err)
-		}
-		evt.ReleasedAt = releasedAt
-		events = append(events, &evt)
-	}
-	return events, nil
+	return scanScheduledEvents(rows)
 }
 
 func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
 	if len(eventIDs) == 0 {
 		return nil, nil
 	}
+	if strings.TrimSpace(claimant) == "" {
+		return nil, fmt.Errorf("claim scheduled events: claimant is required")
+	}
+	if leaseTTL <= 0 {
+		return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
+	}
 
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
-
-	// Build placeholders for IN clause
 	placeholders := make([]string, len(eventIDs))
-	args := make([]interface{}, len(eventIDs)+3)
+	args := make([]any, len(eventIDs)+3)
 	args[0] = claimant
 	args[1] = expiresAt
 	args[2] = now
@@ -82,16 +75,117 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 	query := fmt.Sprintf(`
 		UPDATE scheduled_events
 		SET status = 'claimed', claimant = $1, claim_expires_at = $2, claimed_at = $3
-		WHERE event_id IN (%s) AND status = 'pending'
+		WHERE event_id IN (%s)
+		  AND (
+		    (status = 'pending' AND scheduled_at <= $3)
+		    OR (status = 'claimed' AND claim_expires_at <= $3)
+		  )
 		RETURNING event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
 	`, strings.Join(placeholders, ","))
-
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("claim scheduled events: %w", err)
 	}
 	defer rows.Close()
+	return scanScheduledEvents(rows)
+}
 
+func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE scheduled_events
+		SET status = 'released', released_at = $3,
+		    claimant = NULL, claimed_at = NULL, claim_expires_at = NULL
+		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2
+	`, eventID, claimant, releasedAt)
+	if err != nil {
+		return fmt.Errorf("mark scheduled event released: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("mark scheduled event released: claim for event %q is no longer owned by %q", eventID, claimant)
+	}
+	return nil
+}
+
+func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE scheduled_events
+		SET status = 'failed', last_error = $3,
+		    claimant = NULL, claimed_at = NULL, claim_expires_at = NULL
+		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2
+	`, eventID, claimant, errMsg)
+	if err != nil {
+		return fmt.Errorf("mark scheduled event failed: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("mark scheduled event failed: claim for event %q is no longer owned by %q", eventID, claimant)
+	}
+	return nil
+}
+
+func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error) {
+	var evt domain.ScheduledEvent
+	var releasedAt *time.Time
+	err := r.db.QueryRow(ctx, `
+		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
+		FROM scheduled_events
+		WHERE tenant_id = $1 AND event_id = $2
+	`, tenantID, eventID).Scan(
+		&evt.EventID, &evt.TenantID, &evt.EventType, &evt.PartitionKey,
+		&evt.WorkflowID, &evt.Payload, &evt.Headers, &evt.ScheduledAt,
+		&evt.Status, &evt.CreatedAt, &releasedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get scheduled event: %w", err)
+	}
+	evt.ReleasedAt = releasedAt
+	return &evt, nil
+}
+
+func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
+		FROM scheduled_events
+		WHERE tenant_id = $1
+		ORDER BY scheduled_at DESC, created_at DESC
+		LIMIT $2 OFFSET $3
+	`, tenantID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list scheduled events: %w", err)
+	}
+	defer rows.Close()
+	return scanScheduledEvents(rows)
+}
+
+// Cancel cancels a pending scheduled event belonging to tenantID. Claimed,
+// released, failed, or foreign-tenant events cannot be cancelled through this API.
+func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE scheduled_events
+		SET status = 'cancelled'
+		WHERE tenant_id = $1 AND event_id = $2 AND status = 'pending'
+	`, tenantID, eventID)
+	if err != nil {
+		return fmt.Errorf("cancel scheduled event: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("cancel scheduled event: event %q not found or not pending for tenant %q", eventID, tenantID)
+	}
+	return nil
+}
+
+func scanScheduledEvents(rows pgx.Rows) ([]*domain.ScheduledEvent, error) {
 	var events []*domain.ScheduledEvent
 	for rows.Next() {
 		var evt domain.ScheduledEvent
@@ -106,61 +200,8 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		evt.ReleasedAt = releasedAt
 		events = append(events, &evt)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scheduled events: %w", err)
+	}
 	return events, nil
-}
-
-func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error {
-	_, err := r.db.Exec(ctx, `
-		UPDATE scheduled_events
-		SET status = 'released', released_at = $2
-		WHERE event_id = $1
-	`, eventID, releasedAt)
-	if err != nil {
-		return fmt.Errorf("mark scheduled event released: %w", err)
-	}
-	return nil
-}
-
-func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID string, errMsg string) error {
-	_, err := r.db.Exec(ctx, `
-		UPDATE scheduled_events
-		SET status = 'failed'
-		WHERE event_id = $1
-	`, eventID)
-	if err != nil {
-		return fmt.Errorf("mark scheduled event failed: %w", err)
-	}
-	return nil
-}
-
-func (r *ScheduledEventRepository) Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error) {
-	evt := &domain.ScheduledEvent{}
-	var releasedAt *time.Time
-	err := r.db.QueryRow(ctx, `
-		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
-		FROM scheduled_events
-		WHERE event_id = $1
-	`, eventID).Scan(
-		&evt.EventID, &evt.TenantID, &evt.EventType, &evt.PartitionKey,
-		&evt.WorkflowID, &evt.Payload, &evt.Headers, &evt.ScheduledAt,
-		&evt.Status, &evt.CreatedAt, &releasedAt,
-	)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get scheduled event: %w", err)
-	}
-	evt.ReleasedAt = releasedAt
-	return evt, nil
-}
-
-func (r *ScheduledEventRepository) Cancel(ctx context.Context, eventID string) error {
-	_, err := r.db.Exec(ctx, `
-		UPDATE scheduled_events SET status = 'cancelled' WHERE event_id = $1
-	`, eventID)
-	if err != nil {
-		return fmt.Errorf("cancel scheduled event: %w", err)
-	}
-	return nil
 }
