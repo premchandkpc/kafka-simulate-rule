@@ -169,6 +169,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		outboxEffects = append(outboxEffects, domain.OutboxEffect{
 			ID:          ef.ID,
 			ExecutionID: executionID,
+			TenantID:    envelope.TenantID,
 			Destination: ef.Destination,
 			Name:        ef.Name,
 			Payload:     ef.Payload,
