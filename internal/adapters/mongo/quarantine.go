@@ -40,6 +40,9 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 }
 
 func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
+	if tenantID == "" {
+		return nil, nil
+	}
 	coll := r.collection("quarantine")
 	var doc QuarantineDoc
 	err := coll.FindOne(ctx, bson.M{
@@ -56,6 +59,9 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 }
 
 func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
 	coll := r.collection("quarantine")
 	result, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id, "tenant_id": tenantID})
 	if err != nil {
@@ -68,12 +74,12 @@ func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) 
 }
 
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	if filter.TenantID == "" {
+		return nil, fmt.Errorf("tenant_id is required")
+	}
 	coll := r.collection("quarantine")
 
-	f := bson.M{}
-	if filter.TenantID != "" {
-		f["tenant_id"] = filter.TenantID
-	}
+	f := bson.M{"tenant_id": filter.TenantID}
 	if filter.SourceType != "" {
 		f["source_type"] = filter.SourceType
 	}
@@ -114,6 +120,9 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 }
 
 func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
 	coll := r.collection("quarantine")
 	now := time.Now().UTC()
 
