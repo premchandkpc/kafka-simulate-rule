@@ -174,7 +174,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 	return def, nil
 }
 
-func (r *WorkflowDefinitionRepository) List(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
+func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.WorkflowDefinition, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT workflow_type, version, states, transitions, rules, created_at, updated_at
 		FROM workflow_definitions
