@@ -83,13 +83,7 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 
 	_, err := coll.UpdateOne(ctx,
 		bson.M{"batch_id": run.BatchID},
-		bson.M{
-			"$set": doc,
-			"$setOnInsert": bson.M{
-				"batch_id":   run.BatchID,
-				"created_at": run.CreatedAt,
-			},
-		},
+		bson.M{"$set": doc},
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
