@@ -87,7 +87,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 			repositories: Repositories{
 				Inbox:                  mongoadapter.NewInboxRepository(q),
 				Activations:            mongoadapter.NewActivationRepository(q),
-				Rules:                  mongoadapter.NewRepository(q),
+				Rules:                  mongoadapter.NewRuleRepository(q),
 				Executions:             mongoadapter.NewExecutionRepository(q),
 				Outbox:                 mongoadapter.NewOutboxRepository(q),
 				ShardLeases:            mongoadapter.NewShardLeaseRepository(q),
