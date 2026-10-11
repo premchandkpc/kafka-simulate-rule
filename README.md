@@ -1,0 +1,84 @@
+# FlowRule
+
+FlowRule is a Go-based, event-driven rules runtime. Rules are compiled into immutable revisions; a worker evaluates incoming events and commits an execution record plus resulting effects; effects are delivered asynchronously through an outbox.
+
+> Development status: do not expose the HTTP API to untrusted networks. Authentication and authorization are not implemented, and the current tenant middleware trusts caller-controlled headers/query values.
+
+## Processes
+
+| Process | Entrypoint | Responsibility |
+|---|---|---|
+| HTTP API | cmd/api | Rule revisions/activation, workflows, contracts, batches, quarantine, scheduled-event endpoints |
+| Worker | cmd/worker | NATS JetStream consumption, shard leases/fencing, per-key ordering, event evaluation, outbox publishing |
+| Code generator | cmd/codegen | Generate Go, Java, Protobuf, and JSON Schema artifacts from a contract already registered in storage |
+| Migration CLI | cmd/migrate | Apply pending migrations; only the up command is implemented |
+
+The root module uses Go 1.26.0. The SDK in sdk/go and each example application are independent Go modules and are tested separately.
+
+## Event lifecycle
+
+1. A producer publishes an EventEnvelope to the NATS subject family events.shard.N. N is computed from tenant ID and partition key using the configured shard count.
+2. The worker consumes only shards for which it owns a lease. The bounded key queue serializes work for each partition key while allowing concurrency across keys.
+3. Inside one storage transaction, the event service validates the fencing token, checks the inbox for duplicates, loads the active rule revision, evaluates rules, and writes the execution plus outbox effects.
+4. The worker acknowledges the broker delivery only after the transaction commits.
+5. The outbox publisher routes emitted child events back to events.shard.N. External command effects are sent to the configured HTTP destination with a stable idempotency key.
+6. The scheduler claims due scheduled events and publishes them to the same subject family.
+
+NATS delivery is at-least-once. The inbox prevents duplicate event execution when storage constraints and transaction semantics hold. External effects are effectively-once only when the destination honors the idempotency key. Do not claim exactly-once delivery.
+
+## Run locally
+
+Start the local development stack:
+
+~~~sh
+docker compose up --build -d
+~~~
+
+Local endpoints: API at localhost:8080, NATS client at localhost:4222, NATS monitoring at localhost:8222, PostgreSQL at localhost:5432, and Redis at localhost:6379. The Compose file uses development settings and demo credentials. Keep it local; do not reuse those credentials in production.
+
+For root-module development:
+
+~~~sh
+go build ./cmd/...
+go test -race -count=1 ./...
+go vet ./...
+~~~
+
+Test the nested modules separately:
+
+~~~sh
+cd sdk/go && go test -race -count=1 ./...
+cd ../../examples/banking && go test -race -count=1 ./...
+cd ../ecommerce && go test -race -count=1 ./...
+cd ../food-delivery && go test -race -count=1 ./...
+~~~
+
+Environment variable names and local defaults are documented in .env.example. API and worker startup initialize storage/migrations. Outside development/test, the worker requires EFFECT_DESTINATION_URL and fails startup if it is missing.
+
+## Repository map
+
+- cmd contains the process entrypoints.
+- internal/domain contains business types, validation, state transitions, IDs, and hashes.
+- internal/ports defines broker, storage, transaction, and service interfaces.
+- internal/rules contains rule compilation and deterministic evaluation.
+- internal/services contains event, effects, rules, batch, workflow, and quarantine use cases.
+- internal/application and internal/runtime contain worker orchestration, the per-key queue, shard leases, and the scheduler.
+- internal/adapters contains HTTP, PostgreSQL, MongoDB, NATS, Redis, fake destination, and HTTP destination implementations.
+- internal/storage selects and wires the configured persistence backend.
+- sdk/go is the standalone producer/consumer SDK.
+- examples contains banking, e-commerce, and food-delivery contracts, rules, workflows, generated Go types, and sample applications.
+- migrations contains numbered PostgreSQL migrations.
+- docs contains architecture diagrams, rules, operations, roadmap, and dated audit notes.
+- AGENTS.md is the engineering guide and source-backed file map.
+- ARCHITECTURE_MAP.md describes runtime data flow, package boundaries, and known gaps.
+
+Start with docs/README.md for the documentation index.
+
+## Important limitations
+
+- The API has no authentication/authorization or trusted tenant resolver. Caller-supplied X-Tenant-ID and tenant_id query values are not identity.
+- /health is a liveness endpoint only; it does not prove the database or NATS is healthy.
+- GRPC_ADDR is configured but cmd/api does not start a gRPC listener.
+- Migration rollback/status commands and live infrastructure-backed chaos tests are not implemented.
+- Tests under tests/integration use mocks/in-memory repositories, not live PostgreSQL and NATS. Validate storage atomicity, redelivery, lease expiry, and crash recovery against real infrastructure before making production guarantees.
+- MongoDB transaction behavior and parity must be verified for the exact deployment configuration before relying on it for the same guarantees as PostgreSQL.
