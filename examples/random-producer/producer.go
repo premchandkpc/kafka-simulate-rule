@@ -157,12 +157,12 @@ func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope)
 
 			event := domain.EventEnvelope{
 				ID:           domain.NewID(),
-				Type:         "simulation.message",
+				Type:         "random-producer.message",
 				TenantID:     tenantID,
 				PartitionKey: partitionKey,
 				OccurredAt:   time.Now().UTC(),
 				Data:         payload,
-				Headers:      map[string]string{"source": "random-producer-simulator"},
+				Headers:      map[string]string{"source": "random-producer-example"},
 			}
 			select {
 			case jobs <- event:
