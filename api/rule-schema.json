@@ -15,7 +15,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+      "pattern": "^[a-z][a-z0-9.-]*[a-z0-9]$"
     },
     "revision": {
       "type": "integer",
@@ -52,7 +52,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+          "pattern": "^[a-z][a-z0-9_-]*[a-z0-9]$"
         },
         "priority": {
           "type": "integer",
