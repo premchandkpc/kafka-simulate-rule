@@ -108,6 +108,56 @@ func TestSanitizeGeneratedOutputDirRejectsEmptyPath(t *testing.T) {
 	}
 }
 
+func TestGenerateMethodsRejectParentTraversal(t *testing.T) {
+	generator := NewGenerator(&domain.ContractSchema{
+		Name:    "order.created",
+		Version: "1.0",
+		Fields:  map[string]domain.ContractField{},
+	})
+	tests := map[string]func(string) error{
+		"go": func(dir string) error {
+			_, err := generator.GenerateGo(dir)
+			return err
+		},
+		"java": func(dir string) error {
+			_, err := generator.GenerateJava(dir)
+			return err
+		},
+		"protobuf": func(dir string) error {
+			_, err := generator.GenerateProtobuf(dir)
+			return err
+		},
+		"jsonschema": func(dir string) error {
+			_, err := generator.GenerateJSONSchema(dir)
+			return err
+		},
+		"all": func(dir string) error {
+			_, err := generator.GenerateAll(dir)
+			return err
+		},
+		"runtime": func(dir string) error {
+			_, err := generator.GenerateRuntime(dir)
+			return err
+		},
+		"evaluator": func(dir string) error {
+			_, err := generator.GenerateEvaluator(dir)
+			return err
+		},
+		"service": func(dir string) error {
+			_, err := generator.GenerateService(dir)
+			return err
+		},
+	}
+
+	for name, generate := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := generate(filepath.Join("..", "outside")); err == nil {
+				t.Fatal("generator accepted an output directory with parent traversal")
+			}
+		})
+	}
+}
+
 func TestGenerateGoRejectsUnsafeSchemaDerivedFileNames(t *testing.T) {
 	generator := NewGenerator(&domain.ContractSchema{
 		Name:    "../../escape",
