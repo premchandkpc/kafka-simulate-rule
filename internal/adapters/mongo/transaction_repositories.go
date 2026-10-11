@@ -25,3 +25,17 @@ func NewEventTxRepositories(tx ports.Transaction) (ports.EventTxRepos, error) {
 		ShardLeases: NewShardLeaseRepository(q),
 	}, nil
 }
+
+ // NewRuleTxRepositories builds only the repositories required for atomic rule activation.
+func NewRuleTxRepositories(tx ports.Transaction) (ports.RuleTxRepos, error) {
+	mongoTx, ok := tx.(*Transaction)
+	if !ok {
+		return ports.RuleTxRepos{}, fmt.Errorf("mongodb transaction has unexpected type %T", tx)
+	}
+
+	q := NewTxQuerier(mongoTx.Session(), mongoTx.Database())
+	return ports.RuleTxRepos{
+		RuleRepo:    NewRepository(q),
+		Activations: NewActivationRepository(q),
+	}, nil
+}
