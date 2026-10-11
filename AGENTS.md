@@ -1,503 +1,272 @@
-# AGENTS.md — FlowRule Engineering & Agent Operating Manual
-
-> Audience: any engineer or AI agent (single or multi-agent) changing this repo.
-> Rule zero: **correctness of exactly-once *effects* beats features, speed, and style.**
-> Items marked `[VERIFY]` were inferred from docs and must be confirmed in code before you rely on them.
-
----
-
-## 0. TL;DR (read this if you read nothing else)
-
-1. Hexagonal: `cmd → services → ports → domain`; `adapters → ports, domain`. **Never** `services → adapters`, never `domain → anything`.
-2. Every state change for one event happens in **one DB transaction**: inbox + decision + outbox. Broker ACK only **after** commit.
-3. Effects are **at-least-once + idempotency key** = *effectively-once*. Never write "exactly-once delivery" in code, docs, or commits. Say "exactly-once execution, idempotent effects".
-4. Fencing fails **closed**. Shard `0` is a valid shard. Token `<= 0` is invalid, not "skip".
-5. No change is done until `make ci` is green **and** you have shown evidence (test output), not claims.
-6. Fix order is in §12. Do not build new features while P0 items are open.
-
----
-
-## 1. Quick Start
-
-```bash
-make tools                  # install dev tools
-docker-compose up -d        # Postgres, NATS (JetStream), Redis
-make migrate-up
-make run-worker             # or: go run ./cmd/worker
-make run-api                # or: go run ./cmd/api
-make test                   # unit + integration
-make test-unit              # ./internal/...
-make test-integration       # -tags=integration ./tests/...
-```
-
-Single test: `go test -race -count=1 -v -run TestName ./internal/services/events/...`
-
-## 2. Command Reference
-
-| Task | Command |
-|------|---------|
-| Build all | `make build` |
-| Lint | `make lint` (needs golangci-lint) |
-| Vet / Format | `make vet` / `make fmt` |
-| Generate code | `make generate` (`go run ./cmd/codegen generate --all`) |
-| Proto gen | `make proto-gen` |
-| Migrate up / down | `make migrate-up` / `make migrate-down` |
-| Clean | `make clean` |
-| **CI pipeline** | `make ci` (deps → fmt → vet → lint → test-unit → verify-generated) |
-| Race tests (required before PR) | `go test -race -count=1 ./...` |
-| Integration | `go test -race -count=1 -tags=integration ./tests/integration/...` |
-| E2E | `go test -count=1 -tags=e2e ./tests/e2e/...` |
-
-`make ci` is the **minimum** gate. Concurrency or SQL changes also require `-race` and integration (see §9).
-
----
-
-## 3. Architecture (Hexagonal) — Source of Truth
-
-```
-cmd/api, cmd/worker ──► internal/services ──► internal/ports ◄── internal/adapters
-                                                     │
-                          internal/domain ◄──────────┘
-```
-
-| Layer | Contains | May import | Must NOT import |
-|-------|----------|-----------|-----------------|
-| `domain` | entities, value objects, state machines, domain errors, `SystemClock` | stdlib only | everything else |
-| `ports` | interfaces + command/DTO structs | `domain` | `adapters`, `services`, `pgx`, `nats`, `mongo`, `redis` |
-| `rules` | compiler, **pure** evaluator | `domain` | any I/O, clock, rand, network |
-| `services` | use cases: events, effects, rules, batches, workflows, quarantine | `ports`, `domain`, `rules` (via ports) | `adapters`, drivers |
-| `adapters` | sql/, nats/, mongo/, effects/, http/, memory/ | `ports`, `domain` | `services`, other adapters |
-| `cmd` | composition roots: api, worker, codegen, migrate | everything | business logic |
-
-Also present (not in the original docs; classify before touching) `[VERIFY]`:
-`internal/storage` (backend factory), `internal/application` (worker loop — this is a **driving adapter**, not application core), `internal/runtime/{shard,scheduler}`, `internal/observability`, `internal/config`.
-
-### 3.1 Driving vs driven ports
-- **Driving (inbound)**: what the outside calls: `EventProcessor`, `EffectPublisher`, rule management.
-- **Driven (outbound)**: what the core needs: repositories, `EffectSender`, `Clock`, `UnitOfWork`, `BrokerConsumer`.
-- Target layout: `ports/driving.go`, `ports/driven.go`. Do not add to a single god file.
-
-### 3.2 Mechanical enforcement (add if missing)
-Add to `.golangci.yml` so the rule is a failing build, not a wiki page:
-
-```yaml
-linters:
-  enable: [depguard, errcheck, govet, staticcheck, gosec, errorlint, contextcheck, bodyclose, gocritic, revive]
-linters-settings:
-  depguard:
-    rules:
-      domain-pure:
-        files: ["**/internal/domain/**"]
-        deny: [{pkg: "github.com/flowrule/flowrule/internal", desc: "domain imports stdlib only"}]
-      core-no-drivers:
-        files: ["**/internal/services/**", "**/internal/ports/**"]
-        deny:
-          - {pkg: "github.com/jackc/pgx", desc: "driver in core"}
-          - {pkg: "github.com/nats-io", desc: "driver in core"}
-          - {pkg: "go.mongodb.org", desc: "driver in core"}
-          - {pkg: "github.com/redis", desc: "driver in core"}
-          - {pkg: "github.com/flowrule/flowrule/internal/adapters", desc: "core must not see adapters"}
-```
-
----
-
-## 4. Non-Negotiable Invariants
-
-Violating any of these is a **blocker**, regardless of test status. Each needs a test that fails if broken.
-
-| # | Invariant | Where enforced | Required test |
-|---|-----------|----------------|---------------|
-| I1 | Inbox insert, execution, outbox rows, inbox mark-committed commit **atomically** | `services/events` + `UnitOfWork` | kill tx mid-way → no partial rows |
-| I2 | Broker ACK only after successful commit; Nak/Retry never after commit | worker loop | crash-before-ack → redelivery yields **same** execution |
-| I3 | Duplicate `(tenant_id, event_id)` never creates a 2nd execution | unique constraint + service | N concurrent identical events → exactly 1 execution |
-| I4 | Evaluator is pure: no I/O, clock, randomness, map-iteration order dependence | `internal/rules` | same input ×1000 → identical `Decision.Hash`; fuzz |
-| I5 | Effect ID deterministic: sha256(execution + destination + name + payload) | `domain`/`rules` | golden-hash test |
-| I6 | Fencing validated **first** inside the tx, with row lock; **fail closed**; shard `0` valid | `services/events` | stale token → reject; token 0 → reject; shard 0 → validated |
-| I7 | Outbox state changes are **claimant-fenced** (a stale publisher cannot overwrite) | `adapters/*/outbox` | expired-lease publisher cannot MarkDelivered/Retry/Quarantine |
-| I8 | Quarantine entry + outbox status change are **one** transaction | `OutboxRepository` | crash between → no orphan |
-| I9 | Bookkeeping (settle/ack) uses a context that **survives shutdown** | publisher | SIGTERM mid-send → effect state still settled |
-| I10 | Core imports no driver; adapters pass the contract suite | depguard + `tests/contract` | CI |
-| I11 | Tenant isolation: every query is scoped by `tenant_id`/`tenant_scope` | adapters | cross-tenant read test |
-| I12 | Secrets never logged; payloads logged only by hash/ID | all | log-scrub test `[VERIFY]` |
-
----
-
-## 5. Agent Operating Protocol
-
-### 5.1 Single-agent loop (default)
-```
-1. ORIENT   read this file, §4 invariants, the code you will touch, its tests. Run `git status` + `make ci` for a baseline.
-2. CLAIM    state the goal, the files you will touch, and the invariants at risk (one short paragraph).
-3. RED      write the failing test first (unit → contract → integration as needed).
-4. GREEN    smallest change that passes. No drive-by refactors.
-5. VERIFY   make ci; go test -race -count=1 on touched pkgs; integration if SQL/concurrency/broker touched.
-6. REVIEW   re-read your diff as a hostile reviewer: check §4, §7, §8.
-7. REPORT   use the Evidence Format (§5.4). Never claim "should work".
-```
-
-### 5.2 Multi-agent protocol (swarm)
-Use when work spans ≥ 3 packages or ≥ 2 independent concerns. **One orchestrator, N lane workers, one independent reviewer.**
-
-**Lanes (single owner per path per wave):**
-
-| Lane | Owns (write) | Reads only |
-|------|--------------|-----------|
-| A — Contracts | `internal/ports/**`, `internal/domain/**` | everything |
-| B — Use cases | `internal/services/**`, `internal/rules/**` | ports, domain |
-| C — Adapters | `internal/adapters/**`, `internal/storage/**`, `migrations/**` | ports, domain |
-| D — Runtime | `cmd/**`, `internal/application/**`, `internal/runtime/**`, `internal/config/**` | all |
-| E — Verification | `tests/**`, chaos scripts, benchmarks | all |
-| F — Docs/Obs | `docs/**`, `AGENTS.md`, `internal/observability/**` | all |
-
-**Rules**
-1. **Contract-first.** Lane A lands port/domain changes **first** and alone. Other lanes branch from that commit. No lane edits another lane's paths; request the change via a handoff note.
-2. **Isolation.** One git worktree per agent: `git worktree add ../fr-<lane>-<topic> -b agent/<lane>/<topic>`.
-3. **Waves.** Orchestrator defines waves (§12 has a ready plan). Next wave starts only when the previous wave's gates are green on `main`.
-4. **Merge order**: A → C → B → D → E → F. Rebase, never merge-commit agent branches.
-5. **Independent review.** The reviewing agent must not be the author. Reviewer runs the checks itself; does not trust the author's report.
-6. **Conflict protocol.** Two agents need the same file → stop, orchestrator serializes. Never "resolve" by overwriting.
-7. **Budget.** Max 2 failed fix attempts on the same failure → escalate with the failing output (§5.5).
-
-### 5.3 Handoff note (between lanes)
-```
-FROM: lane-B  TO: lane-C  WAVE: 2
-NEED:   LeaseRepository.AssertHeld(ctx, ShardLease) error  (SELECT ... FOR SHARE on lease row)
-WHY:    I6 – fencing must be first op in tx and lock the row
-CONTRACT: ports/driven.go @ <commit sha>
-ACCEPTANCE: contract test TestLeaseAssertHeld passes for sql+mongo+memory
-```
-
-### 5.4 Evidence format (every report)
-```
-CHANGED:   <files>
-INVARIANTS TOUCHED: I3, I6
-TESTS ADDED: <names>   (each shown to FAIL before the fix: yes/no)
-COMMANDS RUN + RESULT:
-  make ci                                   → PASS
-  go test -race -count=1 ./internal/services/... → PASS
-  go test -race -tags=integration ./tests/integration/... → PASS
-NOT VERIFIED: <honest list>
-RISK / ROLLBACK: <one line>
-```
-"Not verified" must never be empty by habit. Say what you could not run.
-
-### 5.5 Escalate to the human when
-- A change needs a **port signature change** that breaks adapters (needs ADR, §13).
-- A migration is destructive, non-reversible, or locks a hot table.
-- Two invariants conflict, or a requirement contradicts §4.
-- You are blocked after 2 attempts, or tests are flaky and you cannot prove why.
-- You would need secrets, production access, or to delete data.
-
-### 5.6 Sub-agent prompt templates
-**Implementer**
-> You are Lane {X}. Own only {paths}. Goal: {goal}. Invariants at risk: {I#}. Write the failing test first. Do not touch other lanes' files. Run `make ci` and `go test -race` on touched packages. Report in Evidence Format with an honest NOT VERIFIED section.
-
-**Reviewer (hostile)**
-> You did not write this code. Check the diff against AGENTS.md §4 (every invariant), §7 (Go rules), §8 (SQL rules). Run the tests yourself. Try to break it: shard 0, token 0, duplicate event, crash after commit before ACK, SIGTERM mid-send, expired lease, cross-tenant. List blockers vs nits. Do not approve without running tests.
-
-**Chaos/Verifier**
-> Build and run the failure-injection suite (§9.3). Report duplicates, lost effects, and recovery time with numbers.
-
----
-
-## 6. Configuration (Environment Variables)
-
-All config via `internal/config/config.go`.
-
-```
-# Required in production
-EFFECT_DESTINATION_URL     # HTTP endpoint for effect delivery (worker must fail at startup without it)
-
-# Storage
-STORAGE_BACKEND            # postgres | mongodb (default: postgres)
-DATABASE_URL               # required for postgres
-MONGODB_URI, MONGODB_DATABASE  # required for mongodb
-
-# NATS
-NATS_URL                   # default: nats://localhost:4222
-NATS_STREAM                # default: flowrule
-NATS_CONSUMER              # optional
-
-# Worker
-NUM_SHARDS                 # default: 4096
-WORKER_ID                  # auto-generated if empty
-MAX_GLOBAL_IN_FLIGHT       # default: 100
-MAX_PER_KEY_QUEUE          # default: 100
-KEY_QUEUE_WORKERS          # default: 1
-BATCH_MODE                 # none|key|global (default: none)
-BATCH_MAX, BATCH_WINDOW_MS
-SCHEDULER_POLL_MS          # default: 5000
-SCHEDULER_BATCH_SIZE       # default: 100
-LEASE_TTL_MS               # default: 30000
-LEASE_RENEWAL_INTERVAL_MS  # default: 10000
-LOG_LEVEL                  # debug|info|warn|error
-```
-
-**Config rules**
-- No magic numbers in `main`. `AckWait`, `MaxDeliver`, `HotKeyThreshold`, `HotKeyCheckInterval`, publish interval/batch, send timeout, lease TTL for outbox claims all come from config with validated defaults. `[VERIFY]` several are currently hardcoded.
-- **Timing constraint (enforce in `Config.Validate()`):** `LEASE_RENEWAL_INTERVAL_MS * 3 <= LEASE_TTL_MS`, and `outbox_send_timeout * ceil(batch / max_in_flight) < outbox_claim_ttl`.
-- Production mode must refuse `FakeDestination`. Fake is allowed only when `ENV=dev|test`.
-
----
-
-## 7. Go Engineering Rules
-
-**Structure & errors**
-- `main` is `func main(){ os.Exit(run()) }` with `run() error`. **No `log.Fatalf` after `defer`** (it skips deferred cleanup).
-- Wrap with `%w` and context: `fmt.Errorf("claim pending: %w", err)`. Compare with `errors.Is/As`. Domain errors live in `domain`; adapters translate driver errors **into** domain errors at the boundary.
-- Classify errors: `Permanent` (4xx, validation, no rule) vs `Transient` (timeouts, 5xx, deadlock). Permanent → quarantine immediately; transient → retry with **jittered** backoff. Do not burn retries on permanent errors.
-- No `panic` outside `main`/init; no swallowed errors (`_ =` only with a comment why).
-
-**Context & concurrency**
-- `ctx` is first param; never stored in structs; never used to smuggle transactions. Use `UnitOfWork.Do(ctx, func(ctx, repos) error)`.
-- Every goroutine has an owner, a stop condition, and is waited on (`errgroup`, bounded with `SetLimit`). No fire-and-forget.
-- Bookkeeping after work (ack, settle, release lease) uses `context.WithoutCancel(ctx)` + its own timeout.
-- Every outbound call has a timeout shorter than the lease/ack window it lives inside.
-- Shared state: prefer ownership by one goroutine; otherwise `sync`/atomics with `-race` coverage. No unbounded channels/queues.
-- Use `goleak` (`go.uber.org/goleak`) in packages that spawn goroutines.
-
-**Hot-path performance (decision target p99 < 10 ms @ 1 KB event)**
-- Avoid per-event allocations in the evaluator: precompile JSONPath, reuse buffers (`sync.Pool`) only with benchmarks proving the win.
-- 1 round trip for dedup (`INSERT … ON CONFLICT DO NOTHING`), not Get-then-Insert.
-- Batch outbox inserts and `MarkDelivered`; no N+1 writes.
-- Every perf claim needs `go test -bench . -benchmem` before/after in the PR.
-
-**Style**
-- Small interfaces defined by the consumer. Accept interfaces, return structs. Per-use-case repo sets (e.g. `EventRepos`), not a 10-repo `TxRepos`.
-- Type aliases of port types inside services are banned (noise).
-- Use the `observability` logger (structured). Stdlib `log` is banned in `internal/`.
-- Exported identifiers have doc comments that start with the name.
-
----
-
-## 8. Data & SQL Rules
-
-- Migrations: `migrations/NNN_name.sql`, next sequential number, **idempotent and reversible** (up + down). Never edit an applied migration.
-- Zero-downtime: add nullable columns / `CREATE INDEX CONCURRENTLY`; backfill in batches; no table rewrites or long `ACCESS EXCLUSIVE` locks on `inbox`, `outbox`, `executions`.
-- Required constraints: `UNIQUE (tenant_id, event_id)` on inbox; PK on effect ID; FK/indices on `execution_id`, `status+available_at` (outbox claim), `claimed_by+claim_expires_at`.
-- Claim query uses `FOR UPDATE SKIP LOCKED` ordered by `available_at`; verify its plan with `EXPLAIN` on realistic row counts.
-- Fencing: lease check uses `SELECT … FOR SHARE` (or `FOR UPDATE`) on the lease row **inside** the processing tx.
-- Isolation level is stated per transaction in code comments. Default READ COMMITTED; justify anything else.
-- Every query is tenant-scoped. Retention/archival for `inbox`, `executions`, `outbox` is a roadmap item: partition by time when row counts demand it.
-- Mongo backend `[VERIFY]`: must implement the same semantics (atomic inbox+outbox needs multi-document transactions on a replica set). If it cannot, document it as **unsupported for exactly-once** and block it in prod config.
-
----
-
-## 9. Testing Strategy
-
-### 9.1 Pyramid
-| Layer | Location | Must cover |
-|-------|----------|-----------|
-| Unit | `internal/**/_test.go` | evaluator, compiler limits, state machines, effect-ID hash, backoff, error classification |
-| Property/Fuzz | `internal/rules` | `go test -fuzz` on compiler/evaluator: no panics; determinism |
-| Contract | `tests/contract/` | **every** adapter (memory + SQL + Mongo) passes the same suites |
-| Integration | `tests/integration/` (`-tags=integration`) | full tx flow, duplicate/race, redelivery, lease expiry |
-| E2E | `tests/e2e/` (`-tags=e2e`) | API → NATS → worker → HTTP destination |
-| Chaos | `tests/chaos/` (`-tags=chaos`) | §9.3 |
-| Bench | `*_bench_test.go` | evaluator p99, claim throughput |
-
-### 9.2 Rules
-- Bug fix = failing test first, shown red, then green.
-- Tests use `-race -count=1`; no `time.Sleep` for sync (use channels/`Eventually` with timeouts).
-- Inject `Clock`; never call `time.Now()` in core code.
-- Table-driven tests with edge cases: empty/nil payload, 256 KB limit, nesting depth 10, unicode, tenant mismatch, shard `0` and `4095`.
-
-### 9.3 Failure-injection suite (the proof of the product)
-Run against real Postgres + NATS. Assert **zero duplicate executions and zero lost effects**; record recovery time.
-
-1. `kill -9` worker mid-batch, restart, drain.
-2. Crash **after commit, before ACK** → redelivery returns same execution.
-3. Two workers, same shard, one paused 40 s (GC pause simulation) → stale token rejected.
-4. Destination returns 200 after client timeout → duplicate send carries same idempotency key.
-5. `SIGTERM` mid-send → state settled, no stuck `claimed` rows.
-6. Postgres failover/connection drop mid-tx → clean rollback, redelivery.
-7. Poison event (no active rule) → bounded retries → quarantine, not a retry storm.
-8. Hot key: 80 % traffic on one `partition_key` → ordering preserved, other keys unaffected.
-9. NATS restart → consumer resumes without loss.
-
-Publish the results table in `docs/`; it replaces claims with evidence.
-
----
-
-## 10. Observability & Operations
-
-- **Logs**: structured, include `tenant_id`, `event_id`, `execution_id`, `shard`, `worker_id`, `trace_id`. Never log payload bodies or secrets.
-- **Metrics (Prometheus)** `[VERIFY: roadmap says missing]`: `events_processed_total{result}`, `event_process_seconds`, `inbox_duplicates_total`, `outbox_pending`, `outbox_oldest_age_seconds`, `effect_send_seconds{dest,result}`, `effects_quarantined_total`, `lease_renew_failures_total`, `fencing_rejections_total`, `consumer_lag`, `hot_key_events_total`.
-- **Traces (OTel)**: span per event: consume → tx → evaluate → commit → ack; link effect publish spans via execution ID.
-- **SLOs (draft)**: decision p99 < 10 ms; backlog recovery < 60 s after worker restart; oldest pending effect < 60 s; duplicate effect rate = 0 at idempotent destinations.
-- **Alerts**: `outbox_oldest_age_seconds` high, quarantine rate rising, lease-renew failures, fencing rejections spike, consumer lag growing.
-- **Health**: `/health` (liveness) and a readiness check that verifies DB + NATS.
-
-### Debugging
-- `LOG_LEVEL=debug` shows event processing, shard leases, effect publishing.
-- NATS monitoring: `http://localhost:8222`.
-- Postgres: `docker exec -it flowrule-postgres psql -U postgres -d flowrule`
-- Stuck inbox: `SELECT * FROM inbox WHERE status != 'committed';`
-- Stuck outbox: `SELECT id,status,attempts,claimed_by,claim_expires_at FROM outbox WHERE status IN ('pending','claimed') ORDER BY available_at LIMIT 50;` `[VERIFY column names]`
-
----
-
-## 11. Security
-
-- API has **no authN/authZ today** (roadmap): treat the API as dev-only; do not expose publicly. Adding authN (mTLS/JWT), per-tenant authZ, and request size limits is P1.
-- Validate and bound all inputs (compiler limits: 100 rules, 200 predicates, depth 10, 256 KB). Reject, do not truncate.
-- Outbound effects: allowlist destinations, TLS verification on, timeouts on, sign requests / send idempotency key header. Block SSRF to link-local/metadata IPs.
-- Secrets only via env/secret manager; `.env.example` has placeholders only. `gosec` and `govulncheck` in CI.
-- Dependencies: remove unused modules (`go mod tidy`); review new deps; pin versions.
-- Multi-tenancy: tenant ID comes from authenticated context, never from user payload alone.
-
----
-
-## 12. Known Issues & Fix Plan (priority order)
-
-Status: **Open** unless noted. Do **not** start features while P0 is open.
-
-| ID | Pri | Issue | Invariant | Fix |
-|----|-----|-------|-----------|-----|
-| F1 | P0 | **Shard 0 bypasses fencing**: guard is `fencingToken > 0 && shard > 0 && workerID != ""`; also fails open on token 0 | I6 | `Lease.Validate()` rejects token ≤ 0; validate for all shards incl. 0 |
-| F2 | P0 | **Dedup fall-through**: `!inserted` with nil execution continues and creates a 2nd execution | I3 | return `ErrInboxConflict`; single-RTT `InsertIfAbsent` |
-| F3 | P0 | **Fencing validated last**, no row lock | I6 | `Leases.AssertHeld` first in tx with `FOR SHARE` |
-| F4 | P0 | **Publisher double-send**: 1-min claim lease vs sequential sends; bookkeeping shares send `ctx`; MarkDelivered failure only logged | I7, I9 | bounded `errgroup`, per-send timeout, `WithoutCancel` bookkeeping, timing validation (§6) |
-| F5 | P0 | `ScheduleRetry`/`Quarantine` not claimant-fenced; quarantine entry + outbox update are 2 writes | I7, I8 | pass `claimant` everywhere; `QuarantineWithEntry` single tx |
-| F6 | P0 | **Worker wires `FakeDestination`** | — | real HTTP adapter w/ idempotency key; fail startup in prod without `EFFECT_DESTINATION_URL` |
-| F7 | P1 | `ports.Transaction` leaks pgx via `Context()`, `SetFencingToken`; docs claim "pure" | I10 | replace with `UnitOfWork.Do`; split `ports` driving/driven; per-use-case repo sets |
-| F8 | P1 | `Process(ctx, env, fencingToken, shard, workerID)` leaks infra into use-case signature | — | `ProcessCommand{Event, Lease}` |
-| F9 | P1 | Error classification only labels quarantine; permanent errors burn all retries; no jitter | — | classify first; jittered exponential backoff |
-| F10 | P1 | `Execution` saved `pending` then `completed` in same tx (dead state) | — | save `completed` directly |
-| F11 | P1 | N+1 `MarkDelivered`; sequential sends | perf | batch settle; bounded concurrency |
-| F12 | P1 | Hardcoded config in `main` (AckWait, MaxDeliver, hot-key) | — | move to config + validation |
-| F13 | P1 | No metrics/tracing wired; stdlib `log` in services | §10 | observability logger + metrics |
-| F14 | P1 | No authN/authZ on API | §11 | per-tenant auth |
-| F15 | P2 | Module path `github.com/flowrule/flowrule` ≠ repo path; `sdk/go` unimportable | — | align module path or repo name |
-| F16 | P2 | `go.mod` Go 1.26.0 vs README 1.21+; unused deps (mongo/redis/yaml) vs docs | — | reconcile; `go mod tidy`; document or remove |
-| F17 | P2 | NATS subject `events` vs README `events.>` / `events.order.created` `[VERIFY]` | — | align adapter + README + quick start |
-| F18 | P2 | Docs drift: `architecture.md` shows old `Tx`, old method signatures, missing packages | — | regenerate from code; cut to a few accurate diagrams |
-| F19 | P2 | Repo hygiene: committed binaries (`worker`, `codegen`) `[VERIFY]`, `test_laya.py`, `.temp/`; "Proprietary" license on public repo | — | `git rm`, `.gitignore`, pick license |
-| F20 | P2 | Repo name says Kafka; no Kafka adapter (Phase 4) | — | rename repo or ship Kafka adapter; keep broker behind port |
-| F21 | P2 | In-memory quarantine loses data on restart `[VERIFY]` | — | persist quarantine |
-| F22 | P3 | Replay API, rule list/read endpoints, retention, canary activation | — | roadmap |
-
-### Multi-agent wave plan for P0/P1
-```
-Wave 0  (orchestrator)  baseline: make ci + -race + integration green on main; record numbers.
-Wave 1  Lane A          F7/F8 contracts: UnitOfWork, ProcessCommand, ShardLease, LeaseRepository.AssertHeld,
-                        InsertIfAbsent, QuarantineWithEntry, claimant-fenced Outbox signatures. Land alone.
-Wave 2  parallel        Lane C: sql/memory(/mongo) adapters + contract tests for new port methods (F3,F5)
-                        Lane E: write failing tests for F1,F2,F3,F4,F5 against the new contracts
-Wave 3  parallel        Lane B: events service (F1,F2,F3,F8,F10)   |  Lane B': effects service (F4,F5,F9,F11)
-                        Lane D: config validation + real HTTP destination wiring (F6,F12)
-Wave 4  Lane E          chaos suite §9.3 + benchmarks; publish results
-Wave 5  Lane F          metrics/tracing (F13), docs regenerated (F18), hygiene (F15–F20)
-Gate    Reviewer agent  independent hostile review of every wave; orchestrator merges in order A→C→B→D→E→F
-```
-
----
-
-## 12.1 Recent Fixes (2026-10-11)
-
-The following architectural violations were fixed in this session:
-
-| Issue | Invariant | Files Changed | Status |
-|-------|-----------|---------------|--------|
-| HTTP adapter imported concrete services instead of port interfaces | I10 (core imports no driver) | `internal/adapters/http/router.go`, `internal/adapters/http/handlers/*.go`, `internal/ports/services.go` | ✅ Fixed |
-| Rules service returned global repos instead of tx-scoped repos | I1, I6 | `internal/services/rules/service.go`, `internal/factory/factory.go`, `cmd/api/main.go` | ✅ Fixed |
-| Evaluator used `time.Now()` directly (not pure) | I4 (evaluator is pure) | `internal/rules/evaluator.go`, `cmd/worker/main.go`, `tests/integration/integration_test.go` | ✅ Fixed |
-| Missing mechanical enforcement (depguard) | I10 | `.golangci.yml` (new) | ✅ Added |
-
-All fixes verified with:
-- `go test -race -count=1 ./internal/...` → PASS
-- `go test -race -count=1 -tags=integration ./tests/...` → PASS
-- `go vet ./...` → PASS
-- `golangci-lint run ./...` → depguard rules PASS (architectural boundaries enforced)
-
----
-
-## 13. Decision Records (ADRs)
-
-Create `docs/adr/NNNN-title.md` for: port signature changes, new adapters, schema changes to inbox/outbox/lease, delivery-semantics changes, new dependencies.
-Template: **Context → Options (≥2) → Decision → Consequences → Invariants affected → Rollback**.
-
-Standing decisions (do not relitigate without an ADR):
-- Postgres is the source of truth for dedup/ordering state; the broker is transport only (at-least-once).
-- Pure deterministic evaluator; effects emitted as data, executed later by the publisher.
-- Not building: Raft/gossip, loops/timers/compensation inside rules, global ordering, cross-DB 2PC, sync request/reply as a rule primitive.
-
----
-
-## 14. Code Generation
-
-- Contracts: `examples/*/contracts/*.yaml`; rules: `examples/*/rules/*.yaml`.
-- `make generate` or `go run ./cmd/codegen generate --all`; output to `/tmp/flowrule-generated` (cleaned by `make clean`).
-- `make verify-generated` must pass; generated code is never hand-edited.
-
-## 15. Migration Workflow
-
-```bash
-# 1. Add migrations/NNN_name.sql (next number, with down)
-# 2. make migrate-up
-# 3. make test-integration
-# 4. Check EXPLAIN on any new/changed hot query
-```
-
----
-
-## 16. Git, Commits, PRs
-
-- Branches: `agent/<lane>/<topic>` or `feat|fix|chore/<topic>`. One concern per PR, ≤ ~400 changed lines where possible.
-- Commits: Conventional (`fix(events): validate fencing for shard 0`). Body states the invariant and the test.
-- Never: force-push `main`, commit binaries/secrets, edit applied migrations, skip hooks, or disable a failing test to go green.
-- PR description: Problem → Change → Invariants touched → Evidence (§5.4) → Rollback.
-
-### PR Checklist
-- [ ] `make ci` passes locally; `go test -race -count=1` on touched packages
-- [ ] Failing test existed before the fix (shown)
-- [ ] §4 invariants reviewed; none weakened
-- [ ] New/changed adapter methods have **contract tests** for memory + SQL (+ Mongo)
-- [ ] Migrations idempotent, reversible, non-blocking
-- [ ] No `log.Fatalf` after `defer` (use `run() error` like `cmd/api/main.go`)
-- [ ] No new driver import in `services`/`ports`/`domain`
-- [ ] Production config validated (`EFFECT_DESTINATION_URL` required; Fake refused)
-- [ ] Metrics/logs added for new failure paths; no payload/secret logging
-- [ ] Docs updated **from code** if a signature or behavior changed
-- [ ] Perf-sensitive change includes before/after benchmark
-
----
-
-## 17. Key Files
-
-| Purpose | File |
-|---------|------|
-| Config | `internal/config/config.go` |
-| Ports | `internal/ports/ports.go` (split → `driving.go` / `driven.go`) |
-| Event processing | `internal/services/events/service.go` |
-| Effect publishing | `internal/services/effects/service.go` |
-| Worker wiring | `cmd/worker/main.go` |
-| API wiring | `cmd/api/main.go` |
-| Storage factory | `internal/storage/storage.go` |
-| SQL adapters | `internal/adapters/sql/*.go` |
-| NATS consumer | `internal/adapters/nats/jetstream.go` |
-| Domain types | `internal/domain/*.go` |
-| Rules evaluator | `internal/rules/evaluator.go` |
-
-## 18. Glossary
-
-- **Inbox**: dedup table keyed by `(tenant_id, event_id)`.
-- **Outbox**: durable queue of effects written in the same tx as the decision.
-- **Effect ID**: deterministic hash; used as the destination idempotency key.
-- **Fencing token**: monotonically increasing number per shard lease; stale holders are rejected.
-- **Virtual shard**: `hash(partition_key) % NUM_SHARDS`; unit of ordering and lease ownership.
-- **Quarantine**: parking lot for permanent failures, inspectable and replayable.
-- **Effectively-once**: at-least-once delivery + idempotent consumer. This is the honest claim.
-
-## 19. Never Do
-
-1. Claim "exactly-once delivery".
-2. Skip or weaken fencing "for tests".
-3. Fall through on dedup conflicts.
-4. Add I/O, clock, or randomness to the evaluator.
-5. Put a driver type in `ports`.
-6. Use `ctx` to carry a transaction.
-7. Fire-and-forget goroutines.
-8. Ship `FakeDestination` in a prod path.
-9. Mark work done without evidence.
-10. "Fix" a flaky test by adding a sleep.
+# AGENTS.md — FlowRule Engineering Guide
+
+This file describes the repository as it exists today. Source code, configuration, and tests are authoritative. Diagrams, roadmaps, old audits, and implementation plans may describe future work or past bugs. Verify claims before presenting them as implemented.
+
+## 1. Product and message-processing model
+
+FlowRule is a Go event-driven rules runtime. The repository is one root Go module with an HTTP API, a worker, and command-line tools. The Go SDK and each example app are separate Go modules.
+
+The intended event path is:
+
+1. Producers publish an EventEnvelope to the NATS JetStream subject family events.shard.N. N is computed from tenant ID and partition key using the shared shard-count setting.
+2. The worker obtains shard leases and fencing tokens, creates consumers for shards it owns, and fetches messages.
+3. The bounded key queue serializes deliveries for the same partition key and caps total work across keys.
+4. Event processing validates the envelope and fencing token, checks/inserts the inbox record, loads the active rule revision, evaluates it, and writes execution plus outbox effects in the same storage transaction.
+5. The worker ACKs a delivery only after successful durable processing. Failures must follow the retry/quarantine policy; never ACK work whose durable outcome is unknown.
+6. The effects publisher claims outbox entries. Emit-event effects return to the broker subject family events.shard.N; external command effects go to the configured HTTP destination.
+7. The scheduler claims due scheduled events and publishes them to the same broker subject family. Batch processing is a separate periodic worker loop.
+
+Transport is at-least-once. Inbox deduplication and transactional outbox semantics help protect the state transition, but external effects are effectively-once only if their receiver honors the stable idempotency key. Never claim exactly-once delivery.
+
+## 2. Build and verification commands
+
+Run root-module checks:
+
+~~~sh
+go build ./cmd/...
+go test -race -count=1 ./...
+go vet ./...
+~~~
+
+The standalone SDK and each example module must be checked separately because nested go.mod files form module boundaries:
+
+~~~sh
+(cd sdk/go && go test -race -count=1 ./...)
+(cd examples/banking && go test -race -count=1 ./...)
+(cd examples/ecommerce && go test -race -count=1 ./...)
+(cd examples/food-delivery && go test -race -count=1 ./...)
+~~~
+
+Other useful commands:
+- make build builds API, worker and codegen binaries into bin.
+- make test-unit tests the internal packages.
+- make test-integration runs the tests in tests/integration.
+- make lint, make vet, make fmt, and make check-fmt handle linting, static analysis, formatting and format verification.
+- make docker-up / make docker-down manage the local Compose stack.
+- make migrate-up applies pending SQL migrations.
+- make generate requires CONTRACT, CONTRACT_VERSION, TARGET and OUTPUT_DIR and works from a contract already registered in storage.
+
+Do not claim tests/integration is a live infrastructure test: current tests use mock/in-memory repositories. Contract tests in tests/contract also exercise in-memory implementations; they are not yet a full conformance suite for PostgreSQL and MongoDB. Check the workflow run status before saying CI passed.
+
+## 3. Process wiring and behavior
+
+### HTTP API
+
+- Entry point: cmd/api/main.go.
+- Loads internal/config, opens and initializes internal/storage, constructs compiler and use-case services, registers HTTP handlers, and starts the HTTP server.
+- Route registration: internal/adapters/http/router.go.
+- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go.
+- Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
+- Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
+- /health is liveness only; it does not check storage or broker readiness.
+- GRPC_ADDR is configuration only: cmd/api does not start a gRPC listener.
+
+SECURITY BLOCKER: no authentication/authorization is implemented. TenantExtractor accepts X-Tenant-ID, then tenant_id query parameter, then the fallback value default. All of these are caller-controlled, not authenticated identity. Do not expose this API to untrusted networks or treat tenant data access as isolated until identity and resource authorization are implemented.
+
+### Worker
+
+- Entry point: cmd/worker/main.go.
+- Loads config, initializes observability and storage, constructs the NATS JetStream consumer, event/effect/batch services, lease manager, scheduler, and application.Worker.
+- NATS adapter: internal/adapters/nats/jetstream.go. The worker subject base is events; consumers filter events.shard.N.
+- Runtime loop and polling: internal/application/worker.go.
+- Bounded per-key queue and hot-key observation: internal/runtime/keyqueue/queue.go.
+- Lease ownership, renewal, and fencing cache: internal/runtime/shard/lease.go.
+- Scheduled release: internal/runtime/scheduler/scheduler.go.
+- The effect sender must be the configured effects.Router: it routes emitted child events to the same events.shard.N subjects and non-event command effects to an external sender. A router that exists but is not wired into cmd/worker does not provide event chaining.
+- In development/test, the worker can use FakeDestination if EFFECT_DESTINATION_URL is empty. In other environments, missing EFFECT_DESTINATION_URL must fail startup.
+
+### CLI tools
+
+- cmd/codegen/main.go is a database-backed CLI. It reads a registered contract and generates Go, Java, Protobuf, or JSON Schema artifacts. Flags are -contract, -version, -target, -output, -list, -dsn and -migrations. It does not accept a YAML file path or implement a generate --all subcommand.
+- cmd/migrate/main.go currently supports only the up command. Down/status are not implemented because there are no paired reversible migration scripts. Do not advertise rollback as supported.
+- CLI entrypoints must return errors from run functions so deferred resources close before main exits. Avoid log.Fatal/log.Fatalf/os.Exit inside resource-owning run functions.
+
+## 4. Dependency direction and package boundaries
+
+Keep dependencies moving inward:
+
+- cmd/* packages are composition roots. They load configuration, construct concrete adapters, wire use cases, manage process lifecycle, and then exit.
+- internal/domain contains business types, validation, state transitions, IDs, deterministic hashes and domain errors. It must not import adapters, services, transport libraries or storage drivers.
+- internal/rules compiles and evaluates rules. Evaluation must remain deterministic, side-effect-free, and clock-injected; do not add I/O or randomness.
+- internal/services/* contains use-case orchestration. It should depend on domain and consumer-owned ports, not concrete SQL, Mongo, NATS or HTTP packages.
+- internal/application coordinates worker runtime. internal/runtime/* owns bounded queues, shard leases and scheduler loops.
+- internal/ports declares broker, repository, transaction, runtime and service contracts. Prefer small interfaces owned by the consumer. Current transaction abstractions still expose adapter lifecycle details and TxRepos is broad; treat those as technical debt, not a pattern to expand.
+- internal/adapters/* implements I/O and translates between ports/domain and transport or persistence details.
+- internal/storage selects the configured backend and composes repositories. Current API/worker entrypoints use it.
+- internal/factory/factory.go is an older broad Mongo-oriented assembly factory that overlaps current storage/wiring. Do not add new wiring paths there without migrating callers and consolidating composition.
+- sdk/go is a separate module. Generated consumer code should not depend on inaccessible internal packages from the server module.
+- api/*.json defines public JSON schemas. Verify handler validation actually invokes a schema before claiming incoming requests conform to it.
+
+Avoid circular dependencies, driver types in domain/ports, global mutable state, unbounded goroutines or queues, fire-and-forget goroutines, swallowing persistence errors, and using context.Background for request-scoped work.
+
+## 5. Repository file map
+
+### Entrypoints and root files
+
+- README.md — project overview, local start, event flow and current limitations.
+- AGENTS.md — this engineering guide and package/file map.
+- ARCHITECTURE_MAP.md — runtime topology, data flow, dependency direction and known gaps.
+- IMPLEMENTATION_PLAN.md — historical/forward-looking plan; not an authoritative status board unless checkboxes are maintained.
+- go.mod / go.sum — root Go module and dependency checksums.
+- Makefile — developer build, tests, checks, Docker, migration and codegen targets. Keep target recipes consistent with implemented CLI flags.
+- .env.example — configuration names and local-only placeholder defaults. Never place secrets here.
+- .gitignore / .dockerignore — build artifacts, generated output, local data, secrets and Docker context exclusions. Do not commit executable binaries.
+- .golangci.yml — lint and package-boundary checks.
+- SECURITY.md — vulnerability-reporting process and security status.
+- Dockerfile.api, Dockerfile.worker, Dockerfile.codegen — multi-stage service/tool images.
+- docker-compose.yml — local development dependencies and processes; its example credentials must not be reused for production.
+- docker-compose.override.yml — developer override settings.
+- .github/workflows/go-ci.yml — build, race-enabled tests and vet for root/nested Go modules.
+- .github/instructions/* — focused instructions for Postman collection/folder/request test scripts.
+- .opencode/skills.json and .opencode/skills/* — agent skill notes and references; not runtime packages.
+
+### Command packages
+
+- cmd/api/main.go — HTTP API lifecycle and dependency wiring.
+- cmd/worker/main.go — worker lifecycle, effect sender selection, NATS setup, scheduler and worker wiring.
+- cmd/codegen/main.go — registered-contract code generation CLI.
+- cmd/migrate/main.go — migration-up CLI.
+
+### Core business and use-case packages
+
+- internal/config/config.go, config_test.go — environment parsing, raw-value checks, durations and validation.
+- internal/domain/types.go — event envelopes, rules, predicates/actions, decisions, execution/effect/workflow/schedule/lease and contract data types.
+- internal/domain/errors.go — domain/sentinel errors and error classification.
+- internal/domain/batch.go — batch modes/configuration/types.
+- internal/ports/broker.go — delivery, broker consumer/publisher, stream/admin, shard-consumer contracts.
+- internal/ports/cache.go — cache interface.
+- internal/ports/ports.go — transaction manager, transaction-scoped repository set, compiler/evaluator/processor/effect/clock/logger contracts.
+- internal/ports/repository.go — inbox, rule, activation, execution, outbox, lease, workflow, schedule, batch, quarantine and contract repository interfaces.
+- internal/ports/runtime.go — worker/runtime-specific ports.
+- internal/ports/services.go — use-case interfaces consumed by adapters/runtime.
+- internal/rules/compiler.go — rule source parsing, validation, limits and immutable compiled revisions.
+- internal/rules/evaluator.go — predicate/action evaluation and decision construction.
+- internal/rules/evaluator_test.go — evaluator behavior tests.
+- internal/services/events/service.go — transactional fencing, inbox deduplication, activation/revision lookup, evaluation, execution and outbox writes.
+- internal/services/effects/service.go — outbox claiming, delivery, retries/backoff and quarantine coordination.
+- internal/services/effects/router.go — broker routing for child events and delegation for external effects.
+- internal/services/effects/router_test.go, service_test files — effect-routing and service regression tests.
+- internal/services/rules/service.go — revision/activation transactions and rule queries.
+- internal/services/batches/service.go, service_test.go — batch formation/processing and query APIs.
+- internal/services/workflow/service.go — workflow instance creation/state transitions. Definition helper methods currently contain not-implemented placeholders; HTTP handlers use WorkflowDefinitionRepository separately.
+- internal/services/quarantine/service.go — quarantine persistence/query/replay-marking operations.
+- internal/application/worker.go — worker runtime orchestration, delivery handling, periodic effect/batch loops and consumer reconciliation.
+- internal/runtime/keyqueue/queue.go, queue_test.go — bounded global work, per-key serialization, queue lifecycle and hot-key checks.
+- internal/runtime/shard/lease.go — lease acquisition/renewal, ownership cache and fencing tokens.
+- internal/runtime/scheduler/scheduler.go — claims due scheduled events and publishes them.
+- internal/observability/observability.go — observability lifecycle/configuration.
+- internal/observability/logging.go — structured logger.
+- internal/observability/metrics.go — metric definitions.
+- internal/observability/tracing.go — tracing setup.
+- internal/observability/handler.go — HTTP observability handler.
+- internal/codegen/generator.go — templates/generation for Go, Java, Protobuf, JSON Schema and runtime artifacts.
+- internal/storage/storage.go — backend selection, repository wiring, initialization and closure.
+- internal/factory/factory.go — legacy broad factory; current process entrypoints use internal/storage instead.
+
+### Adapters
+
+HTTP:
+- internal/adapters/http/router.go — standard-library mux registration and HTTP server lifecycle.
+- internal/adapters/http/handlers/rules.go — rule revision/activation/query endpoints.
+- internal/adapters/http/handlers/workflows.go — workflow instance and definition endpoints.
+- internal/adapters/http/handlers/contracts.go — contract registry and generation endpoints.
+- internal/adapters/http/handlers/batch_quarantine.go — batch/quarantine endpoints.
+- internal/adapters/http/handlers/scheduled.go — scheduled-event endpoints.
+- internal/adapters/http/handlers/utils.go — JSON/YAML request decoder.
+- internal/adapters/http/middleware/middleware.go — current tenant extraction and panic recovery; not authentication.
+- internal/adapters/http/responses/responses.go — response and error helpers.
+
+Storage/messaging:
+- internal/adapters/sql/db.go — PostgreSQL pool, connection settings and migration runner.
+- internal/adapters/sql/querier.go — shared query/exec contract for pools and transactions.
+- internal/adapters/sql/transaction.go — PostgreSQL transaction manager and transaction object.
+- internal/adapters/sql/inbox.go — inbox idempotency.
+- internal/adapters/sql/outbox.go — outbox claim/settle/retry and shard lease SQL.
+- internal/adapters/sql/rules.go — revisions and activation repository.
+- internal/adapters/sql/workflow.go — workflow instances and definitions.
+- internal/adapters/sql/batch.go — batch persistence.
+- internal/adapters/sql/quarantine.go — quarantine persistence.
+- internal/adapters/sql/scheduled.go — scheduled-event persistence.
+- internal/adapters/sql/contract.go — contract registry.
+- internal/adapters/mongo/db.go, transaction.go — Mongo client/session lifecycle and transactions.
+- internal/adapters/mongo/event.go, inbox.go, execution.go, outbox.go, rules.go, shard.go — event processing repository implementations.
+- internal/adapters/mongo/workflow.go, batch.go, scheduled.go, quarantine.go, contract.go — workflow and supporting repositories.
+- internal/adapters/nats/jetstream.go — JetStream stream configuration, shard consumers, fetch, ACK/NAK/retry, and broker publishing.
+- internal/adapters/redis/client.go, cache.go — Redis lifecycle and cache adapter; not in the primary event path today.
+- internal/adapters/memory/contract_registry.go — in-memory contract registry.
+- internal/adapters/effects/fake.go — FakeDestination, HTTPDestination, fake clock and ID helpers; mixed test/production responsibilities are a candidate for separation.
+
+### Schemas, migrations, SDK and examples
+
+- api/envelope-schema.json — event envelope JSON Schema.
+- api/rule-schema.json — rule-set JSON Schema.
+- migrations/001_rule_revisions.sql through migrations/014_workflow_definitions.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; do not renumber/edit applied migrations.
+- sdk/go/go.mod — independent SDK module definition.
+- sdk/go/runtime/envelope.go — public envelope, payload and shard hashing.
+- sdk/go/runtime/publisher.go — JetStream publisher.
+- sdk/go/runtime/consumer.go — consumer helper.
+- sdk/go/runtime/evaluator.go — SDK-side evaluator support.
+- examples/README.md — example overview and startup guide.
+- examples/banking, examples/ecommerce, examples/food-delivery — independent application modules, each with contracts, rules, workflows, backend producer/consumer source, deployment script and generated Go contract types.
+- examples/*/contracts — event/command schema definitions.
+- examples/*/rules — declarative rule sets.
+- examples/*/workflows — workflow state machine definitions.
+- examples/*/backend/{producer,consumer}/main.go — sample source. Compiled example binaries are build output and must not be committed.
+- examples/*/generated/go — generated source. Regenerate from contract sources/tools rather than hand-editing.
+
+### Tests and docs
+
+- tests/contract/contract_test.go, suite_test.go, mem_repos.go — in-memory repository contract suites and fixtures; not full adapter conformance.
+- tests/integration/integration_test.go — use-case tests with mocks/in-memory repositories; not live DB/broker integration.
+- docs/README.md — documentation index and API quick start.
+- docs/architecture.md — architecture overview and port descriptions.
+- docs/design.md — design, data model, consistency and failure-handling notes.
+- docs/operations.md — deployment and troubleshooting notes.
+- docs/rules.md — rule model/compiler/evaluation guide.
+- docs/roadmap.md and docs/future-architecture.md — plans; not proof of shipped functionality.
+- docs/01-system-design.mmd through docs/27-order-flow-example.mmd — focused architecture, flow, ordering, schema and operations diagrams.
+- docs/audit/* — dated snapshots; re-check every finding against current source before reuse.
+
+## 6. Required engineering rules
+
+- Make one cohesive behavioral change at a time. Prefer explicit constructors and interfaces defined near their consumer.
+- Keep .env.example, configuration validation, Dockerfiles, Compose and operational docs consistent.
+- Fail closed on security-sensitive configuration; validate numeric values, enum values, timeouts and shard count.
+- Use injected clocks for deterministic business logic. Bound all goroutines, queues, outbound calls and shutdown waits.
+- For event processing, fencing assertion, dedup, execution/outbox writes and inbox commit state must share the correct transaction. Do not ACK before durable commit.
+- Preserve per-key ordering and claimant/fencing semantics. Retry/quarantine/delivery state changes must handle expired and competing claims safely.
+- Child event publishing must use the same NATS subject family and NUM_SHARDS as the worker/scheduler/SDK. Event type is in the envelope; do not substitute it for the configured stream subject.
+- Bound HTTP request bodies, reject malformed or extra trailing documents, and validate tenant scoping on every resource access.
+- Never log secrets or full sensitive payload bodies.
+- Do not check in binaries, credentials, local DB data, generated build artifacts or temporary files.
+- A bug fix should add a regression test. Concurrency changes require race-enabled tests. Adapter methods need contract coverage for SQL and Mongo before parity is claimed.
+- Do not edit applied migrations. Add a new numbered migration and test upgrade behavior. Down migrations must be separately designed/tested before promising rollback.
+- Avoid hiding state-changing errors behind logs; an unavailable durable state transition must be observable to the caller/worker.
+- Exported Go symbols require useful comments. Keep source formatted and update docs when an interface, route or runtime behavior changes.
+
+## 7. Confirmed risks and backlog
+
+1. P0 security: API has no authN/authZ or trusted tenant resolver. Tenant values from request headers/query/body are not identity. Implement authenticated claims, per-resource tenant authorization and cross-tenant negative tests before untrusted production exposure.
+2. P1 outbox ownership: ScheduleRetry and Quarantine do not currently accept claimant identity like MarkDelivered does. Expired/competing publishers can race state changes. Add claimant-fenced transitions.
+3. P1 outbox failure handling: publishing is sequential with a fixed claim TTL; some MarkDelivered, ScheduleRetry and quarantine persistence failures are logged and swallowed. Use bounded sends, per-effect timeouts, claimant-safe transitions and return/aggregate durable-state errors.
+4. P1 transaction abstraction: ports.Transaction exposes context and fencing mutators; TxRepos combines many repositories; SQL wiring type-asserts concrete transaction types. Redesign around use-case-owned unit-of-work contracts with atomicity tests.
+5. P1 adapter conformance: current contract suites use in-memory repositories. Run identical contracts against live PostgreSQL and Mongo transaction-capable configurations; document unsupported semantics.
+6. P1 request boundaries: tenant extraction is untrusted and JSON/YAML decoding does not impose a body-size limit or explicitly reject trailing content. Add auth-derived tenant context, request limits and strict decoding.
+7. P2 workflow API clarity: workflow.Service definition methods currently return not-implemented errors; handlers use a separate definition repository. Remove or implement the placeholders intentionally.
+8. P2 composition: internal/factory overlaps internal/storage and is not used by main entrypoints. Verify callers before deleting or migrating it.
+9. P2 operational surface: /health is liveness only; GRPC_ADDR is not backed by a listener; migration down/status are unsupported.
+10. P2 proof/performance: tests do not prove crash recovery against live PostgreSQL/NATS, lease fencing during long pauses, network failure recovery, real destination idempotency, or throughput/p99 targets. Add failure-injection tests and benchmarks before making those claims.
+11. P2 hot path: SQL outbox Insert currently sends one INSERT per effect. Measure and batch inserts/settlement where beneficial.
+12. P2 mixed helpers: internal/adapters/effects/fake.go combines production HTTP code with test clock/ID/fake destination; separate by responsibility when changing that area.
+
+## 8. Pull-request evidence checklist
+
+Every PR should state:
+- Problem and observable failure mode.
+- Packages/files changed and why.
+- Data flow and invariants affected.
+- Tests run and their actual results (including workflow links/commit SHA).
+- Security, data migration, operational and rollback implications.
+- Known limitations that remain.
+
+Never report a pending CI check as passed. Never infer live infrastructure coverage from an in-memory test name. Never claim a capability is implemented just because a roadmap, example, diagram or interface mentions it.
