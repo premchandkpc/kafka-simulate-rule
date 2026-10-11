@@ -25,3 +25,17 @@ func NewEventTxRepositories(tx ports.Transaction) (ports.EventTxRepos, error) {
 		ShardLeases: NewShardLeaseRepository(q),
 	}, nil
 }
+
+ // NewRuleTxRepositories builds only the repositories required for atomic rule activation.
+func NewRuleTxRepositories(tx ports.Transaction) (ports.RuleTxRepos, error) {
+	sqlTx, ok := tx.(*Tx)
+	if !ok {
+		return ports.RuleTxRepos{}, fmt.Errorf("postgres transaction has unexpected type %T", tx)
+	}
+
+	q := NewTxQuerier(sqlTx)
+	return ports.RuleTxRepos{
+		RuleRepo:    NewRuleRepository(q),
+		Activations: NewActivationRepository(q),
+	}, nil
+}
