@@ -37,6 +37,7 @@ type RedisConfig struct {
 
 type WorkerConfig struct {
 	NumShards               uint32
+	WorkerReplicas          uint32
 	WorkerID                string
 	MaxGlobalInFlight       int
 	FetchBatchSize          int
@@ -115,6 +116,7 @@ func Load() (*Config, error) {
 		},
 		Worker: WorkerConfig{
 			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", int(DefaultNumShards)))),
+			WorkerReplicas:          uint32(toUint32(getIntEnv("WORKER_REPLICAS", 1))),
 			WorkerID:                getEnv("WORKER_ID", ""),
 			MaxGlobalInFlight:       toInt(getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100)),
 			FetchBatchSize:          toInt(getIntEnv("FETCH_BATCH_SIZE", 100)),
@@ -198,6 +200,9 @@ func (c *Config) Validate() error {
 	if c.Worker.NumShards == 0 {
 		return fmt.Errorf("NUM_SHARDS must be > 0")
 	}
+	if c.Worker.WorkerReplicas == 0 {
+		return fmt.Errorf("WORKER_REPLICAS must be > 0")
+	}
 	if c.Worker.MaxGlobalInFlight <= 0 {
 		return fmt.Errorf("MAX_GLOBAL_IN_FLIGHT must be > 0")
 	}
@@ -266,6 +271,7 @@ func validateRawEnv() error {
 	integerKeys := []string{
 		"REDIS_DB",
 		"NUM_SHARDS",
+		"WORKER_REPLICAS",
 		"MAX_GLOBAL_IN_FLIGHT",
 		"FETCH_BATCH_SIZE",
 		"EFFECT_PUBLISH_INTERVAL_MS",

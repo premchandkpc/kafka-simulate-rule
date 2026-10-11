@@ -57,7 +57,7 @@ Security contract:
 4. Construct batch service, shard lease manager, scheduler and application.Worker.
 5. Start scheduler/worker loops; on shutdown stop loops and close consumer, storage, and observability.
 
-The effect router is part of the runtime wiring, not an optional helper: emitted child events must be published to events.shard.N using the same NUM_SHARDS as the consumer. The event type belongs in EventEnvelope.Type. Non-event command effects use the configured external destination. In development/test only, an absent effect URL may select a fake destination; other environments must fail startup if the URL is absent. LeaseManager currently targets NUM_SHARDS/3 per worker without membership/rebalancing, implicitly assuming three workers; do not change replica count without validating shard coverage.
+The effect router is part of the runtime wiring, not an optional helper: emitted child events must be published to events.shard.N using the same NUM_SHARDS as the consumer. The event type belongs in EventEnvelope.Type. Non-event command effects use the configured external destination. In development/test only, an absent effect URL may select a fake destination; other environments must fail startup if the URL is absent. LeaseManager targets ceil(NUM_SHARDS/WORKER_REPLICAS) leases per worker. WORKER_REPLICAS defaults to 1 for single-worker local deployments and must be set to the actual fixed replica count on every multi-worker deployment. This makes the assumption explicit and configurable, but does not provide dynamic membership or coordinated rebalancing.
 
 ### CLI processes
 
@@ -181,7 +181,7 @@ Rules:
 | P0 | No authentication/authorization or trusted tenant identity | Add verified identity, tenant/resource authorization and cross-tenant denial tests before public exposure |
 | P1 | Outbox delivery/retry/quarantine transitions now require unique claimant tokens and unexpired claims; settlement errors propagate | Keep failure-injection tests and consider transactional quarantine/outbox settlement |
 | P1 | Sequential effect dispatch and fixed claim TTL | Add per-effect timeouts and bounded concurrency only after idempotency/claim recovery is verified |
-| P1 | LeaseManager assumes NUM_SHARDS/3 per worker with no dynamic membership | Define and validate replica-count/rebalance behavior; test that all shards remain assigned |
+| P1 | Lease allocation uses a configured fixed replica count; no dynamic membership/rebalancing | Keep WORKER_REPLICAS consistent across the deployment; add membership and coordinated rebalancing before autoscaling |
 | P1 | Batch execution passes a zero fencing token and bypasses the key queue | BATCH_MODE is rejected unless none; integrate batch work with lease fencing and key ordering before enabling |
 | P1 | Mongo adapters previously treated JSON bytes as bson.Raw | JSON payloads/source/context now use BSON binary bytes; keep BSON round-trip tests for each JSON-backed field |
 | P1 | Scheduled SQL claim fields did not exist in migration 011 | Migration 015 adds claim fields; expired claims can be reclaimed and settlement is claimant/expiry fenced |

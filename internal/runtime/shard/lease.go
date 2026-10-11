@@ -17,6 +17,7 @@ type LeaseManager struct {
 	clock         ports.Clock
 	owner         string
 	numShards     uint32
+	replicaCount  uint32
 	ttl           time.Duration
 	renewInterval time.Duration
 
@@ -50,8 +51,26 @@ func NewLeaseManagerWithRenewInterval(
 	ttl time.Duration,
 	renewInterval time.Duration,
 ) *LeaseManager {
+	return NewLeaseManagerWithReplicaCountAndRenewInterval(repo, clock, owner, numShards, 3, ttl, renewInterval)
+}
+
+// NewLeaseManagerWithReplicaCountAndRenewInterval configures the expected fixed
+// worker replica count. Every worker targets ceil(numShards/replicaCount) leases.
+// This is a fixed-replica allocation policy, not dynamic membership/rebalancing.
+func NewLeaseManagerWithReplicaCountAndRenewInterval(
+	repo ports.ShardLeaseRepository,
+	clock ports.Clock,
+	owner string,
+	numShards uint32,
+	replicaCount uint32,
+	ttl time.Duration,
+	renewInterval time.Duration,
+) *LeaseManager {
 	if numShards == 0 {
 		numShards = 4096
+	}
+	if replicaCount == 0 {
+		replicaCount = 3
 	}
 	if ttl <= 0 {
 		ttl = 30 * time.Second
@@ -67,6 +86,7 @@ func NewLeaseManagerWithRenewInterval(
 		clock:         clock,
 		owner:         owner,
 		numShards:     numShards,
+		replicaCount:  replicaCount,
 		ttl:           ttl,
 		renewInterval: renewInterval,
 		ownedShards:   make(map[uint32]*domain.ShardLease),
@@ -89,10 +109,7 @@ func (m *LeaseManager) Start(ctx context.Context) error {
 	}
 	m.started = true
 
-	target := uint32(m.numShards / 3)
-	if target == 0 {
-		target = 1
-	}
+	target := m.targetOwnedShards()
 	start := uint32(0)
 	if m.owner != "" {
 		start = fnv32a(m.owner) % m.numShards
@@ -219,17 +236,28 @@ func (m *LeaseManager) renewOwned(ctx context.Context) {
 	m.rebalanceIfNeeded(ctx)
 }
 
+// targetOwnedShards rounds up so the configured replicas can cover every shard,
+// including configurations where the shard count is not divisible by replicas.
+func (m *LeaseManager) targetOwnedShards() uint32 {
+	target := m.numShards / m.replicaCount
+	if m.numShards%m.replicaCount != 0 {
+		target++
+	}
+	if target == 0 {
+		return 1
+	}
+	return target
+}
+
 // rebalanceIfNeeded attempts to acquire more shards if we own fewer than our fair share.
 func (m *LeaseManager) rebalanceIfNeeded(ctx context.Context) {
 	m.mu.RLock()
 	currentOwned := len(m.ownedShards)
 	m.mu.RUnlock()
 
-	// Target: numShards / 3 (same as initial assignment)
-	targetOwned := int(m.numShards / 3)
-	if targetOwned < 1 {
-		targetOwned = 1
-	}
+	// Keep the target consistent with initial assignment. The configured
+	// replica count must match the deployment's fixed worker replica count.
+	targetOwned := int(m.targetOwnedShards())
 
 	if currentOwned >= targetOwned {
 		return

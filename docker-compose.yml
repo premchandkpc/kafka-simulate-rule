@@ -87,6 +87,7 @@ services:
       APP_ENV: development
       LOG_LEVEL: info
       NUM_SHARDS: 4096
+      WORKER_REPLICAS: 1
       WORKER_ID: worker-1
       MAX_GLOBAL_IN_FLIGHT: 100
       MAX_PER_KEY_QUEUE: 100
