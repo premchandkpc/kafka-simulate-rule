@@ -138,14 +138,16 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope) (int, error) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	attempted := 0
+	globalSequence := 0
 
 	for client := 1; client <= cfg.Clients; client++ {
 		clientID := fmt.Sprintf("client-%04d", client)
 		messageCount := rng.Intn(cfg.MaxMessagesPerClient) + 1
 		for sequence := 1; sequence <= messageCount; sequence++ {
+			globalSequence++
 			scenario := cfg.Scenario
 			if scenario == ScenarioAll {
-				scenario = scenarioForSequence(sequence)
+				scenario = scenarioForSequence(globalSequence)
 			}
 			event, err := newScenarioEvent(scenario, cfg.TenantID, clientID, sequence, rng)
 			if err != nil {
