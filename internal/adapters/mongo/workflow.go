@@ -38,11 +38,12 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.Workflow
 	return nil
 }
 
-func (r *WorkflowRepository) Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error) {
+func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
 	coll := r.collection("workflow_instances")
 	var doc WorkflowDoc
 	err := coll.FindOne(ctx, bson.M{
 		"workflow_id": workflowID,
+		"tenant_id":   tenantID,
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -59,6 +60,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 
 	filter := bson.M{
 		"workflow_id": workflow.WorkflowID,
+		"tenant_id":   workflow.TenantID,
 		"version":     workflow.Version - 1,
 	}
 
@@ -118,10 +120,11 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	return workflows, nil
 }
 
-func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error) {
+func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
 	coll := r.collection("workflow_instances")
 
 	filter := bson.M{
+		"tenant_id":      tenantID,
 		"correlation_id": correlationID,
 	}
 
