@@ -5,7 +5,7 @@ type Settings = { apiBase: string; tenant: string; token: string; workerMetrics:
 type WorkerSnapshot = { url: string; name: string; online: boolean; checkedAt: number; inFlight: number | null; activeKeys: number | null; shards: number | null; executions: Array<{ ruleSet: string; status: string; count: number }> ; error?: string };
 type NavKey = "overview" | "api" | "codegen" | "workers" | "rules" | "logs";
 
-const DEFAULT_SETTINGS: Settings = { apiBase: "/api", tenant: "development-tenant", token: "", workerMetrics: "", lokiBase: "", lokiQuery: '{service_name="flowrule-worker"}' };
+const DEFAULT_SETTINGS: Settings = { apiBase: "/api", tenant: "development-tenant", token: "", workerMetrics: "/worker-metrics/metrics", lokiBase: "/", lokiQuery: '{service_name="flowrule-worker"}' };
 const NAV: Array<{ id: NavKey; label: string; icon: string }> = [
   { id: "overview", label: "Overview", icon: "◫" }, { id: "api", label: "API explorer", icon: "⌘" },
   { id: "codegen", label: "Code generation", icon: "⟐" }, { id: "workers", label: "Workers & rules", icon: "▦" },
@@ -109,7 +109,7 @@ export default function App() {
         const grouped = new Map<string, number>();
         execs.forEach((row) => { const key = row.labels.rule_set || "unknown"; grouped.set(key, (grouped.get(key) || 0) + row.count); });
         const shardRows = labeledMetrics(text, "flowrule_shard_ownership");
-        return { url, name: new URL(url).hostname + (endpoints.length > 1 ? ` · worker ${index + 1}` : ""), online: true, checkedAt: Date.now(), inFlight: metricValue(text, "flowrule_global_in_flight"), activeKeys: metricValue(text, "flowrule_active_keys"), shards: shardRows.filter((row) => row.count > 0).length, executions: [...grouped].map(([ruleSet, count]) => ({ ruleSet, status: "observed", count })).sort((a,b) => b.count-a.count) };
+        return { url, name: new URL(url, window.location.origin).hostname + (endpoints.length > 1 ? ` · worker ${index + 1}` : ""), online: true, checkedAt: Date.now(), inFlight: metricValue(text, "flowrule_global_in_flight"), activeKeys: metricValue(text, "flowrule_active_keys"), shards: shardRows.filter((row) => row.count > 0).length, executions: [...grouped].map(([ruleSet, count]) => ({ ruleSet, status: "observed", count })).sort((a,b) => b.count-a.count) };
       } catch (e) { return { url, name: url, online: false, checkedAt: Date.now(), inFlight: null, activeKeys: null, shards: null, executions: [], error: e instanceof Error ? e.message : String(e) }; }
     }));
     setWorkers(workerData); setLastRefresh(new Date()); setLoading(false);
@@ -161,7 +161,7 @@ export default function App() {
     setLogsBusy(true); setLogsError("");
     try {
       const end = Date.now() * 1_000_000; const start = end - 60 * 60 * 1_000_000_000;
-      const url = new URL(normalizeBase(settings.lokiBase) + "/loki/api/v1/query_range");
+      const url = new URL(normalizeBase(settings.lokiBase) + "/loki/api/v1/query_range", window.location.origin);
       url.searchParams.set("query", settings.lokiQuery || '{service_name="flowrule-worker"}'); url.searchParams.set("start", String(start)); url.searchParams.set("end", String(end)); url.searchParams.set("limit", "200"); url.searchParams.set("direction", "backward");
       const result = await readResponse(await fetch(url.toString(), { headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {} }));
       const streams = result?.data?.result || [];
