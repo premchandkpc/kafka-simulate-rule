@@ -54,7 +54,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 	now := time.Now().UTC()
 	tag, err := r.db.Exec(ctx, `
 		UPDATE workflow_instances
-		SET state = $2, version = $3, current_revision = $4, context = $5, updated_at = $6, completed_at = $7
+		SET state = $3, version = $4, current_revision = $5, context = $6, updated_at = $7, completed_at = $8
 		WHERE tenant_id = $1 AND workflow_id = $2 AND version = $9
 	`, workflow.TenantID, workflow.WorkflowID, workflow.State, workflow.Version, workflow.CurrentRevision, workflow.Context, now, workflow.CompletedAt, workflow.Version-1)
 	if err != nil {
