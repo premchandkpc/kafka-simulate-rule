@@ -13,19 +13,19 @@ import (
 )
 
 type Repositories struct {
-	Inbox               ports.InboxRepository
-	Activations         ports.ActivationRepository
-	Rules               ports.RuleRepository
-	Executions          ports.ExecutionRepository
-	Outbox              ports.OutboxRepository
-	ShardLeases         ports.ShardLeaseRepository
-	Workflows           ports.WorkflowRepository
-	WorkflowDefinitions ports.WorkflowDefinitionRepository
-	ScheduledEvents     ports.ScheduledEventRepository
-	Batches             ports.BatchRepository
-	Quarantine          ports.QuarantineRepository
-	Contracts           ports.ContractRegistry
-	Transactions        ports.TransactionManager
+	Inbox                  ports.InboxRepository
+	Activations            ports.ActivationRepository
+	Rules                  ports.RuleRepository
+	Executions             ports.ExecutionRepository
+	Outbox                 ports.OutboxRepository
+	ShardLeases            ports.ShardLeaseRepository
+	Workflows              ports.WorkflowRepository
+	WorkflowDefinitions    ports.WorkflowDefinitionRepository
+	ScheduledEvents        ports.ScheduledEventRepository
+	Batches                ports.BatchRepository
+	Quarantine             ports.QuarantineRepository
+	Contracts              ports.ContractRegistry
+	Transactions           ports.TransactionManager
 	NewEventTxRepositories ports.EventTxRepositoryFactory
 	NewRuleTxRepositories  ports.RuleTxRepositoryFactory
 }
@@ -72,7 +72,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 		pool := db.Pool()
 		return &Storage{
 			backend:      backend,
-			repositories: buildPostgresRepos(pool, db),
+			repositories: buildPostgresRepos(pool),
 			initialize:   db.RunMigrations,
 			close:        db.Close,
 		}, nil
@@ -99,21 +99,21 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 	}
 }
 
-func buildPostgresRepos(pool *pgxpool.Pool, _ *sqladapter.DB) Repositories {
+func buildPostgresRepos(pool *pgxpool.Pool) Repositories {
 	return Repositories{
-		Inbox:               sqladapter.NewInboxRepository(pool),
-		Activations:         sqladapter.NewActivationRepository(pool),
-		Rules:               sqladapter.NewRuleRepository(pool),
-		Executions:          sqladapter.NewExecutionRepository(pool),
-		Outbox:              sqladapter.NewOutboxRepository(pool),
-		ShardLeases:         sqladapter.NewShardLeaseRepository(pool),
-		Workflows:           sqladapter.NewWorkflowRepository(pool),
-		WorkflowDefinitions: sqladapter.NewWorkflowDefinitionRepository(pool),
-		ScheduledEvents:     sqladapter.NewScheduledEventRepository(pool),
-		Batches:             sqladapter.NewBatchRepository(pool),
-		Quarantine:          sqladapter.NewQuarantineRepository(pool),
-		Contracts:           sqladapter.NewContractRegistry(pool),
-		Transactions:        sqladapter.NewTransactionManager(pool),
+		Inbox:                  sqladapter.NewInboxRepository(pool),
+		Activations:            sqladapter.NewActivationRepository(pool),
+		Rules:                  sqladapter.NewRuleRepository(pool),
+		Executions:             sqladapter.NewExecutionRepository(pool),
+		Outbox:                 sqladapter.NewOutboxRepository(pool),
+		ShardLeases:            sqladapter.NewShardLeaseRepository(pool),
+		Workflows:              sqladapter.NewWorkflowRepository(pool),
+		WorkflowDefinitions:    sqladapter.NewWorkflowDefinitionRepository(pool),
+		ScheduledEvents:        sqladapter.NewScheduledEventRepository(pool),
+		Batches:                sqladapter.NewBatchRepository(pool),
+		Quarantine:             sqladapter.NewQuarantineRepository(pool),
+		Contracts:              sqladapter.NewContractRegistry(pool),
+		Transactions:           sqladapter.NewTransactionManager(pool),
 		NewEventTxRepositories: sqladapter.NewEventTxRepositories,
 		NewRuleTxRepositories:  sqladapter.NewRuleTxRepositories,
 	}
@@ -122,19 +122,19 @@ func buildPostgresRepos(pool *pgxpool.Pool, _ *sqladapter.DB) Repositories {
 func buildMongoRepos(q mongoadapter.Querier, db *mongoadapter.DB) (Repositories, func(context.Context) error) {
 	quarantineRepo := mongoadapter.NewQuarantineRepository(q)
 	return Repositories{
-		Inbox:               mongoadapter.NewInboxRepository(q),
-		Activations:         mongoadapter.NewActivationRepository(q),
-		Rules:               mongoadapter.NewRuleRepository(q),
-		Executions:          mongoadapter.NewExecutionRepository(q),
-		Outbox:              mongoadapter.NewOutboxRepository(q),
-		ShardLeases:         mongoadapter.NewShardLeaseRepository(q),
-		Workflows:           mongoadapter.NewWorkflowRepository(q),
-		WorkflowDefinitions: mongoadapter.NewWorkflowDefinitionRepository(q),
-		ScheduledEvents:     mongoadapter.NewScheduledEventRepository(q),
-		Batches:             mongoadapter.NewBatchRepository(q),
-		Quarantine:          quarantineRepo,
-		Contracts:           mongoadapter.NewContractRegistry(q),
-		Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
+		Inbox:                  mongoadapter.NewInboxRepository(q),
+		Activations:            mongoadapter.NewActivationRepository(q),
+		Rules:                  mongoadapter.NewRuleRepository(q),
+		Executions:             mongoadapter.NewExecutionRepository(q),
+		Outbox:                 mongoadapter.NewOutboxRepository(q),
+		ShardLeases:            mongoadapter.NewShardLeaseRepository(q),
+		Workflows:              mongoadapter.NewWorkflowRepository(q),
+		WorkflowDefinitions:    mongoadapter.NewWorkflowDefinitionRepository(q),
+		ScheduledEvents:        mongoadapter.NewScheduledEventRepository(q),
+		Batches:                mongoadapter.NewBatchRepository(q),
+		Quarantine:             quarantineRepo,
+		Contracts:              mongoadapter.NewContractRegistry(q),
+		Transactions:           mongoadapter.NewTransactionManager(db.Client(), db.Database()),
 		NewEventTxRepositories: mongoadapter.NewEventTxRepositories,
 		NewRuleTxRepositories:  mongoadapter.NewRuleTxRepositories,
 	}, quarantineRepo.BackfillEffectTenantIDs
