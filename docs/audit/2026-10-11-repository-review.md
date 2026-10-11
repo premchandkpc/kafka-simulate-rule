@@ -72,7 +72,7 @@ Next step: verify consumers and tests, choose one supported composition root, mi
 
 ### P2 — Operational readiness is overstated by config/names
 
-Evidence: /health checks only process liveness; GRPC_ADDR is configured but cmd/api has no gRPC listener; cmd/migrate supports up only. These limitations are now documented, not fixed by this review.
+Evidence: /health checks only process liveness; cmd/api has no gRPC listener; cmd/migrate supports up only. Loopback defaults and Compose port bindings reduce accidental local-network exposure, but do not replace authentication.
 
 Next step: introduce dependency-aware readiness; either implement gRPC or remove misleading config; add reversible migrations only after explicit design/tests.
 
