@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/flowrule/flowrule/internal/auth"
 )
 
 func TestTenantExtractorDevelopmentUsesTenantHeader(t *testing.T) {
@@ -73,5 +75,41 @@ func TestTenantExtractorProductionFailsClosedWhenProxyNotConfigured(t *testing.T
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestTenantExtractorJWTClaimOverridesCallerTenant(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv(trustedProxyTokenEnv, "")
+	req := httptest.NewRequest(http.MethodGet, "/v1/rules/active", nil)
+	req = req.WithContext(auth.ContextWithTenant(req.Context(), "tenant-authenticated"))
+	req.Header.Set("X-Tenant-ID", "tenant-attacker")
+	rec := httptest.NewRecorder()
+
+	TenantExtractor(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler must not be called when caller tenant conflicts with JWT")
+	})).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestTenantExtractorUsesJWTTenantWithoutProxyFallback(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv(trustedProxyTokenEnv, "")
+	req := httptest.NewRequest(http.MethodGet, "/v1/rules/active", nil)
+	req = req.WithContext(auth.ContextWithTenant(req.Context(), "tenant-authenticated"))
+	rec := httptest.NewRecorder()
+
+	TenantExtractor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := GetTenantID(r.Context()); got != "tenant-authenticated" {
+			t.Fatalf("GetTenantID() = %q, want tenant-authenticated", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
 }
