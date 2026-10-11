@@ -60,9 +60,15 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
 - Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
 - /health is liveness only; it does not check storage or broker readiness.
+- The HTTP SDK transport targets POST /v1/events/{type}; verify that route is implemented and contract-tested before selecting HTTP transport. Do not assume the management API accepts producer events.
+- Scheduled-event listing and cancellation must be tenant-scoped in repository queries and must not report false success when unsupported.
 - The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
-SECURITY BLOCKER: no authentication/authorization is implemented. TenantExtractor accepts X-Tenant-ID, then tenant_id query parameter, then the fallback value default. All of these are caller-controlled, not authenticated identity. Do not expose this API to untrusted networks or treat tenant data access as isolated until identity and resource authorization are implemented.
+SECURITY / DEPLOYMENT REQUIREMENT:
+- Development and test may use X-Tenant-ID or tenant_id for local isolation only. These are caller-controlled and are not authentication.
+- In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN and validates X-Proxy-Auth using a constant-time comparison. The trusted proxy must authenticate callers, authorize the tenant, strip any inbound X-Proxy-Auth and X-Authenticated-Tenant-ID values, then set both headers itself. The API should only be reachable from that proxy.
+- If FLOWRULE_TRUSTED_PROXY_TOKEN is absent in a non-development environment, tenant middleware fails closed with 503. Do not set a shared proxy token on a public listener or treat it as a user identity provider.
+- Resource-level tenant checks are required in handlers and persistence queries. This is not yet complete for all resources; production multi-tenant exposure remains blocked until every read/write path is tenant-scoped and tested.
 
 ### Worker
 
