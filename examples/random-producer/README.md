@@ -24,7 +24,9 @@ go run ./examples/random-producer --scenario all --tenant acme-corp --clients 10
 Configuration:
 - `RANDOM_PRODUCER_CLIENTS`: number of simulated business clients/accounts (1-1000), default 10.
 - `RANDOM_PRODUCER_MESSAGES_MAX`: maximum messages per client (1-100), default 100.
-- `RANDOM_PRODUCER_CONCURRENCY`: concurrent publishers (1-256), default 16.\n- `RANDOM_PRODUCER_SCENARIO`: `all` (default), `ecommerce`, `banking`, or `food-delivery`. `all` cycles across the three initial event types.\n- `RANDOM_PRODUCER_TENANT_ID`: tenant used by the deployed example rules; defaults to `acme-corp`. Simulated clients remain partition keys within that tenant. Set it to the same tenant used by the regular example producers.
+- `RANDOM_PRODUCER_CONCURRENCY`: concurrent publishers (1-256), default 16.
+- `RANDOM_PRODUCER_SCENARIO`: `all` (default), `ecommerce`, `banking`, or `food-delivery`. `all` cycles across the three initial event types.
+- `RANDOM_PRODUCER_TENANT_ID`: tenant used by the deployed example rules; defaults to `acme-corp`. Simulated clients remain partition keys within that tenant. Set it to the same tenant used by the regular example producers.
 - `NUM_SHARDS`: must match the worker's shard count, default 4096.
 - `NATS_URL`: NATS endpoint; inside Compose use `nats://nats:4222`.
 
