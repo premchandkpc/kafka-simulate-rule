@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-worker build-codegen build-random-producer test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
+.PHONY: help build build-api build-worker build-codegen build-random-producer test test-unit test-examples test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
 
 # Default target
 help:
@@ -15,7 +15,7 @@ help:
 	@echo ""
 	@echo "Test targets:"
 	@echo "  test            Run all tests"
-	@echo "  test-unit       Run unit tests only"
+	@echo "  test-unit       Run internal unit tests"\n\t@echo "  test-examples   Run random-producer scenario tests"
 	@echo "  test-integration Run integration tests"
 	@echo ""
 	@echo "Code quality:"
@@ -100,7 +100,7 @@ run-all: docker-up
 	@echo "Run 'make docker-down' to stop"
 
 # Test targets
-test: test-unit test-integration
+test: test-unit test-examples test-integration
 
 test-unit:
 	@echo "Running unit tests..."
