@@ -176,11 +176,10 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 	now := time.Now().UTC()
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"event_id": eventID, "status": domain.ScheduledEventStatusClaimed, "claimant": claimant, "claim_expires_at": bson.M{"$gt": now}},
-		bson.M{
-			"$set": bson.M{"status": domain.ScheduledEventStatusFailed, "last_error": errMsg},
-			"$unset": bson.M{
-				"claimant": "", "claimed_at": "", "claim_expires_at": "",
-			},
+		bson.D{
+			{Key: "$set", Value: bson.D{{Key: "status", Value: domain.ScheduledEventStatusFailed}, {Key: "last_error", Value: errMsg}}},
+			{Key: "$inc", Value: bson.D{{Key: "retry_count", Value: 1}}},
+			{Key: "$unset", Value: bson.D{{Key: "claimant", Value: ""}, {Key: "claimed_at", Value: ""}, {Key: "claim_expires_at", Value: ""}}},
 		},
 	)
 	if err != nil {
