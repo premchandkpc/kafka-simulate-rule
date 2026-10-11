@@ -151,17 +151,13 @@ type WorkflowDoc struct {
 	State           string     `bson:"state"`
 	Version         int64      `bson:"version"`
 	CurrentRevision int64      `bson:"current_revision,omitempty"`
-	Context         bson.Raw   `bson:"context,omitempty"`
+	Context         []byte     `bson:"context,omitempty"`
 	CreatedAt       time.Time  `bson:"created_at"`
 	UpdatedAt       time.Time  `bson:"updated_at"`
 	CompletedAt     *time.Time `bson:"completed_at,omitempty"`
 }
 
 func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
-	var context bson.Raw
-	if w.Context != nil {
-		context, _ = bson.Marshal(w.Context)
-	}
 	return &WorkflowDoc{
 		WorkflowID:      w.WorkflowID,
 		TenantID:        w.TenantID,
@@ -169,7 +165,7 @@ func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
 		State:           w.State,
 		Version:         w.Version,
 		CurrentRevision: w.CurrentRevision,
-		Context:         context,
+		Context:         append([]byte(nil), w.Context...),
 		CreatedAt:       w.CreatedAt,
 		UpdatedAt:       w.UpdatedAt,
 		CompletedAt:     w.CompletedAt,
@@ -179,7 +175,7 @@ func WorkflowDocFromDomain(w *domain.WorkflowInstance) *WorkflowDoc {
 func (d *WorkflowDoc) ToDomain() *domain.WorkflowInstance {
 	var context json.RawMessage
 	if d.Context != nil {
-		context, _ = json.Marshal(d.Context)
+		context = json.RawMessage(append([]byte(nil), d.Context...))
 	}
 	return &domain.WorkflowInstance{
 		WorkflowID:      d.WorkflowID,
