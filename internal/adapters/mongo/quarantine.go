@@ -39,11 +39,12 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	return nil
 }
 
-func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
+func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	coll := r.collection("quarantine")
 	var doc QuarantineDoc
 	err := coll.FindOne(ctx, bson.M{
 		"quarantine_id": id,
+		"tenant_id": tenantID,
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -54,11 +55,14 @@ func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.Quar
 	return doc.ToDomain(), nil
 }
 
-func (r *QuarantineRepository) Delete(ctx context.Context, id string) error {
+func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
 	coll := r.collection("quarantine")
-	_, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id})
+	result, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id, "tenant_id": tenantID})
 	if err != nil {
 		return fmt.Errorf("delete quarantine entry: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return domain.ErrQuarantineNotFound
 	}
 	return nil
 }
@@ -80,7 +84,12 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		f["created_at"] = bson.M{"$gte": filter.From}
 	}
 	if !filter.To.IsZero() {
-		f["created_at"] = bson.M{"$lte": filter.To}
+		createdAt, ok := f["created_at"].(bson.M)
+		if !ok {
+			createdAt = bson.M{}
+			f["created_at"] = createdAt
+		}
+		createdAt["$lte"] = filter.To
 	}
 
 	cursor, err := coll.Find(ctx, f, options.Find().
@@ -104,13 +113,14 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	return entries, nil
 }
 
-func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {
+func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
 	coll := r.collection("quarantine")
 	now := time.Now().UTC()
 
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"quarantine_id": id,
+			"tenant_id": tenantID,
 		},
 		bson.M{
 			"$set": bson.M{
