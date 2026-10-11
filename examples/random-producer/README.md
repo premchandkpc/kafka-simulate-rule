@@ -19,9 +19,9 @@ go run ./examples/random-producer --clients 10 --max-messages 100 --shards 4096 
 ```
 
 Configuration:
-- `SIM_CLIENTS`: number of synthetic tenant identities (1-1000), default 10.
-- `SIM_MESSAGES_MAX`: maximum messages per identity (1-100), default 100.
-- `SIM_CONCURRENCY`: concurrent publishers (1-256), default 16.
+- `RANDOM_PRODUCER_CLIENTS`: number of synthetic tenant identities (1-1000), default 10.
+- `RANDOM_PRODUCER_MESSAGES_MAX`: maximum messages per identity (1-100), default 100.
+- `RANDOM_PRODUCER_CONCURRENCY`: concurrent publishers (1-256), default 16.
 - `NUM_SHARDS`: must match the worker's shard count, default 4096.
 - `NATS_URL`: NATS endpoint; inside Compose use `nats://nats:4222`.
 
