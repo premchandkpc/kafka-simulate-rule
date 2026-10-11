@@ -110,7 +110,7 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
