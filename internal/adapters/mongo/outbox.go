@@ -104,8 +104,9 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	result, err := coll.UpdateMany(ctx,
 		bson.M{
 			"effect_id":  bson.M{"$in": effectIDs},
-			"status":     domain.OutboxStatusClaimed,
-			"claimed_by": claimant,
+			"status":           domain.OutboxStatusClaimed,
+			"claimed_by":       claimant,
+			"claim_expires_at": bson.M{"$gt": now},
 		},
 		bson.M{
 			"$set": bson.M{
@@ -134,8 +135,9 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"effect_id":  effectID,
-			"status":     domain.OutboxStatusClaimed,
-			"claimed_by": claimant,
+			"status":           domain.OutboxStatusClaimed,
+			"claimed_by":       claimant,
+			"claim_expires_at": bson.M{"$gt": now},
 		},
 		bson.M{
 			"$set": bson.M{
@@ -166,8 +168,9 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"effect_id":  effectID,
-			"status":     domain.OutboxStatusClaimed,
-			"claimed_by": claimant,
+			"status":           domain.OutboxStatusClaimed,
+			"claimed_by":       claimant,
+			"claim_expires_at": bson.M{"$gt": now},
 		},
 		bson.M{
 			"$set": bson.M{
