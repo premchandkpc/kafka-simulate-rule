@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-worker build-codegen test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
+.PHONY: help build build-api build-worker build-codegen build-simulator test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "  build-api       Build API server binary"
 	@echo "  build-worker    Build worker binary"
 	@echo "  build-codegen   Build codegen binary"
+	@echo "  build-simulator Build opt-in load simulator"
 	@echo ""
 	@echo "Test targets:"
 	@echo "  test            Run all tests"
@@ -49,6 +50,7 @@ BIN_DIR := bin
 API_BINARY := $(BIN_DIR)/api
 WORKER_BINARY := $(BIN_DIR)/worker
 CODEGEN_BINARY := $(BIN_DIR)/codegen
+SIMULATOR_BINARY := $(BIN_DIR)/simulator
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
@@ -75,6 +77,12 @@ build-codegen:
 	@echo "Building codegen..."
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(CODEGEN_BINARY) ./cmd/codegen
+
+# Optional developer utility; intentionally excluded from the default build.
+build-simulator:
+	@echo "Building opt-in load simulator..."
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(GOFLAGS) -o $(SIMULATOR_BINARY) ./cmd/simulator
 
 # Run targets
 run-api: build-api
