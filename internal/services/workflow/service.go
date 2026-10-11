@@ -32,12 +32,18 @@ func (s *Service) Create(ctx context.Context, workflow *domain.WorkflowInstance)
 	return s.repo.Save(ctx, workflow)
 }
 
-func (s *Service) Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error) {
-	return s.repo.Get(ctx, workflowID)
+func (s *Service) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
+	if tenantID == "" {
+		return nil, domain.ErrWorkflowNotFound
+	}
+	return s.repo.Get(ctx, tenantID, workflowID)
 }
 
-func (s *Service) UpdateState(ctx context.Context, workflowID, newState string, revision int64) error {
-	workflow, err := s.repo.Get(ctx, workflowID)
+func (s *Service) UpdateState(ctx context.Context, tenantID, workflowID, newState string, revision int64) error {
+	if tenantID == "" {
+		return domain.ErrWorkflowNotFound
+	}
+	workflow, err := s.repo.Get(ctx, tenantID, workflowID)
 	if err != nil {
 		return fmt.Errorf("get workflow: %w", err)
 	}
@@ -62,8 +68,11 @@ func (s *Service) UpdateState(ctx context.Context, workflowID, newState string, 
 	return s.repo.Update(ctx, workflow)
 }
 
-func (s *Service) Transition(ctx context.Context, workflowID, fromState, toState string) error {
-	workflow, err := s.repo.Get(ctx, workflowID)
+func (s *Service) Transition(ctx context.Context, tenantID, workflowID, fromState, toState string) error {
+	if tenantID == "" {
+		return domain.ErrWorkflowNotFound
+	}
+	workflow, err := s.repo.Get(ctx, tenantID, workflowID)
 	if err != nil {
 		return fmt.Errorf("get workflow: %w", err)
 	}
@@ -98,8 +107,11 @@ func (s *Service) GetByTenantAndState(ctx context.Context, tenantID, state strin
 	return s.repo.GetByTenantAndState(ctx, tenantID, state, limit)
 }
 
-func (s *Service) GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error) {
-	return s.repo.GetByCorrelation(ctx, correlationID)
+func (s *Service) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
+	if tenantID == "" {
+		return nil, fmt.Errorf("tenant_id is required")
+	}
+	return s.repo.GetByCorrelation(ctx, tenantID, correlationID)
 }
 
 func (s *Service) ListDefinitions(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error) {
