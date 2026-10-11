@@ -83,13 +83,16 @@ func TestJSONPayloadDocumentsRoundTripThroughBSON(t *testing.T) {
 	t.Run("workflow context", func(t *testing.T) {
 		source := &domain.WorkflowInstance{
 			WorkflowID: "workflow-1", TenantID: "tenant-a", WorkflowType: "order",
-			State: "pending", Context: json.RawMessage(`{"context":{"attempt":2}}`),
+			State: "pending", Context: json.RawMessage(`{"context":{"attempt":2},"correlation_id":"corr-1"}`),
 			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 		}
 		var stored WorkflowDoc
 		mongoBSONRoundTrip(t, WorkflowDocFromDomain(source), &stored)
 		if got := stored.ToDomain().Context; !bytes.Equal(got, source.Context) {
 			t.Fatalf("workflow context = %s, want %s", got, source.Context)
+		}
+		if stored.CorrelationID != "corr-1" {
+			t.Fatalf("stored correlation ID = %q, want corr-1", stored.CorrelationID)
 		}
 	})
 
