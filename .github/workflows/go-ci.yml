@@ -36,6 +36,10 @@ jobs:
         working-directory: sdk/go
         run: go test -race -count=1 ./...
 
+      - name: Test client SDK module
+        working-directory: sdk/go/flowrule
+        run: go test -race -count=1 ./...
+
       - name: Test banking example module
         working-directory: examples/banking
         run: go test -race -count=1 ./...
