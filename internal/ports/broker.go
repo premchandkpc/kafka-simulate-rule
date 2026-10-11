@@ -53,6 +53,13 @@ type EventPublisher interface {
 	Close() error
 }
 
+// OrderEventBroker provides fixed contracts for order event flows without exposing
+// any concrete broker library types to application callers.
+type OrderEventBroker interface {
+	SendOrderCreate(ctx context.Context, shard uint32, payload []byte) error
+	ConsumeOrderCreate(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
+}
+
 // OrderEventBroker is a domain-specific contract for order event flows.
 // It deliberately exposes payloads and deliveries, never broker client types.
 type OrderEventBroker interface {
