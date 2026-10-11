@@ -44,3 +44,5 @@ data/
 
 # Generated code
 examples/*/generated/
+# Invalid/temporary code-generator output directories
+examples/*/.generated/
