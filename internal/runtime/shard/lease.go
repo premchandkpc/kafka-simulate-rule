@@ -113,7 +113,7 @@ func (m *LeaseManager) Start(ctx context.Context) error {
 	target := m.targetOwnedShards()
 	start := uint32(0)
 	if m.owner != "" {
-		start = fnv32a(m.owner) % m.numShards
+		start = domain.ShardHash(m.owner) % m.numShards
 	}
 
 	for i := uint32(0); i < target; i++ {
@@ -364,13 +364,4 @@ func (m *LeaseManager) GetFencingToken(shard uint32) (int64, bool) {
 
 func (m *LeaseManager) VirtualShardForEvent(env *domain.EventEnvelope) uint32 {
 	return env.VirtualShard(m.numShards)
-}
-
-func fnv32a(s string) uint32 {
-	h := uint32(2166136261)
-	for i := 0; i < len(s); i++ {
-		h ^= uint32(s[i])
-		h *= 16777619
-	}
-	return h
 }

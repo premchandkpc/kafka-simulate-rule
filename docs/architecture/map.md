@@ -127,7 +127,6 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 | internal/runtime/shard | Lease acquisition/renewal, owned-shard tracking and fencing tokens |
 | internal/runtime/scheduler | Claim due schedules and publish events |
 | internal/storage/storage.go | PostgreSQL/Mongo selection and repository composition |
-| internal/factory/factory.go | Legacy broad Mongo-focused factory; current entrypoints use internal/storage |
 | internal/adapters/http | Router, request handlers, middleware, JSON/YAML decoding and responses |
 | internal/adapters/postgres | PostgreSQL pool/transactions and repository queries |
 | internal/adapters/mongo | Mongo client/session/transaction and repositories |
@@ -170,7 +169,6 @@ Rules:
 - Domain and rules never import transport, adapters, services, or database drivers.
 - Use-case services depend on domain and ports, not concrete adapters.
 - Adapters implement interfaces and keep infrastructure concerns at the edge.
-- Keep only one preferred composition route. internal/factory and internal/storage currently overlap; verify references before deleting the legacy factory.
 - EventTxRepos and RuleTxRepos are narrow transaction-scoped views; SQL/Mongo adapters own concrete transaction assertions and repository construction. The transaction port still exposes context/fencing details, which remain review debt.
 - SDK generated code must not import unexported/internal server packages.
 
@@ -191,7 +189,6 @@ Rules:
 | P1 | Contract tests are in-memory-only | Reuse suites against actual SQL and Mongo adapters and test transaction/unique-key semantics |
 | P1 | HTTP decoding is bounded and rejects trailing JSON/multiple YAML docs, but tenant identity is still caller-controlled and resource scoping is incomplete | Implement auth-derived tenant identity and authorize every resource operation |
 | P2 | Workflow service contains not-implemented definition methods | Implement intentionally or remove placeholders and use a clear repository/service boundary |
-| P2 | internal/factory duplicates storage composition | Verify consumers and consolidate composition |
 | P2 | health is liveness only and no gRPC listener exists | Separate readiness/liveness or document that only liveness is available |
 | P2 | No live crash/recovery suite or benchmark evidence | Add live PostgreSQL/NATS failure injection and reproducible benchmarks |
 | P2 | SQL outbox insertion is one insert per effect | Measure throughput then introduce batch insert if warranted |

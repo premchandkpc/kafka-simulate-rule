@@ -11,7 +11,7 @@ The detailed current-state topology and file map live in [map.md](map.md). This 
 - internal/application and internal/runtime coordinate the worker loop, bounded key queue, shard leases/fencing and scheduled-event release.
 - internal/ports contains storage, transaction, broker, clock and service interfaces. Some current transaction interfaces are too broad and expose implementation details; see the repository audit.
 - internal/adapters implements HTTP, PostgreSQL, MongoDB, NATS JetStream, Redis, and effect destinations.
-- internal/storage selects the configured storage backend and composes repositories. The legacy internal/factory is overlapping code, not the composition root used by current command entrypoints.
+- internal/storage selects the configured storage backend and composes repositories for the command entrypoints.
 - sdk/go is a nested independent module; examples/banking, examples/ecommerce and examples/food-delivery are also separate modules.
 
 ## Runtime path

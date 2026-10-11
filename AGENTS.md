@@ -110,7 +110,6 @@ This map explains responsibility; it is not a requirement to make the directory 
 | `internal/runtime/scheduler/` | Scheduled-event claiming and publishing |
 | `internal/config/` | Central configuration parsing and validation |
 | `internal/storage/` | Storage selection, repository composition and lifecycle |
-| `internal/factory/` | Legacy broad factory; current entrypoints use `internal/storage` |
 | `internal/codegen/` | Code-generation logic and templates |
 | `internal/observability/` | Logging, metrics, tracing and lifecycle |
 
@@ -187,7 +186,6 @@ Verify these current caveats against source before relying on them:
 - The migration CLI supports `up`; do not advertise down/status.
 - Workflow-definition mutation routes are not exposed on the tenant-facing API without authenticated admin controls and an ownership model.
 - Batch API presence does not imply worker batch execution is safe or enabled.
-- `internal/factory` overlaps `internal/storage`; inspect callers before expanding either.
 - Production multi-tenant exposure requires verified authentication, authorization on every resource path, trusted-proxy deployment and cross-tenant negative tests.
 
 ## 6. Runtime and Go coding standards

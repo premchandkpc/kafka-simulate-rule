@@ -26,8 +26,17 @@ type EventEnvelope struct {
 
 func (e *EventEnvelope) VirtualShard(modulus uint32) uint32 {
 	key := e.TenantID + ":" + e.PartitionKey
-	h := fnv32a(key)
-	return h % modulus
+	return ShardHash(key) % modulus
+}
+
+// ShardHash returns the stable 32-bit FNV-1a hash used for shard routing.
+func ShardHash(key string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return h
 }
 
 func (e *EventEnvelope) Validate() error {
@@ -405,15 +414,6 @@ type RuleActivation struct {
 	Version     int64     `json:"version"`
 	Actor       string    `json:"actor"`
 	ActivatedAt time.Time `json:"activated_at"`
-}
-
-func fnv32a(s string) uint32 {
-	h := uint32(2166136261)
-	for i := 0; i < len(s); i++ {
-		h ^= uint32(s[i])
-		h *= 16777619
-	}
-	return h
 }
 
 func NewID() string { return uuid.New().String() }

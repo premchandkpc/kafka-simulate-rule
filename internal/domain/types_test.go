@@ -2,6 +2,23 @@ package domain
 
 import "testing"
 
+func TestShardHashUsesStableFNV1aValues(t *testing.T) {
+	tests := []struct {
+		input string
+		want  uint32
+	}{
+		{input: "", want: 2166136261},
+		{input: "a", want: 3826002220},
+		{input: "worker-test", want: 930350870},
+	}
+
+	for _, tt := range tests {
+		if got := ShardHash(tt.input); got != tt.want {
+			t.Errorf("ShardHash(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestComputeExecutionIDIsDeterministic(t *testing.T) {
 	first := ComputeExecutionID("tenant-a", "event-123", "orders", 7)
 	second := ComputeExecutionID("tenant-a", "event-123", "orders", 7)
