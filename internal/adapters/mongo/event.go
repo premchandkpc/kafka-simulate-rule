@@ -121,8 +121,8 @@ type EventDoc struct {
 	WorkflowID   string     `bson:"workflow_id,omitempty"`
 	OccurredAt   time.Time  `bson:"occurred_at"`
 	ScheduledAt  *time.Time `bson:"scheduled_at,omitempty"`
-	Data         bson.Raw   `bson:"data"`
-	Headers      bson.Raw   `bson:"headers,omitempty"`
+	Data         []byte     `bson:"data"`
+	Headers      map[string]string `bson:"headers,omitempty"`
 	Processed    bool       `bson:"processed"`
 	ExecutionID  string     `bson:"execution_id,omitempty"`
 	ProcessedAt  *time.Time `bson:"processed_at,omitempty"`
@@ -130,14 +130,6 @@ type EventDoc struct {
 }
 
 func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
-	var data, headers bson.Raw
-	if event.Data != nil {
-		data, _ = bson.Marshal(event.Data)
-	}
-	if event.Headers != nil {
-		headers, _ = bson.Marshal(event.Headers)
-	}
-
 	return &EventDoc{
 		EventID:      event.ID,
 		TenantID:     event.TenantID,
@@ -145,8 +137,8 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 		PartitionKey: event.PartitionKey,
 		WorkflowID:   event.WorkflowID,
 		OccurredAt:   event.OccurredAt,
-		Data:         data,
-		Headers:      headers,
+		Data:         append([]byte(nil), event.Data...),
+		Headers:      event.Headers,
 		Processed:    false,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -154,12 +146,8 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 
 func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 	var data json.RawMessage
-	var headers map[string]string
 	if d.Data != nil {
-		data = json.RawMessage(d.Data)
-	}
-	if d.Headers != nil {
-		_ = json.Unmarshal(d.Headers, &headers)
+		data = json.RawMessage(append([]byte(nil), d.Data...))
 	}
 
 	return &domain.EventEnvelope{
@@ -170,6 +158,6 @@ func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 		WorkflowID:   d.WorkflowID,
 		OccurredAt:   d.OccurredAt,
 		Data:         data,
-		Headers:      headers,
+		Headers:      d.Headers,
 	}
 }
