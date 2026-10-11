@@ -11,21 +11,23 @@ import (
 	"github.com/flowrule/flowrule/internal/codegen"
 )
 
+const codegenCommandName = "codegen"
+
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "codegen: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", codegenCommandName, err)
 		os.Exit(1)
 	}
 }
 
 // run owns resources so every error path executes deferred cleanup before main exits.
 func run() error {
-	flags := flag.NewFlagSet("codegen", flag.ContinueOnError)
+	flags := flag.NewFlagSet(codegenCommandName, flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dsn := flags.String("dsn", "", "PostgreSQL connection string")
 	contract := flags.String("contract", "", "Registered contract name")
 	version := flags.String("version", "", "Registered contract version")
-	target := flags.String("target", "go", "Target language: go, java, protobuf, jsonschema")
+	target := flags.String("target", codegen.TargetGo, "Target language: "+codegen.SupportedTargetsText)
 	output := flags.String("output", "", "Output directory (prints generated files when empty)")
 	list := flags.Bool("list", false, "List all registered contracts")
 	migrations := flags.String("migrations", "migrations", "Path to migrations directory")
@@ -62,7 +64,7 @@ func run() error {
 	}
 
 	if *contract == "" || *version == "" {
-		return errors.New("usage: codegen -contract <name> -version <version> [-target go|java|protobuf|jsonschema] [-output directory], or codegen -list")
+		return errors.New("usage: " + codegenCommandName + " -contract <name> -version <version> [-target " + codegen.SupportedTargetsText + "] [-output directory], or " + codegenCommandName + " -list")
 	}
 
 	schema, err := registry.Get(ctx, *contract, *version)
@@ -116,15 +118,15 @@ func generateTarget(generator *codegen.Generator, target, outputDir string) erro
 
 func generateTargetFiles(generator *codegen.Generator, target, outputDir string) ([]string, error) {
 	switch target {
-	case "go":
+	case codegen.TargetGo:
 		return generator.GenerateGo(outputDir)
-	case "java":
+	case codegen.TargetJava:
 		return generator.GenerateJava(outputDir)
-	case "protobuf":
+	case codegen.TargetProtobuf:
 		return generator.GenerateProtobuf(outputDir)
-	case "jsonschema":
+	case codegen.TargetJSONSchema:
 		return generator.GenerateJSONSchema(outputDir)
 	default:
-		return nil, fmt.Errorf("unknown target %q (supported: go, java, protobuf, jsonschema)", target)
+		return nil, fmt.Errorf("unknown target %q (supported: %s)", target, codegen.SupportedTargetsText)
 	}
 }

@@ -130,7 +130,7 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.Language == "" {
-		responses.WriteError(w, http.StatusBadRequest, "language is required (go, java, protobuf, jsonschema)", responses.CodeValidationFailed)
+		responses.WriteError(w, http.StatusBadRequest, "language is required ("+codegen.SupportedTargetsText+")", responses.CodeValidationFailed)
 		return
 	}
 
@@ -168,13 +168,13 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	var genErr error
 
 	switch strings.ToLower(req.Language) {
-	case "go":
+	case codegen.TargetGo:
 		generatedFiles, genErr = generator.GenerateGo(outputDir)
-	case "java":
+	case codegen.TargetJava:
 		generatedFiles, genErr = generator.GenerateJava(outputDir)
-	case "protobuf":
+	case codegen.TargetProtobuf:
 		generatedFiles, genErr = generator.GenerateProtobuf(outputDir)
-	case "jsonschema":
+	case codegen.TargetJSONSchema:
 		generatedFiles, genErr = generator.GenerateJSONSchema(outputDir)
 	default:
 		responses.WriteError(w, http.StatusBadRequest, "unsupported language", responses.CodeValidationFailed)
