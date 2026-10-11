@@ -1,12 +1,12 @@
 # FlowRule documentation
 
-FlowRule is a Go event-driven rules runtime. Start with the root README for the development status, event lifecycle, module commands, and known security limits. AGENTS.md is the engineering guide and file-by-file package map; ARCHITECTURE_MAP.md follows the runtime wiring and dependency direction.
+FlowRule is a Go event-driven rules runtime. Start with the [root README](../README.md) for development status, event lifecycle, module commands, and known security limits. [AGENTS.md](../AGENTS.md) is the engineering guide and file-by-file package map; the [architecture map](architecture/map.md) follows runtime wiring and dependency direction.
 
 ## Documentation index
 
 | Document | Purpose |
 |---|---|
-| [architecture.md](architecture.md) | Current package structure, ports, adapter boundaries, process wiring and tests |
+| [architecture.md](architecture/overview.md) | Current package structure, ports, adapter boundaries, process wiring and tests |
 | [design.md](design.md) | Data model, transaction boundaries, consistency assumptions, state machines and failure handling |
 | [operations.md](operations.md) | Local deployment, process behavior, troubleshooting and operational checklist |
 | [rules.md](rules.md) | Rule JSON/YAML shape, operators, compilation, evaluation and deployment lifecycle |
@@ -17,33 +17,37 @@ FlowRule is a Go event-driven rules runtime. Start with the root README for the 
 
 ## Focused diagrams
 
-- [01-system-design.mmd](01-system-design.mmd): system components and layers
-- [02-dependency-direction.mmd](02-dependency-direction.mmd): allowed package dependency direction
-- [03-api-surface.mmd](03-api-surface.mmd): HTTP routing and use-case structure
-- [04-rule-structure.mmd](04-rule-structure.mmd): rule source model
-- [05-rule-lifecycle.mmd](05-rule-lifecycle.mmd): compile and activate a revision
-- [06-rule-evaluation-modes.mmd](06-rule-evaluation-modes.mmd): first-match vs all-matches behavior
-- [07-evaluation-algorithm.mmd](07-evaluation-algorithm.mmd): evaluator control flow
-- [08-event-processing.mmd](08-event-processing.mmd): consume, deduplicate, commit and acknowledge
-- [09-worker-runtime.mmd](09-worker-runtime.mmd): worker and background loops
-- [10-effect-delivery.mmd](10-effect-delivery.mmd): outbox dispatch and retry
-- [11-outbox-claim-protocol.mmd](11-outbox-claim-protocol.mmd): concurrent claim behavior
-- [12-execution-lifecycle.mmd](12-execution-lifecycle.mmd): execution states
-- [13-outbox-lifecycle.mmd](13-outbox-lifecycle.mmd): effect states and claim expiry
-- [14-state-transitions.mmd](14-state-transitions.mmd): related persistence state machines
-- [15-error-classification.mmd](15-error-classification.mmd): retryable vs permanent failures
-- [16-exactly-once-recovery.mmd](16-exactly-once-recovery.mmd): historical design of duplicate/recovery paths; do not read its title as a guarantee
-- [17-sharding-ordering.mmd](17-sharding-ordering.mmd): virtual shards and lease ownership
-- [18-scaling-and-ordering.mmd](18-scaling-and-ordering.mmd): scaling and ordering considerations
-- [19-data-model.mmd](19-data-model.mmd): persistence schema
-- [20-deployment-topology.mmd](20-deployment-topology.mmd): local/deployment topology
-- [21-testing-architecture.mmd](21-testing-architecture.mmd): test layers and coverage gaps
-- [22-business-order-review.mmd](22-business-order-review.mmd): order review example
-- [23-operations-troubleshooting.mmd](23-operations-troubleshooting.mmd): operational diagnosis
-- [24-single-service-target.mmd](24-single-service-target.mmd): proposed modular runtime target
-- [25-rule-chain-routing.mmd](25-rule-chain-routing.mmd): proposed rule-chain routing example
-- [26-execution-modes.mmd](26-execution-modes.mmd): planned processing modes
-- [27-order-flow-example.mmd](27-order-flow-example.mmd): order flow example
+- [01-system-design.mmd](diagrams/01-system-design.mmd): system components and layers
+- [02-dependency-direction.mmd](diagrams/02-dependency-direction.mmd): allowed package dependency direction
+- [03-api-surface.mmd](diagrams/03-api-surface.mmd): HTTP routing and use-case structure
+- [04-rule-structure.mmd](diagrams/04-rule-structure.mmd): rule source model
+- [05-rule-lifecycle.mmd](diagrams/05-rule-lifecycle.mmd): compile and activate a revision
+- [06-rule-evaluation-modes.mmd](diagrams/06-rule-evaluation-modes.mmd): first-match vs all-matches behavior
+- [07-evaluation-algorithm.mmd](diagrams/07-evaluation-algorithm.mmd): evaluator control flow
+- [08-event-processing.mmd](diagrams/08-event-processing.mmd): consume, deduplicate, commit and acknowledge
+- [09-worker-runtime.mmd](diagrams/09-worker-runtime.mmd): worker and background loops
+- [10-effect-delivery.mmd](diagrams/10-effect-delivery.mmd): outbox dispatch and retry
+- [11-outbox-claim-protocol.mmd](diagrams/11-outbox-claim-protocol.mmd): concurrent claim behavior
+- [12-execution-lifecycle.mmd](diagrams/12-execution-lifecycle.mmd): execution states
+- [13-outbox-lifecycle.mmd](diagrams/13-outbox-lifecycle.mmd): effect states and claim expiry
+- [14-state-transitions.mmd](diagrams/14-state-transitions.mmd): related persistence state machines
+- [15-error-classification.mmd](diagrams/15-error-classification.mmd): retryable vs permanent failures
+- [16-exactly-once-recovery.mmd](diagrams/16-exactly-once-recovery.mmd): historical design of duplicate/recovery paths; do not read its title as a guarantee
+- [17-sharding-ordering.mmd](diagrams/17-sharding-ordering.mmd): virtual shards and lease ownership
+- [18-scaling-and-ordering.mmd](diagrams/18-scaling-and-ordering.mmd): scaling and ordering considerations
+- [19-data-model.mmd](diagrams/19-data-model.mmd): persistence schema
+- [20-deployment-topology.mmd](diagrams/20-deployment-topology.mmd): local/deployment topology
+- [21-testing-architecture.mmd](diagrams/21-testing-architecture.mmd): test layers and coverage gaps
+- [22-business-order-review.mmd](diagrams/22-business-order-review.mmd): order review example
+- [23-operations-troubleshooting.mmd](diagrams/23-operations-troubleshooting.mmd): operational diagnosis
+- [24-single-service-target.mmd](diagrams/24-single-service-target.mmd): proposed modular runtime target
+- [25-rule-chain-routing.mmd](diagrams/25-rule-chain-routing.mmd): proposed rule-chain routing example
+- [26-execution-modes.mmd](diagrams/26-execution-modes.mmd): planned processing modes
+- [27-order-flow-example.mmd](diagrams/27-order-flow-example.mmd): order flow example
+
+## Historical implementation plan
+
+[Legacy architecture redesign plan](plans/legacy-architecture-redesign.md) is retained for context only. Its checkboxes and paths are stale and must not be treated as current implementation status.
 
 ## Current HTTP routes
 

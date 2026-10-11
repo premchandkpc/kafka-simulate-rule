@@ -164,7 +164,7 @@ Generating a Go target also emits a typed client with default-rule-set and expli
 
 ## Learn More
 
-- [FlowRule Architecture](../ARCHITECTURE_MAP.md)
+- [FlowRule Architecture](../docs/architecture/map.md)
 - [API Documentation](../docs/)
 - [Rule Schema](../api/rule-schema.json)
 - [Event Envelope Schema](../api/envelope-schema.json)

@@ -74,8 +74,8 @@ This map explains responsibility; it is not a requirement to make the directory 
 |---|---|
 | `README.md` | Overview, getting started, event flow and limitations |
 | `AGENTS.md` | Engineering standards, package ownership and verification workflow |
-| `ARCHITECTURE_MAP.md` | Runtime topology, dependencies and known gaps |
-| `IMPLEMENTATION_PLAN.md` | Plan/history; verify against source before treating as current |
+| `docs/architecture/map.md` | Runtime topology, dependencies and known gaps |
+| `docs/plans/legacy-architecture-redesign.md` | Plan/history; verify against source before treating as current |
 | `go.mod`, `go.sum` | Root Go module and checksums |
 | `Makefile` | Build, test, lint, format, Compose, migrations and code generation |
 | `.env.example` | Configuration names and safe placeholders; never secrets |
