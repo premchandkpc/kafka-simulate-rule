@@ -26,8 +26,8 @@ type Delivery interface {
 	Subject() string
 }
 
-// BrokerPublisher is the adapter-facing generic publishing contract.
-// Prefer EventPublisher in use cases to avoid exposing arbitrary broker subjects.
+// BrokerPublisher is the generic transport-level publishing contract.
+// Business use cases should prefer a narrower contract such as EventPublisher.
 type BrokerPublisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error
 	PublishBatch(ctx context.Context, messages []PublishMessage) error
