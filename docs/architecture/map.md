@@ -129,7 +129,7 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 | internal/storage/storage.go | PostgreSQL/Mongo selection and repository composition |
 | internal/factory/factory.go | Legacy broad Mongo-focused factory; current entrypoints use internal/storage |
 | internal/adapters/http | Router, request handlers, middleware, JSON/YAML decoding and responses |
-| internal/adapters/sql | PostgreSQL pool/transactions and repository queries |
+| internal/adapters/postgres | PostgreSQL pool/transactions and repository queries |
 | internal/adapters/mongo | Mongo client/session/transaction and repositories |
 | internal/adapters/nats/jetstream.go | Stream configuration, sharded consumers, delivery ACK/NAK/retry and publishing |
 | internal/adapters/redis | Redis client and cache implementation; not wired into the primary event path |

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	sqladapter "github.com/flowrule/flowrule/internal/adapters/sql"
+	postgresadapter "github.com/flowrule/flowrule/internal/adapters/postgres"
 	"github.com/flowrule/flowrule/internal/config"
 )
 
@@ -36,7 +36,7 @@ func run() error {
 	}
 
 	ctx := context.Background()
-	db, err := sqladapter.New(ctx, cfg.Database.DSN, cfg.Database.MigrationsDir)
+	db, err := postgresadapter.New(ctx, cfg.Database.DSN, cfg.Database.MigrationsDir)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

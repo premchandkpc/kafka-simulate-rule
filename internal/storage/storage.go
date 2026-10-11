@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	mongoadapter "github.com/flowrule/flowrule/internal/adapters/mongo"
-	sqladapter "github.com/flowrule/flowrule/internal/adapters/sql"
+	postgresadapter "github.com/flowrule/flowrule/internal/adapters/postgres"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,7 +65,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 
 	switch backend {
 	case "postgres":
-		db, err := sqladapter.New(ctx, cfg.DSN, cfg.MigrationsDir)
+		db, err := postgresadapter.New(ctx, cfg.DSN, cfg.MigrationsDir)
 		if err != nil {
 			return nil, fmt.Errorf("open postgres storage: %w", err)
 		}
@@ -101,21 +101,21 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 
 func buildPostgresRepos(pool *pgxpool.Pool) Repositories {
 	return Repositories{
-		Inbox:                  sqladapter.NewInboxRepository(pool),
-		Activations:            sqladapter.NewActivationRepository(pool),
-		Rules:                  sqladapter.NewRuleRepository(pool),
-		Executions:             sqladapter.NewExecutionRepository(pool),
-		Outbox:                 sqladapter.NewOutboxRepository(pool),
-		ShardLeases:            sqladapter.NewShardLeaseRepository(pool),
-		Workflows:              sqladapter.NewWorkflowRepository(pool),
-		WorkflowDefinitions:    sqladapter.NewWorkflowDefinitionRepository(pool),
-		ScheduledEvents:        sqladapter.NewScheduledEventRepository(pool),
-		Batches:                sqladapter.NewBatchRepository(pool),
-		Quarantine:             sqladapter.NewQuarantineRepository(pool),
-		Contracts:              sqladapter.NewContractRegistry(pool),
-		Transactions:           sqladapter.NewTransactionManager(pool),
-		NewEventTxRepositories: sqladapter.NewEventTxRepositories,
-		NewRuleTxRepositories:  sqladapter.NewRuleTxRepositories,
+		Inbox:                  postgresadapter.NewInboxRepository(pool),
+		Activations:            postgresadapter.NewActivationRepository(pool),
+		Rules:                  postgresadapter.NewRuleRepository(pool),
+		Executions:             postgresadapter.NewExecutionRepository(pool),
+		Outbox:                 postgresadapter.NewOutboxRepository(pool),
+		ShardLeases:            postgresadapter.NewShardLeaseRepository(pool),
+		Workflows:              postgresadapter.NewWorkflowRepository(pool),
+		WorkflowDefinitions:    postgresadapter.NewWorkflowDefinitionRepository(pool),
+		ScheduledEvents:        postgresadapter.NewScheduledEventRepository(pool),
+		Batches:                postgresadapter.NewBatchRepository(pool),
+		Quarantine:             postgresadapter.NewQuarantineRepository(pool),
+		Contracts:              postgresadapter.NewContractRegistry(pool),
+		Transactions:           postgresadapter.NewTransactionManager(pool),
+		NewEventTxRepositories: postgresadapter.NewEventTxRepositories,
+		NewRuleTxRepositories:  postgresadapter.NewRuleTxRepositories,
 	}
 }
 

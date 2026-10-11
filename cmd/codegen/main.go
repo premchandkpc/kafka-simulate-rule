@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	sqladapter "github.com/flowrule/flowrule/internal/adapters/sql"
+	postgresadapter "github.com/flowrule/flowrule/internal/adapters/postgres"
 	"github.com/flowrule/flowrule/internal/codegen"
 )
 
@@ -43,13 +43,13 @@ func run() error {
 	}
 
 	ctx := context.Background()
-	db, err := sqladapter.New(ctx, *dsn, *migrations)
+	db, err := postgresadapter.New(ctx, *dsn, *migrations)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
 
-	registry := sqladapter.NewContractRegistry(db.Pool())
+	registry := postgresadapter.NewContractRegistry(db.Pool())
 	if *list {
 		schemas, err := registry.List(ctx, "")
 		if err != nil {
