@@ -84,7 +84,7 @@ go run .
 
 Example producers use the generated typed `Send` method. Consumers use the generated typed `Subscribe` method, which observes live core NATS publications without competing for JetStream messages owned by the FlowRule worker. Start consumers before producing events; this subscription is non-durable, has no replay, and is intended for live observation rather than reliable business processing. The worker remains responsible for durable rule processing.
 
-## Code Generation
+## Domain-aware load simulation\n\nThe opt-in [`random-producer`](random-producer/README.md) can seed the existing e-commerce, banking, and food-delivery flows with contract-shaped initial events. Deploy the relevant example contracts, rules, and workflow first, then run `docker compose --profile examples run --rm random-producer`. By default it cycles across all three domains under `FLOWRULE_TENANT_ID=acme-corp`; the number of simulated business clients is separate from the FlowRule tenant. A JetStream publish ACK only confirms broker acceptance, not completion by a worker.\n\n## Code Generation
 
 All examples support code generation from contracts:
 
