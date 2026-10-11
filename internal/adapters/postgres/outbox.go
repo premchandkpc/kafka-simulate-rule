@@ -236,6 +236,51 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 	return r.GetOwner(ctx, shard)
 }
 
+// RenewOwned renews the supplied leases in one database round trip. The expected
+// fencing token is part of each row match so a stale local snapshot cannot renew
+// a lease that has already been reassigned. Rows omitted from the result are lost.
+func (r *ShardLeaseRepository) RenewOwned(ctx context.Context, owner string, leases map[uint32]int64, ttl time.Duration) (map[uint32]*domain.ShardLease, error) {
+	renewed := make(map[uint32]*domain.ShardLease, len(leases))
+	if len(leases) == 0 {
+		return renewed, nil
+	}
+
+	args := make([]any, 0, 2+2*len(leases))
+	args = append(args, owner, ttl.Milliseconds())
+	values := make([]string, 0, len(leases))
+	for shardID, token := range leases {
+		base := len(args) + 1
+		values = append(values, fmt.Sprintf("($%d::bigint, $%d::bigint)", base, base+1))
+		args = append(args, int64(shardID), token)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE shard_leases AS lease
+		SET expires_at = NOW() + ($2 * INTERVAL '1 millisecond')
+		FROM (VALUES %s) AS requested(virtual_shard, fencing_token)
+		WHERE lease.virtual_shard = requested.virtual_shard
+		  AND lease.fencing_token = requested.fencing_token
+		  AND lease.owner = $1
+		  AND lease.expires_at > NOW()
+		RETURNING lease.virtual_shard, lease.owner, lease.fencing_token, lease.expires_at, lease.routing_epoch
+	`, strings.Join(values, ","))
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("renew owned leases: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		lease := &domain.ShardLease{}
+		if err := rows.Scan(&lease.VirtualShard, &lease.Owner, &lease.FencingToken, &lease.ExpiresAt, &lease.RoutingEpoch); err != nil {
+			return nil, fmt.Errorf("scan renewed lease: %w", err)
+		}
+		renewed[lease.VirtualShard] = lease
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate renewed leases: %w", err)
+	}
+	return renewed, nil
+}
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
 	// Preserve the row so the fencing token remains monotonic across release/reacquire.
 	// Deleting it would let the next INSERT reset the token to 1 and revive a zombie.
