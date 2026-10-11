@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-integration test-e2e lint vet fmt generate clean run-api run-worker run-all docker-build docker-up docker-down migrate-up migrate-down proto-gen proto-validate
+.PHONY: help build build-api build-worker build-codegen test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
 
 # Default target
 help:
@@ -16,7 +16,6 @@ help:
 	@echo "  test            Run all tests"
 	@echo "  test-unit       Run unit tests only"
 	@echo "  test-integration Run integration tests"
-	@echo "  test-e2e        Run end-to-end tests (requires infrastructure)"
 	@echo ""
 	@echo "Code quality:"
 	@echo "  lint            Run golangci-lint"
@@ -24,9 +23,7 @@ help:
 	@echo "  fmt             Format code with gofmt"
 	@echo ""
 	@echo "Code generation:"
-	@echo "  generate        Generate all code from contracts"
-	@echo "  proto-gen       Generate protobuf and gRPC code"
-	@echo "  proto-validate  Validate protobuf files with protoc"
+	@echo "  generate        Generate artifacts for a registered contract (set CONTRACT and CONTRACT_VERSION)"
 	@echo ""
 	@echo "Run targets:"
 	@echo "  run-api         Run API server"
@@ -41,7 +38,6 @@ help:
 	@echo ""
 	@echo "Database:"
 	@echo "  migrate-up      Run database migrations"
-	@echo "  migrate-down    Rollback last migration"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  clean           Clean build artifacts"
@@ -91,7 +87,7 @@ run-worker: build-worker
 
 # Run with docker-compose
 run-all: docker-up
-	@echo "Services started. API at http://localhost:8080, gRPC at localhost:9090"
+	@echo "Services started. HTTP API at http://localhost:8080"
 	@echo "Run 'make docker-logs' to view logs"
 	@echo "Run 'make docker-down' to stop"
 
@@ -105,10 +101,6 @@ test-unit:
 test-integration:
 	@echo "Running integration tests..."
 	$(GO) test $(GOTESTFLAGS) -tags=integration ./tests/...
-
-test-e2e:
-	@echo "Running end-to-end tests..."
-	$(GO) test $(GOTESTFLAGS) -tags=e2e ./tests/e2e/...
 
 # Code quality
 lint:
@@ -125,18 +117,16 @@ fmt:
 	$(GO) fmt ./...
 
 # Code generation
+CONTRACT ?=
+CONTRACT_VERSION ?=
+TARGET ?= go
+OUTPUT_DIR ?= /tmp/flowrule-generated
+
 generate:
-	@echo "Generating code from contracts..."
-	$(GO) run ./cmd/codegen generate --all
-
-proto-gen:
-	@echo "Generating protobuf and gRPC code..."
-	$(GO) run ./cmd/codegen generate --proto --grpc
-
-proto-validate:
-	@echo "Validating protobuf files..."
-	@which protoc > /dev/null || (echo "protoc not installed" && exit 1)
-	find . -name "*.proto" -exec protoc --proto_path=. --go_out=. --go-grpc_out=. {} \;
+	@test -n "$(CONTRACT)" || (echo "Set CONTRACT to a registered contract name" && exit 2)
+	@test -n "$(CONTRACT_VERSION)" || (echo "Set CONTRACT_VERSION to a registered contract version" && exit 2)
+	@echo "Generating $(CONTRACT)@$(CONTRACT_VERSION) as $(TARGET)..."
+	$(GO) run ./cmd/codegen -contract "$(CONTRACT)" -version "$(CONTRACT_VERSION)" -target "$(TARGET)" -output "$(OUTPUT_DIR)"
 
 # Docker targets
 docker-build:
@@ -159,16 +149,11 @@ migrate-up:
 	@echo "Running migrations..."
 	$(GO) run ./cmd/migrate up
 
-migrate-down:
-	@echo "Rolling back migration..."
-	$(GO) run ./cmd/migrate down
-
 # Utilities
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf $(BIN_DIR)
 	rm -rf /tmp/flowrule-generated
-	$(GO) clean -cache -testcache -modcache
 
 deps:
 	@echo "Downloading dependencies..."
@@ -183,10 +168,6 @@ tools:
 	$(GO) install github.com/pressly/goose/v3/cmd/goose@latest
 
 # Generate example contracts
-generate-examples:
-	@echo "Generating code for banking example..."
-	cd examples/banking && $(GO) run ../../cmd/codegen generate --contract transaction.initiated --version 1.0 --output ./generated --all
-
 # Verify generated code compiles
 verify-generated:
 	@echo "Verifying generated code compiles..."
@@ -199,7 +180,11 @@ verify-generated:
 	done
 
 # CI pipeline
-ci: deps fmt vet lint test-unit verify-generated
+check-fmt:
+	@files="$$(gofmt -l $$(find cmd internal tests -name '*.go' -type f))"; \
+	if [ -n "$$files" ]; then printf "%s\n" "$$files"; exit 1; fi
+
+ci: deps check-fmt vet lint test verify-generated
 	@echo "CI pipeline passed!"
 
 # Release

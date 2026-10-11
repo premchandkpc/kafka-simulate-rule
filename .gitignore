@@ -3,7 +3,13 @@ go/bin/
 go/vendor/
 
 # Build artifacts
-bin/
+/bin/
+/bin/*
+/worker
+/codegen
+/examples/*/consumer
+/examples/*/producer
+*.test
 *.o
 *.so
 *.dylib
@@ -38,3 +44,5 @@ data/
 
 # Generated code
 examples/*/generated/
+# Invalid/temporary code-generator output directories
+examples/*/.generated/

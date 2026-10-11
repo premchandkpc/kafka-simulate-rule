@@ -2,26 +2,36 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
-	"github.com/flowrule/flowrule/internal/adapters/sql"
+	sqladapter "github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/codegen"
 )
 
 func main() {
-	var (
-		dsn        = flag.String("dsn", "", "PostgreSQL connection string")
-		contract   = flag.String("contract", "", "Contract name")
-		version    = flag.String("version", "", "Contract version")
-		target     = flag.String("target", "go", "Target language: go, java, protobuf, jsonschema")
-		output     = flag.String("output", "", "Output file (stdout if empty)")
-		list       = flag.Bool("list", false, "List all contracts")
-		migrations = flag.String("migrations", "migrations", "Path to migrations directory")
-	)
-	flag.Parse()
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "codegen: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// run owns resources so every error path executes deferred cleanup before main exits.
+func run() error {
+	flags := flag.NewFlagSet("codegen", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	dsn := flags.String("dsn", "", "PostgreSQL connection string")
+	contract := flags.String("contract", "", "Registered contract name")
+	version := flags.String("version", "", "Registered contract version")
+	target := flags.String("target", "go", "Target language: go, java, protobuf, jsonschema")
+	output := flags.String("output", "", "Output directory (prints generated files when empty)")
+	list := flags.Bool("list", false, "List all registered contracts")
+	migrations := flags.String("migrations", "migrations", "Path to migrations directory")
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		return err
+	}
 
 	if *dsn == "" {
 		*dsn = os.Getenv("DATABASE_URL")
@@ -31,94 +41,90 @@ func main() {
 	}
 
 	ctx := context.Background()
-
-	db, err := sql.New(ctx, *dsn, *migrations)
+	db, err := sqladapter.New(ctx, *dsn, *migrations)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
 
-	registry := sql.NewContractRegistry(db.Pool())
-
+	registry := sqladapter.NewContractRegistry(db.Pool())
 	if *list {
 		schemas, err := registry.List(ctx, "")
 		if err != nil {
-			log.Fatalf("list contracts: %v", err)
+			return fmt.Errorf("list contracts: %w", err)
 		}
-		for _, s := range schemas {
-			fmt.Printf("%s@%s\n", s.Name, s.Version)
+		for _, schema := range schemas {
+			if _, err := fmt.Printf("%s@%s\n", schema.Name, schema.Version); err != nil {
+				return fmt.Errorf("write contract list: %w", err)
+			}
 		}
-		return
+		return nil
 	}
 
 	if *contract == "" || *version == "" {
-		fmt.Fprintf(os.Stderr, "Usage: %s -contract <name> -version <version> [-target go|java|protobuf|jsonschema] [-output file]\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "       %s -list\n", os.Args[0])
-		os.Exit(1)
+		return errors.New("usage: codegen -contract <name> -version <version> [-target go|java|protobuf|jsonschema] [-output directory], or codegen -list")
 	}
 
 	schema, err := registry.Get(ctx, *contract, *version)
 	if err != nil {
-		log.Fatalf("get contract: %v", err)
+		return fmt.Errorf("get contract %s@%s: %w", *contract, *version, err)
 	}
 	if schema == nil {
-		log.Fatalf("contract %s@%s not found", *contract, *version)
+		return fmt.Errorf("contract %s@%s not found", *contract, *version)
 	}
 
 	generator := codegen.NewGenerator(schema)
-
 	if *output != "" {
-		// Generate to file
-		var err error
-		switch *target {
-		case "go":
-			_, err = generator.GenerateGo(*output)
-		case "java":
-			_, err = generator.GenerateJava(*output)
-		case "protobuf":
-			_, err = generator.GenerateProtobuf(*output)
-		case "jsonschema":
-			_, err = generator.GenerateJSONSchema(*output)
-		default:
-			log.Fatalf("unknown target: %s", *target)
+		if err := generateTarget(generator, *target, *output); err != nil {
+			return fmt.Errorf("generate %s: %w", *target, err)
 		}
+		_, err := fmt.Printf("Generated %s artifacts in %s\n", *target, *output)
+		return err
+	}
 
+	tmpDir, err := os.MkdirTemp("", "flowrule-codegen-*")
+	if err != nil {
+		return fmt.Errorf("create temporary directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	files, err := generateTargetFiles(generator, *target, tmpDir)
+	if err != nil {
+		return fmt.Errorf("generate %s: %w", *target, err)
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
 		if err != nil {
-			log.Fatalf("generate: %v", err)
+			return fmt.Errorf("read generated file %s: %w", file, err)
 		}
-		fmt.Printf("Generated %s -> %s\n", *target, *output)
-	} else {
-		// Generate to temp dir and print to stdout
-		tmpDir, err := os.MkdirTemp("", "flowrule-codegen-*")
-		if err != nil {
-			log.Fatalf("create temp dir: %v", err)
+		if _, err := os.Stdout.Write(data); err != nil {
+			return fmt.Errorf("write generated file %s: %w", file, err)
 		}
-		defer os.RemoveAll(tmpDir)
-
-		var files []string
-		switch *target {
-		case "go":
-			files, err = generator.GenerateGo(tmpDir)
-		case "java":
-			files, err = generator.GenerateJava(tmpDir)
-		case "protobuf":
-			files, err = generator.GenerateProtobuf(tmpDir)
-		case "jsonschema":
-			files, err = generator.GenerateJSONSchema(tmpDir)
-		default:
-			log.Fatalf("unknown target: %s", *target)
-		}
-
-		if err != nil {
-			log.Fatalf("generate: %v", err)
-		}
-
-		for _, file := range files {
-			data, err := os.ReadFile(file)
-			if err != nil {
-				log.Fatalf("read generated file: %v", err)
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			if _, err := fmt.Fprintln(os.Stdout); err != nil {
+				return fmt.Errorf("write generated file separator: %w", err)
 			}
-			fmt.Print(string(data))
 		}
+	}
+	return nil
+}
+
+func generateTarget(generator *codegen.Generator, target, outputDir string) error {
+	_, err := generateTargetFiles(generator, target, outputDir)
+	return err
+}
+
+func generateTargetFiles(generator *codegen.Generator, target, outputDir string) ([]string, error) {
+	switch target {
+	case "go":
+		return generator.GenerateGo(outputDir)
+	case "java":
+		return generator.GenerateJava(outputDir)
+	case "protobuf":
+		return generator.GenerateProtobuf(outputDir)
+	case "jsonschema":
+		return generator.GenerateJSONSchema(outputDir)
+	default:
+		return nil, fmt.Errorf("unknown target %q (supported: go, java, protobuf, jsonschema)", target)
 	}
 }

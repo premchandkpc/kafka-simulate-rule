@@ -65,11 +65,3 @@ func fnv32a(s string) uint32 {
 	}
 	return h
 }
-
-// Effect represents an effect to be emitted
-type Effect struct {
-	Type           string         `json:"type"`
-	Payload        map[string]any `json:"payload"`
-	PartitionKey   string         `json:"partition_key"`
-	PartitionKeyPolicy string      `json:"partition_key_policy,omitempty"`
-}

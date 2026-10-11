@@ -94,6 +94,18 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 		return nil, domain.ErrRuleExceedsLimits
 	}
 
+	// These budgets apply to the complete rule set, not independently to each
+	// rule. Keep total evaluation work and possible side effects bounded.
+	totalPredicates := 0
+	totalActions := 0
+	for _, rule := range rawRules {
+		totalPredicates += countPredicates(rule.When)
+		totalActions += len(rule.Then) + len(rule.Otherwise)
+		if totalPredicates > c.limits.MaxPredicates || totalActions > c.limits.MaxActionsPerSet {
+			return nil, domain.ErrRuleExceedsLimits
+		}
+	}
+
 	compiled, err := c.compileRules(rawRules)
 	if err != nil {
 		return nil, err
@@ -206,6 +218,28 @@ func (c *Compiler) validatePredicate(p domain.Predicate, depth int) error {
 			return domain.ErrInvalidOperator
 		}
 		return nil
+	}
+
+	// Evaluation uses one composite operator at a time. Accepting multiple
+	// operators here would silently ignore later branches in the evaluator.
+	compositeCount := 0
+	if p.All != nil {
+		compositeCount++
+		if len(p.All) == 0 {
+			return domain.ErrInvalidPredicate
+		}
+	}
+	if p.Any != nil {
+		compositeCount++
+		if len(p.Any) == 0 {
+			return domain.ErrInvalidPredicate
+		}
+	}
+	if p.Not != nil {
+		compositeCount++
+	}
+	if compositeCount != 1 {
+		return domain.ErrInvalidPredicate
 	}
 
 	if p.All != nil {

@@ -1,171 +1,159 @@
-# Operations
+# Operations and Troubleshooting
 
-## Deployment
+This guide describes the current implementation. It does not certify the service as production-ready.
 
-### Prerequisites
+## Security and exposure warning
 
-- PostgreSQL 14+
-- MongoDB replica set or sharded cluster (optional alternative; required for transactions)
-- NATS JetStream
-- Go 1.21+
+The HTTP API currently has **no authentication or authorization middleware**. Tenant extraction trusts the caller-supplied `X-Tenant-ID` header or `tenant_id` query parameter and falls back to `default`. A caller can therefore choose a tenant identifier. Do not expose the API to untrusted users or rely on tenant isolation until identity is derived from a trusted authentication layer and each resource operation checks authorization.
 
-### Defaults
+Native configuration defaults the HTTP server to `127.0.0.1:8080`. The local Compose file publishes API, PostgreSQL, NATS, NATS monitoring and Redis ports on host loopback only. Compose still uses demo credentials. Do not reuse those credentials or treat the development stack as a production deployment.
 
-| Variable | Default |
-|----------|---------|
-| DATABASE_URL | postgres://postgres:postgres@localhost:5432/flowrule?sslmode=disable |
-| STORAGE_BACKEND | postgres |
-| MONGODB_URI | unset |
-| MONGODB_DATABASE | unset |
-| NATS_URL | nats://localhost:4222 |
-| MIGRATIONS_DIR | migrations |
-| API listen | :8080 |
+## Runtime topology
 
-The following are hardcoded in cmd/worker/main.go (not environment variables):
+| Process | Entry point | Responsibility |
+|---|---|---|
+| HTTP API | `cmd/api/main.go` | Rule revisions/activations, workflow instances/definitions, contracts, batches, quarantine and scheduled-event endpoints |
+| Worker | `cmd/worker/main.go` | NATS JetStream consumption, shard lease/fencing, bounded per-key work, event evaluation, outbox publisher and scheduler |
+| Code generator | `cmd/codegen/main.go` | Generate Go, Java, Protobuf or JSON Schema artifacts from a contract already registered in storage |
+| Migration CLI | `cmd/migrate/main.go` | Apply pending SQL migrations; only `up` is implemented |
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| STREAM | flowrule | JetStream stream name |
-| CONSUMER | flowrule-worker | JetStream consumer name |
-| SUBJECTS | events.> | Subject filter for event consumption |
-| ACK_WAIT | 30s | NATS ack wait timeout |
-| MAX_DELIVER | 10 | Max delivery attempts before NATS requeues |
-| PUBLISH_INTERVAL | 5s | Effect publisher batch interval |
-| PUBLISH_BATCH_SIZE | 10 | Effects per publish batch |
+The API starts HTTP only. There is no gRPC server or active gRPC listener. The client SDK includes a gRPC transport interface, but that is not a server implementation in this repository. `/health` is a liveness endpoint only; it does not prove storage or NATS readiness.
 
-PostgreSQL is the default transactional backend. To use MongoDB for both the API
-and worker, configure the same backend and database settings in both processes:
+## Local development
 
-```sh
-STORAGE_BACKEND=mongodb
-MONGODB_URI=mongodb://localhost:27017/?replicaSet=rs0
-MONGODB_DATABASE=flowrule
-```
+Start the development stack from the repository root:
 
-MongoDB startup creates the required indexes. Event processing uses
-multi-document transactions, so standalone MongoDB servers are not supported;
-use a replica set or sharded cluster. PostgreSQL startup applies the SQL
-migrations from `MIGRATIONS_DIR`.
+~~~sh
+docker compose up --build -d
+~~~
 
-### Steps
+Published host ports are loopback-bound: API `localhost:8080`, NATS client `localhost:4222`, NATS monitoring `localhost:8222`, PostgreSQL `localhost:5432`, Redis `localhost:6379`.
 
-1. Start Postgres and NATS
-2. `go run ./cmd/api` (runs migrations automatically)
-3. `go run ./cmd/worker`
-4. Deploy a rule via `POST /v1/rules/{ruleSet}/revisions`
-5. Publish events to NATS subject `events.{type}`
+Stop it with:
 
-### Production checklist
+~~~sh
+docker compose down
+~~~
 
-- [ ] HA Postgres (streaming replication)
-- [ ] JetStream with replication factor >= 3
-- [ ] TLS for all connections
-- [ ] Container builds with pinned revisions
-- [ ] Migration job separate from app startup
-- [ ] Config/secret injection (env or volume)
-- [ ] Readiness/liveness probes
-- [ ] Resource limits (CPU, memory, connections)
-- [ ] Real destination adapters (not FakeDestination)
-- [ ] Metrics and alerting
+To retain local database volumes, use `docker compose down` without `-v`. Only remove volumes when you intentionally want to destroy development data.
 
-## Failure scenarios
+API/worker startup initializes the configured storage backend and applies migrations. The worker may use a fake effect destination only when `APP_ENV=development` or `test` and `EFFECT_DESTINATION_URL` is empty. In other environments, the worker fails startup if the external destination is missing.
 
-### Crash before commit
+## Configuration
 
-All changes roll back. Broker redelivers. Inbox dedup catches it as a new attempt.
+The authoritative variable names and local examples are in `.env.example`; parsing and validation live in `internal/config/config.go`.
 
-### Crash after commit, before ack
+| Setting | Default / behavior |
+|---|---|
+| `HTTP_ADDR` | `127.0.0.1:8080` for direct local execution; Compose overrides this inside the container to listen on `:8080` |
+| `DATABASE_URL` | Local PostgreSQL DSN; `STORAGE_BACKEND=postgres` is the default |
+| `STORAGE_BACKEND` | `postgres` or `mongodb` |
+| `MONGODB_URI`, `MONGODB_DATABASE` | Required when `STORAGE_BACKEND=mongodb`; transactions require replica-set/sharded MongoDB |
+| `NATS_URL` | Local client URL `nats://localhost:4222`; containers use the Compose service name |
+| `NATS_STREAM`, `NATS_CONSUMER` | Stream and optional durable consumer identifiers |
+| `NUM_SHARDS` | 4096 virtual shards by default |
+| `FETCH_BATCH_SIZE`, `MAX_GLOBAL_IN_FLIGHT`, `MAX_PER_KEY_QUEUE`, `KEY_QUEUE_WORKERS` | Bound fetching and queued/in-flight work |
+| `NATS_ACK_WAIT_MS`, `NATS_MAX_DELIVER` | NATS delivery acknowledgement timeout and maximum delivery count |
+| `EFFECT_PUBLISH_INTERVAL_MS`, `EFFECT_PUBLISH_BATCH_SIZE`, `EVENT_RETRY_DELAY_MS` | Outbox publishing cadence/batch and event retry delay |
+| `SCHEDULER_POLL_MS`, `SCHEDULER_BATCH_SIZE` | Scheduled-event polling cadence and batch size |
+| `LEASE_TTL_MS`, `LEASE_RENEWAL_INTERVAL_MS` | Shard lease duration and renewal cadence; renewal must remain within configured validation limits |
+| `EFFECT_DESTINATION_URL` | External HTTP destination for command effects; required outside development/test |
+| `SHUTDOWN_TIMEOUT` | Bounded graceful-shutdown interval |
 
-Inbox already committed. On redelivery, `Inbox.Get` returns the committed entry. Existing execution is returned. No duplicate effect.
+Some optional observability and generation settings are also accepted by config. Verify the concrete entry point uses a setting before assuming it starts a listener or service; unused configuration should not be treated as an implemented feature.
 
-### Destination down
+## Rule deployment and event publishing
 
-Outbox retry with exponential backoff: 1s, 2s, 4s, 8s, 16s (capped at 60s). After `max_attempts` (default 5), effect moves to quarantine.
+Deploy a single JSON or YAML rule document:
 
-### Poison message
+~~~sh
+curl --fail-with-body -sS \
+  -H 'Content-Type: application/yaml' \
+  -H 'X-Tenant-ID: development-tenant' \
+  --data-binary @examples/banking/rules/transaction-initiated.yaml \
+  http://localhost:8080/v1/rules/transaction.initiated/revisions
+~~~
 
-Permanent errors (invalid envelope, rule not found) are acked immediately. Transient errors trigger retry with backoff.
+Use a file whose `rule_set` matches the path parameter. HTTP request decoding is bounded to 1 MiB and rejects multiple JSON values or multiple YAML documents. The sample tenant header is for local testing only, not authentication.
 
-### Two workers same event
+For event traffic, use the configured subject family `events.shard.N`. The shard is derived from the tenant/partition identity using the same `NUM_SHARDS` value as the worker. The business event type is carried in the envelope; it is **not** a replacement for the stream subject. Use the SDK publisher or a message fixture matching `api/envelope-schema.json` and the runtime's shard calculation.
 
-`FOR UPDATE SKIP LOCKED` on outbox claim ensures exactly one worker processes each effect. Inbox unique constraint prevents duplicate execution.
+The event flow is:
 
-### Outbox publisher crash
+1. A producer publishes an `EventEnvelope` to `events.shard.N`.
+2. The worker consumes a shard for which it currently holds a lease and queues work with per-key serialization.
+3. The event service validates the fencing token, deduplicates through the inbox, loads the active immutable rule revision, evaluates it, then commits execution and outbox effects atomically.
+4. The worker acknowledges only after a successful durable transaction.
+5. The outbox publisher routes emitted child events back to `events.shard.N`; command effects go to the configured HTTP destination.
+6. The scheduler claims due scheduled events and publishes them to the same subject family.
 
-Claimed effects have `claim_expires_at`. After TTL, effects become claimable again by another publisher.
+Delivery is at-least-once. Inbox/outbox semantics support deduplication and crash recovery, but external side effects are effectively-once only if the receiver honors the supplied idempotency key. Do not claim exactly-once delivery.
 
-## Partitioning
+## Database and migration operations
 
-### Model
+Apply pending migrations:
 
-4096 virtual shards mapped to physical workers via `shard_leases` table. Each lease has a fencing token to prevent stale workers from committing.
+~~~sh
+make migrate-up
+~~~
 
-**Note**: Shard tables and fencing token logic exist in migrations and domain, but the worker does not yet enforce shard ownership or filter by virtual shard.
+The migration CLI currently supports only `up`. There are no supported `down` or `status` commands. Do not edit an applied migration; add a new numbered migration and verify both upgrade behavior and the resulting schema. Migration files currently have a numbering gap, which should not be backfilled by renumbering applied files.
 
-### Ordering
+PostgreSQL is the default transactional backend. MongoDB is optional, but must be deployed as a replica set or sharded cluster for transactions. Do not assume full adapter equivalence from the current in-memory contract tests.
 
-Events with the same `partition_key` route to the same shard. Ordering is guaranteed within a key, never across keys.
+## Verification commands
 
-### Scaling
+From the repository root:
 
-| Dimension | Scales by |
-|-----------|-----------|
-| API | Request rate (horizontal replicas) |
-| Worker | Backlog depth (horizontal replicas) |
-| Publisher | Outbox send rate (independent) |
-| PostgreSQL | Connection pooling, read replicas |
-| NATS | Stream consumers, cluster nodes |
+~~~sh
+go build ./cmd/...
+go test -race -count=1 ./...
+go vet ./...
+make check-fmt
+~~~
 
-### Hot keys
+Nested module boundaries mean each SDK and example module must be checked separately:
 
-A single key with high volume becomes a bottleneck on one shard. Ordering remains correct; the rest of the system keeps running. Mitigate by choosing `partition_key` as the smallest entity that needs ordering.
+~~~sh
+(cd sdk/go && go test -race -count=1 ./...)
+(cd sdk/go/flowrule && go test -race -count=1 ./...)
+(cd examples/banking && go test -race -count=1 ./...)
+(cd examples/ecommerce && go test -race -count=1 ./...)
+(cd examples/food-delivery && go test -race -count=1 ./...)
+~~~
 
-### Rebalancing
+The existing `tests/contract` suite uses in-memory repositories. `tests/integration` currently uses mocks/in-memory dependencies; it does not prove crash recovery against live PostgreSQL and NATS. Production behavior still needs live tests for transaction rollback, redelivery/ACK loss, competing/expired outbox claims, lease loss while paused, broker restart, external destination timeouts and destination idempotency.
 
-1. Mark instance draining
-2. Stop new fetches
-3. Finish bounded in-flight executions
-4. Release/expire leases
-5. Terminate
+## Failure handling and known risks
 
-## Metrics
+### Crash before the event transaction commits
 
-Currently no metrics are exported. The following should be added:
+Database writes in the transaction should roll back and the message can be redelivered. Confirm the durable state and broker behavior in a live PostgreSQL/NATS failure test; mock tests alone do not demonstrate it.
 
-- Accepted/rejected events per tenant
-- Duplicate inbox conflicts
-- Evaluation latency p50/p99
-- Broker lag (oldest unacked message age)
-- Outbox age by status
-- Quarantine count by error class
-- Effect delivery latency
-- Lease loss rate
+### Commit succeeds, ACK is lost
 
-## Troubleshooting
+The message may be redelivered. The inbox and execution lookup are intended to avoid re-executing a committed event. Maintain the unique constraints and transaction ordering required for this invariant.
 
-### Event not processed
+### External destination is unavailable
 
-1. Check worker logs for errors
-2. Verify NATS consumer is running: `nats stream info flowrule`
-3. Check inbox table for stuck entries: `SELECT * FROM inbox WHERE status = 'processing'`
-4. Verify rule activation exists: `SELECT * FROM rule_activations`
+Effects are retried/backed off and may be quarantined after the configured attempt limit. Monitor pending/claimed/retry/quarantined outbox records and worker logs. **Open correctness issue:** retry/quarantine state transitions are not all claimant-fenced, and some durable-state failures are currently logged rather than returned. Do not assume a stale publisher cannot change state after a claim expires.
 
-### Effects not delivered
+### Long-running destination call / expired outbox claim
 
-1. Check outbox_effects table for pending/claimed status
-2. Verify destination is reachable
-3. Check quarantine table for failed effects
-4. Increase PUBLISH_INTERVAL / PUBLISH_BATCH_SIZE if backlog growing
+The current publisher sends effects sequentially and uses a fixed claim TTL. A slow destination may consume much of that TTL and increase duplicate-delivery risk. Bound external timeouts and implement claimant-fenced transitions before adding concurrency.
 
-### Duplicate executions
+### Shard lease lost or worker pauses
 
-1. Verify inbox unique constraint exists
-2. Check that broker ACK happens after commit (worker code order)
-3. Verify NATS MaxDeliver and AckWait settings
+The event transaction validates the fencing token before writes, and the queue serializes work by key within a worker. Verify lease expiry, fencing and redelivery under real process pauses and network partitions before increasing worker replicas.
 
-### High latency
+### API tenant isolation
 
-1. Check PostgreSQL connection pool saturation
-2. Check NATS consumer fetch batch size
-3. Look for long-running transactions in pg_stat_activity
-4. Consider read replicas for activation/rule queries
+This is a release blocker for untrusted environments. The current tenant header/query value is caller-controlled and the API has no authN/authZ. Add trusted identity, per-resource authorization and cross-tenant denial tests before exposing the service.
+
+## Operational readiness
+
+- `/health` is liveness only; implement a separate dependency-aware readiness probe before relying on orchestration to route traffic.
+- No gRPC server is implemented.
+- Observability packages exist, but instrumentation/metric coverage should be checked against operational objectives rather than assumed complete.
+- Retention policies, index/query-plan reviews, throughput/latency benchmarks and live crash/failure-injection coverage remain work items.
+- Keep the HTTP API and local backing services on private interfaces until auth and tenant authorization are complete.

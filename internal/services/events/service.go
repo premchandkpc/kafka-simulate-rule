@@ -156,7 +156,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		RuleSet:      ruleSet,
 		Revision:     revision.Revision,
 		DecisionHash: decision.Hash,
-		Status:       domain.ExecutionStatusPending,
+		Status:       domain.ExecutionStatusCompleted,
 		CreatedAt:    now,
 	}
 
@@ -188,10 +188,6 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 
 	if err := repos.Inbox.MarkCommitted(ctx, envelope.TenantID, envelope.ID, executionID); err != nil {
 		return nil, fmt.Errorf("mark inbox committed: %w", err)
-	}
-
-	if err := repos.Executions.UpdateStatus(ctx, executionID, domain.ExecutionStatusCompleted, ""); err != nil {
-		return nil, fmt.Errorf("mark execution completed: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -99,16 +99,19 @@ func run() (runErr error) {
 	clock := domain.SystemClock{}
 	evaluator := rules.NewEvaluator(clock)
 
-	var effectSender ports.EffectSender
+	var externalSender ports.EffectSender
 	switch {
 	case cfg.Worker.EffectDestinationURL != "":
-		effectSender = effects.NewHTTPDestination(cfg.Worker.EffectDestinationURL)
+		externalSender = effects.NewHTTPDestination(cfg.Worker.EffectDestinationURL)
 	case cfg.App.Env == "development" || cfg.App.Env == "test":
-		effectSender = effects.NewFakeDestination()
+		externalSender = effects.NewFakeDestination()
 	default:
 		return fmt.Errorf("EFFECT_DESTINATION_URL is required when APP_ENV=%q", cfg.App.Env)
 	}
 
+	// Route emitted child events back into the same subject family consumed by
+	// this worker. Only command effects leave the broker for an external sender.
+	effectSender := svceffects.NewRouterWithConfig(consumer, externalSender, eventSubject, cfg.Worker.NumShards)
 	workerID := cfg.WorkerID()
 	eventsSvc := svcevents.NewService(
 		compiler,

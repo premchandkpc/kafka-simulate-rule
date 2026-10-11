@@ -1,18 +1,100 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// decodeRequestBody decodes the request body as JSON or YAML based on Content-Type header
-func decodeRequestBody(r *http.Request, v interface{}) error {
-	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "yaml") || strings.Contains(contentType, "yml") {
-		return yaml.NewDecoder(r.Body).Decode(v)
+const maxRequestBodyBytes = 1 << 20
+
+func readRequestBody(r *http.Request) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
 	}
-	return json.NewDecoder(r.Body).Decode(v)
+	if len(data) > maxRequestBodyBytes {
+		return nil, fmt.Errorf("request body exceeds %d bytes", maxRequestBodyBytes)
+	}
+	return data, nil
+}
+
+func isYAMLContentType(contentType string) bool {
+	contentType = strings.ToLower(contentType)
+	return strings.Contains(contentType, "yaml") || strings.Contains(contentType, "yml")
+}
+
+// decodeRequestBody decodes one JSON or YAML document. It bounds the input and
+// rejects trailing values/multiple YAML documents instead of silently ignoring them.
+func decodeRequestBody(r *http.Request, v any) error {
+	data, err := readRequestBody(r)
+	if err != nil {
+		return err
+	}
+	if isYAMLContentType(r.Header.Get("Content-Type")) {
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		if err := decoder.Decode(v); err != nil {
+			return fmt.Errorf("decode YAML request: %w", err)
+		}
+		var extra any
+		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+			if err == nil {
+				return errors.New("multiple YAML documents are not supported")
+			}
+			return fmt.Errorf("decode trailing YAML document: %w", err)
+		}
+		return nil
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(v); err != nil {
+		return fmt.Errorf("decode JSON request: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values are not supported")
+		}
+		return fmt.Errorf("decode trailing JSON value: %w", err)
+	}
+	return nil
+}
+
+// decodeRawRequestBody returns one JSON document, converting YAML documents to
+// JSON so application services only need to understand the canonical JSON form.
+func decodeRawRequestBody(r *http.Request) (json.RawMessage, error) {
+	data, err := readRequestBody(r)
+	if err != nil {
+		return nil, err
+	}
+	if !isYAMLContentType(r.Header.Get("Content-Type")) {
+		if !json.Valid(data) {
+			return nil, errors.New("request body must contain exactly one valid JSON document")
+		}
+		return json.RawMessage(data), nil
+	}
+
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var document any
+	if err := decoder.Decode(&document); err != nil {
+		return nil, fmt.Errorf("decode YAML request: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple YAML documents are not supported")
+		}
+		return nil, fmt.Errorf("decode trailing YAML document: %w", err)
+	}
+	normalized, err := json.Marshal(document)
+	if err != nil {
+		return nil, fmt.Errorf("convert YAML request to JSON: %w", err)
+	}
+	return normalized, nil
 }

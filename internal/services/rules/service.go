@@ -144,22 +144,7 @@ func (s *Service) GetActivation(ctx context.Context, tenantScope, ruleSet string
 	return s.activations.Get(ctx, tenantScope, ruleSet)
 }
 
-// ListActiveRules lists all currently active rule sets for a tenant scope.
+// ListActiveRules returns persisted active rule pointers for a tenant scope.
 func (s *Service) ListActiveRules(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
-	// This would require a new repository method. For now, we can list all rule revisions
-	// and check which have active activations.
-	// TODO: Add ListActivations to ActivationRepository
-	revisions, err := s.ruleRepo.List(ctx, tenantScope)
-	if err != nil {
-		return nil, fmt.Errorf("list revisions: %w", err)
-	}
-
-	var active []*domain.RuleActivation
-	for _, rev := range revisions {
-		activation, err := s.activations.Get(ctx, tenantScope, rev.RuleID)
-		if err == nil && activation != nil && activation.Revision == rev.Revision {
-			active = append(active, activation)
-		}
-	}
-	return active, nil
+	return s.activations.List(ctx, tenantScope)
 }

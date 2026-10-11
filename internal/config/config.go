@@ -12,7 +12,6 @@ type AppConfig struct {
 	Env             string
 	LogLevel        string
 	HTTPAddr        string
-	GRPCAddr        string
 	ShutdownTimeout time.Duration
 }
 
@@ -85,8 +84,7 @@ func Load() (*Config, error) {
 		App: AppConfig{
 			Env:             getEnv("APP_ENV", "development"),
 			LogLevel:        getEnv("LOG_LEVEL", "info"),
-			HTTPAddr:        getEnv("HTTP_ADDR", ":8080"),
-			GRPCAddr:        getEnv("GRPC_ADDR", ":9090"),
+			HTTPAddr:        getEnv("HTTP_ADDR", "127.0.0.1:8080"),
 			ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
 		},
 		Database: DatabaseConfig{
@@ -147,9 +145,6 @@ func Load() (*Config, error) {
 func (c *Config) Validate() error {
 	if c.App.HTTPAddr == "" {
 		return fmt.Errorf("HTTP_ADDR is required")
-	}
-	if c.App.GRPCAddr == "" {
-		return fmt.Errorf("GRPC_ADDR is required")
 	}
 	if c.App.ShutdownTimeout <= 0 {
 		return fmt.Errorf("SHUTDOWN_TIMEOUT must be > 0")
