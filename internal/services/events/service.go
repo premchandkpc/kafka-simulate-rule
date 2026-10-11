@@ -8,15 +8,6 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
-// TxRepos holds repository instances scoped to a single transaction.
-type TxRepos = ports.TxRepos
-
-// TransactionFactory creates a new transaction.
-type TransactionFactory = ports.TransactionFactory
-
-// RepositoryFactory creates transaction-scoped repositories.
-type RepositoryFactory = ports.RepositoryFactory
-
 // Service handles event processing, inbox dedup, rule evaluation, and execution creation.
 type Service struct {
 	compiler   ports.RuleCompiler
@@ -24,7 +15,7 @@ type Service struct {
 	quarantine ports.QuarantineRepository
 	clock      ports.Clock
 	beginTx    ports.TransactionManager
-	newRepos   ports.RepositoryFactory
+	newRepos   ports.EventTxRepositoryFactory
 }
 
 func NewService(
@@ -33,7 +24,7 @@ func NewService(
 	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
 	beginTx ports.TransactionManager,
-	newRepos ports.RepositoryFactory,
+	newRepos ports.EventTxRepositoryFactory,
 ) *Service {
 	return &Service{
 		compiler:   compiler,
@@ -169,6 +160,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		outboxEffects = append(outboxEffects, domain.OutboxEffect{
 			ID:          ef.ID,
 			ExecutionID: executionID,
+			TenantID:    envelope.TenantID,
 			Destination: ef.Destination,
 			Name:        ef.Name,
 			Payload:     ef.Payload,

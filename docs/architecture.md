@@ -29,16 +29,20 @@ Delivery is at-least-once. Inbox/outbox patterns improve recovery and handoff co
 
 Routes are registered in internal/adapters/http/handlers. Rule creation/activation is POST /v1/rules/{ruleSet}/revisions; rule revisions and active rules are exposed through GET routes; DELETE on a revision path deactivates a rule set. Contract routes are under /v1/contracts. Workflow definition routes are under /v1/workflows/definitions. See docs/README.md for the route matrix.
 
-Security limitation: authentication and authorization are not implemented. TenantExtractor currently trusts X-Tenant-ID or tenant_id query values and falls back to default. The API must not be exposed to untrusted networks until identity and tenant authorization are implemented. /health is process liveness only; the API has no gRPC listener. The default native HTTP bind is loopback.
+Security limitation: authentication and authorization are not implemented. TenantExtractor trusts X-Tenant-ID or tenant_id query values and falls back to default. AGENTS.md had mistakenly described a trusted-proxy token mode that is not implemented; do not rely on such a setting. The API must not be exposed to untrusted networks until verified identity and tenant authorization are implemented. /health is process liveness only; the API has no gRPC listener. The default native HTTP bind is loopback.
 
 ## Transaction and failure invariants
 
 - Fencing assertion, inbox deduplication, rule lookup/evaluation, execution/outbox writes and inbox committed state must participate in the same transaction.
 - ACK must happen after successful commit, not after merely receiving or validating a message.
 - A duplicate inbox row must not create a second execution. An inconsistent duplicate without its execution must fail closed.
-- State changes after claiming an outbox row must be claimant-fenced. This is still incomplete for retry/quarantine methods and remains an open P1 issue.
+- Outbox delivery/retry/quarantine settlement requires a unique claim token and an unexpired claim in SQL and Mongo. Durable settlement errors are returned. Quarantine records and outbox state still live in separate repositories, so cleanup after a lost claim can still fail and require repair.
 - Persisting a quarantine record or delivery/retry state can fail; logging those failures and returning success is not acceptable. Current effect service still needs that hardening.
 - Keep producer, scheduler, effect router and consumer aligned on base subject and shard count. Event type is part of the envelope, not an alternate stream subject.
+- The scheduler can reclaim expired claims and its settlement methods are claimant/expiry fenced. Transient publish failures are still marked terminally failed instead of retried with backoff.
+- Mongo stores JSON payload/source/context fields as binary bytes rather than casting JSON bytes to bson.Raw. BSON round-trip regression tests cover these fields; live Mongo/PostgreSQL conformance remains unverified.
+- Batch queries are tenant-scoped, but batch event execution still lacks a valid shard lease/fencing token and key-queue integration. BATCH_MODE values other than none are rejected until that is implemented.
+- LeaseManager targets NUM_SHARDS/3 per worker without dynamic membership/rebalancing; the current behavior assumes three replicas and can leave shards unowned when replica count differs.
 - External destination calls require bounded timeouts and receiver idempotency. Do not imply that the broker transaction includes a remote HTTP side effect.
 
 ## Configuration and lifecycle

@@ -33,19 +33,19 @@ type EffectService interface {
 
 // WorkflowService manages long-running workflows
 type WorkflowService interface {
-	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error)
 	Create(ctx context.Context, workflow *domain.WorkflowInstance) error
-	UpdateState(ctx context.Context, workflowID, newState string, revision int64) error
-	Transition(ctx context.Context, workflowID, fromState, toState string) error
+	UpdateState(ctx context.Context, tenantID, workflowID, newState string, revision int64) error
+	Transition(ctx context.Context, tenantID, workflowID, fromState, toState string) error
 	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
-	GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error)
+	GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error)
 }
 
 // BatchService manages batch processing
 type BatchService interface {
 	Tick(ctx context.Context) (int, error)
 	CreateBatch(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) (*domain.BatchRun, error)
-	GetBatch(ctx context.Context, batchID string) (*domain.BatchRun, error)
+	GetBatch(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error)
 	ListBatches(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error)
 }
 
@@ -65,9 +65,9 @@ type ShardService interface {
 // QuarantineService manages failed items
 type QuarantineService interface {
 	Save(ctx context.Context, entry *domain.QuarantineEntry) error
-	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
+	Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error)
 	List(ctx context.Context, filter QuarantineFilter) ([]*domain.QuarantineEntry, error)
-	Replay(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
-	ReplayAndDelete(ctx context.Context, id string) error
+	Replay(ctx context.Context, tenantID, id string) error
+	Delete(ctx context.Context, tenantID, id string) error
+	ReplayAndDelete(ctx context.Context, tenantID, id string) error
 }

@@ -1,0 +1,92 @@
+package handlers
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// safeGenerationOutputDir requires a lexical and symlink-resolved path to stay
+// under root. It does not create the requested output directory.
+func safeGenerationOutputDir(outputDir, root string) (string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve output root: %w", err)
+	}
+	if err := os.MkdirAll(rootAbs, 0o700); err != nil {
+		return "", fmt.Errorf("create output root: %w", err)
+	}
+	rootInfo, err := os.Lstat(rootAbs)
+	if err != nil {
+		return "", fmt.Errorf("inspect output root: %w", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return "", fmt.Errorf("output root %q must be a real directory, not a symlink or file", rootAbs)
+	}
+	if err := os.Chmod(rootAbs, 0o700); err != nil {
+		return "", fmt.Errorf("restrict output root permissions: %w", err)
+	}
+	realRoot, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", fmt.Errorf("resolve output root symlinks: %w", err)
+	}
+
+	outputAbs, err := filepath.Abs(outputDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve output directory: %w", err)
+	}
+	rel, err := filepath.Rel(rootAbs, outputAbs)
+	if err != nil {
+		return "", fmt.Errorf("check output directory: %w", err)
+	}
+	if !withinDirectory(rel) {
+		return "", fmt.Errorf("output directory must be within %q", rootAbs)
+	}
+
+	// Walk upward to the nearest existing ancestor. Evaluating that ancestor
+	// catches symlink components that would otherwise redirect writes outside
+	// the approved output root.
+	current := outputAbs
+	var suffix []string
+	for {
+		_, statErr := os.Lstat(current)
+		if statErr == nil {
+			resolved, resolveErr := filepath.EvalSymlinks(current)
+			if resolveErr != nil {
+				return "", fmt.Errorf("resolve output path component %q: %w", current, resolveErr)
+			}
+			candidate := resolved
+			for _, part := range suffix {
+				candidate = filepath.Join(candidate, part)
+			}
+			resolvedRel, relErr := filepath.Rel(realRoot, candidate)
+			if relErr != nil {
+				return "", fmt.Errorf("check resolved output directory: %w", relErr)
+			}
+			if !withinDirectory(resolvedRel) {
+				return "", fmt.Errorf("output directory resolves outside %q", realRoot)
+			}
+			break
+		}
+		if !os.IsNotExist(statErr) {
+			return "", fmt.Errorf("inspect output path component %q: %w", current, statErr)
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("no existing ancestor for output directory %q", outputAbs)
+		}
+		suffix = append([]string{filepath.Base(current)}, suffix...)
+		current = parent
+	}
+
+	return outputAbs, nil
+}
+
+func withinDirectory(rel string) bool {
+	if filepath.IsAbs(rel) || rel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}

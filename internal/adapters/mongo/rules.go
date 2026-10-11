@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -14,15 +13,24 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
-type Repository struct {
+// RuleRepository stores and retrieves versioned rule revisions.
+type RuleRepository struct {
 	querier Querier
 }
 
-func NewRepository(q Querier) *Repository {
-	return &Repository{querier: q}
+// Repository is retained as a compatibility alias for legacy internal callers.
+type Repository = RuleRepository
+
+func NewRuleRepository(q Querier) *RuleRepository {
+	return &RuleRepository{querier: q}
 }
 
-func (r *Repository) collection(name string) *mongo.Collection {
+// NewRepository is retained for compatibility; new code should use NewRuleRepository.
+func NewRepository(q Querier) *RuleRepository {
+	return NewRuleRepository(q)
+}
+
+func (r *RuleRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
@@ -35,7 +43,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 		"rule_set":     ruleSet,
 	}).Decode(&activation)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)
@@ -48,7 +56,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 		"revision":     activation.Revision,
 	}).Decode(&revision)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -67,7 +75,7 @@ func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string
 		"revision":     revisionNum,
 	}).Decode(&revision)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -132,8 +140,8 @@ type RevisionDoc struct {
 	TenantScope     string              `bson:"tenant_scope"`
 	RuleID          string              `bson:"rule_id"`
 	Revision        int64               `bson:"revision"`
-	Source          bson.Raw            `bson:"source"`
-	Compiled        bson.Raw            `bson:"compiled"`
+	Source          []byte              `bson:"source"`
+	Compiled        []byte              `bson:"compiled"`
 	ContentHash     string              `bson:"content_hash"`
 	CompilerVersion string              `bson:"compiler_version"`
 	MatchMode       string              `bson:"match_mode"`
@@ -143,13 +151,13 @@ type RevisionDoc struct {
 
 func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 	var compiled []domain.CompiledRule
-	_ = bson.Unmarshal(d.Compiled, &compiled)
+	_ = json.Unmarshal(d.Compiled, &compiled)
 
 	return &domain.RuleRevision{
 		TenantScope:     d.TenantScope,
 		RuleID:          d.RuleID,
 		Revision:        d.Revision,
-		Source:          json.RawMessage(d.Source),
+		Source:          json.RawMessage(append([]byte(nil), d.Source...)),
 		Compiled:        compiled,
 		ContentHash:     d.ContentHash,
 		CompilerVersion: d.CompilerVersion,
@@ -160,14 +168,13 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 }
 
 func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *RevisionDoc {
-	compiled, _ := bson.Marshal(revision.Compiled)
-	source, _ := bson.Marshal(revision.Source)
+	compiled, _ := json.Marshal(revision.Compiled)
 
 	return &RevisionDoc{
 		TenantScope:     tenantScope,
 		RuleID:          revision.RuleID,
 		Revision:        revision.Revision,
-		Source:          source,
+		Source:          append([]byte(nil), revision.Source...),
 		Compiled:        compiled,
 		ContentHash:     revision.ContentHash,
 		CompilerVersion: revision.CompilerVersion,
@@ -196,7 +203,7 @@ func (r *ActivationRepository) Get(ctx context.Context, tenantScope string, rule
 		"rule_set":     ruleSet,
 	}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)
@@ -246,7 +253,7 @@ func (r *ActivationRepository) SetWithVersion(ctx context.Context, activation *d
 	var result ActivationDoc
 	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return domain.ErrActivationConflict
 		}
 		return fmt.Errorf("set activation with version: %w", err)

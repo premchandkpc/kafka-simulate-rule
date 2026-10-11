@@ -271,6 +271,7 @@ func (e *Execution) Quarantine(now time.Time, errMsg string) error {
 type OutboxEffect struct {
 	ID             string          `json:"id"`
 	ExecutionID    string          `json:"execution_id"`
+	TenantID       string          `json:"tenant_id"`
 	Destination    string          `json:"destination"`
 	Name           string          `json:"name"`
 	Payload        json.RawMessage `json:"payload"`
@@ -298,7 +299,7 @@ const (
 )
 
 // Claim transitions effect from pending to claimed. Only valid from pending.
-func (e *OutboxEffect) Claim(_ string, now time.Time) error {
+func (e *OutboxEffect) Claim(owner string, now time.Time) error {
 	if e.Status != OutboxStatusPending {
 		return fmt.Errorf("cannot claim effect in state %s", e.Status)
 	}

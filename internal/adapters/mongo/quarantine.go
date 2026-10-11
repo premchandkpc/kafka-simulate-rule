@@ -2,7 +2,6 @@ package mongo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -26,24 +25,99 @@ func (r *QuarantineRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// BackfillEffectTenantIDs repairs legacy effect quarantine records using their
+// outbox effect and execution as the authoritative tenant source. Records whose
+// source chain no longer exists are left unscoped and remain invisible to tenants.
+func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) error {
+	coll := r.collection("quarantine")
+	cursor, err := coll.Find(ctx, bson.M{
+		"source_type": "effect",
+		"$or": []bson.M{
+			{"tenant_id": bson.M{"$exists": false}},
+			{"tenant_id": ""},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("find legacy effect quarantine entries: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var entry QuarantineDoc
+		if err := cursor.Decode(&entry); err != nil {
+			return fmt.Errorf("decode legacy effect quarantine entry: %w", err)
+		}
+		var effect struct {
+			ExecutionID string `bson:"execution_id"`
+		}
+		if err := r.collection("outbox_effects").FindOne(ctx, bson.M{
+			"effect_id": entry.SourceID,
+		}).Decode(&effect); err != nil {
+			if err == mongo.ErrNoDocuments {
+				continue
+			}
+			return fmt.Errorf("find outbox effect %s: %w", entry.SourceID, err)
+		}
+		var execution struct {
+			TenantID string `bson:"tenant_id"`
+		}
+		if err := r.collection("executions").FindOne(ctx, bson.M{
+			"execution_id": effect.ExecutionID,
+		}).Decode(&execution); err != nil {
+			if err == mongo.ErrNoDocuments {
+				continue
+			}
+			return fmt.Errorf("find execution %s: %w", effect.ExecutionID, err)
+		}
+		if execution.TenantID == "" {
+			continue
+		}
+		_, err := coll.UpdateOne(ctx,
+			bson.M{
+				"quarantine_id": entry.QuarantineID,
+				"$or": []bson.M{
+					{"tenant_id": bson.M{"$exists": false}},
+					{"tenant_id": ""},
+				},
+			},
+			bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
+		)
+		if err != nil {
+			return fmt.Errorf("backfill tenant for quarantine entry %s: %w", entry.QuarantineID, err)
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return fmt.Errorf("iterate legacy effect quarantine entries: %w", err)
+	}
+	return nil
+}
+
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	coll := r.collection("quarantine")
 	doc := QuarantineDocFromDomain(entry)
-	_, err := coll.InsertOne(ctx, doc)
+	_, err := coll.UpdateOne(ctx,
+		bson.M{"quarantine_id": entry.ID},
+		bson.M{"$setOnInsert": doc},
+		options.Update().SetUpsert(true),
+	)
 	if err != nil {
 		return fmt.Errorf("save quarantine entry: %w", err)
 	}
 	return nil
 }
 
-func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
+func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
+	if tenantID == "" {
+		return nil, nil
+	}
 	coll := r.collection("quarantine")
 	var doc QuarantineDoc
 	err := coll.FindOne(ctx, bson.M{
 		"quarantine_id": id,
+		"tenant_id":     tenantID,
 	}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get quarantine entry: %w", err)
@@ -51,22 +125,28 @@ func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.Quar
 	return doc.ToDomain(), nil
 }
 
-func (r *QuarantineRepository) Delete(ctx context.Context, id string) error {
+func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
 	coll := r.collection("quarantine")
-	_, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id})
+	result, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id, "tenant_id": tenantID})
 	if err != nil {
 		return fmt.Errorf("delete quarantine entry: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return domain.ErrQuarantineNotFound
 	}
 	return nil
 }
 
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	if filter.TenantID == "" {
+		return nil, fmt.Errorf("tenant_id is required")
+	}
 	coll := r.collection("quarantine")
 
-	f := bson.M{}
-	if filter.TenantID != "" {
-		f["tenant_id"] = filter.TenantID
-	}
+	f := bson.M{"tenant_id": filter.TenantID}
 	if filter.SourceType != "" {
 		f["source_type"] = filter.SourceType
 	}
@@ -77,7 +157,12 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		f["created_at"] = bson.M{"$gte": filter.From}
 	}
 	if !filter.To.IsZero() {
-		f["created_at"] = bson.M{"$lte": filter.To}
+		createdAt, ok := f["created_at"].(bson.M)
+		if !ok {
+			createdAt = bson.M{}
+			f["created_at"] = createdAt
+		}
+		createdAt["$lte"] = filter.To
 	}
 
 	cursor, err := coll.Find(ctx, f, options.Find().
@@ -101,13 +186,17 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	return entries, nil
 }
 
-func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {
+func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
 	coll := r.collection("quarantine")
 	now := time.Now().UTC()
 
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"quarantine_id": id,
+			"tenant_id":     tenantID,
 		},
 		bson.M{
 			"$set": bson.M{

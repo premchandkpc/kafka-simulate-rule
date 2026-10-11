@@ -3,6 +3,7 @@ package batches
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func newMemBatches() *memBatches {
 	}
 }
 
-func (m *memBatches) ListUnbatched(_ context.Context, limit int) ([]*domain.InboxEntry, error) {
+func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []*domain.InboxEntry
@@ -38,7 +39,7 @@ func (m *memBatches) ListUnbatched(_ context.Context, limit int) ([]*domain.Inbo
 	return result, nil
 }
 
-func (m *memBatches) MarkBatched(_ context.Context, tenantID, eventID, batchID string) error {
+func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := tenantID + "|" + eventID
@@ -48,17 +49,47 @@ func (m *memBatches) MarkBatched(_ context.Context, tenantID, eventID, batchID s
 	return nil
 }
 
-func (m *memBatches) SaveRun(_ context.Context, run *domain.BatchRun) error {
+func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runs[run.BatchID] = run
 	return nil
 }
 
-func (m *memBatches) GetRun(_ context.Context, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.runs[batchID], nil
+}
+
+func (m *memBatches) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run := m.runs[batchID]
+	if run == nil || run.TenantID != tenantID {
+		return nil, nil
+	}
+	return run, nil
+}
+
+func (m *memBatches) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*domain.BatchRun
+	for _, run := range m.runs {
+		if run.TenantID != tenantID || (ruleSet != "" && run.RuleSet != ruleSet) {
+			continue
+		}
+		result = append(result, run)
+	}
+	if offset >= len(result) {
+		return []*domain.BatchRun{}, nil
+	}
+	result = result[offset:]
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
 }
 
 type memEventProcessor struct {
@@ -73,7 +104,7 @@ func newMemEventProcessor() *memEventProcessor {
 	}
 }
 
-func (m *memEventProcessor) Process(_ context.Context, envelope *domain.EventEnvelope, _ int64, _ uint32, _ string) (*domain.Execution, error) {
+func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.envelopes = append(m.envelopes, envelope)
@@ -91,7 +122,7 @@ func (m *memEventProcessor) Process(_ context.Context, envelope *domain.EventEnv
 	return exec, nil
 }
 
-func (m *memEventProcessor) QuarantineEvent(_ context.Context, _, _, _ string, _ domain.ErrorClass, _ string) error {
+func (m *memEventProcessor) QuarantineEvent(ctx context.Context, sourceID, eventID, tenantID string, errClass domain.ErrorClass, errMsg string) error {
 	return nil
 }
 
@@ -180,7 +211,7 @@ func TestBatchService_AccumulateBelowThreshold(t *testing.T) {
 
 	for i := 1; i <= 2; i++ {
 		id := "evt-" + string(rune('0'+i))
-		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
+		batches.entries[id] = &domain.InboxEntry{
 			TenantID:     "tenant-1",
 			EventID:      id,
 			PartitionKey: "pk-1",
@@ -333,5 +364,43 @@ func TestComputeBatchID_DifferentPartitions(t *testing.T) {
 
 	if id1 == id2 {
 		t.Error("batch ID should differ for different partition keys")
+	}
+}
+
+func TestBatchService_ListBatchesScopesTenantAndRuleSet(t *testing.T) {
+	batches := newMemBatches()
+	batches.runs["batch-a"] = &domain.BatchRun{BatchID: "batch-a", TenantID: "tenant-a", RuleSet: "orders", CreatedAt: time.Now()}
+	batches.runs["batch-b"] = &domain.BatchRun{BatchID: "batch-b", TenantID: "tenant-b", RuleSet: "orders", CreatedAt: time.Now()}
+	batches.runs["batch-c"] = &domain.BatchRun{BatchID: "batch-c", TenantID: "tenant-a", RuleSet: "payments", CreatedAt: time.Now()}
+
+	svc := NewService(batches, newMemEventProcessor(), domain.SystemClock{}, domain.BatchConfig{Mode: domain.BatchModeNone})
+	got, err := svc.ListBatches(context.Background(), "tenant-a", "orders", 10, 0)
+	if err != nil {
+		t.Fatalf("ListBatches() error = %v", err)
+	}
+	if len(got) != 1 || got[0].BatchID != "batch-a" {
+		t.Fatalf("ListBatches() = %#v, want only tenant-a/orders batch", got)
+	}
+}
+
+func TestBatchService_GetBatchScopesTenant(t *testing.T) {
+	batches := newMemBatches()
+	batches.runs["batch-a"] = &domain.BatchRun{BatchID: "batch-a", TenantID: "tenant-a"}
+
+	svc := NewService(batches, newMemEventProcessor(), domain.SystemClock{}, domain.BatchConfig{Mode: domain.BatchModeNone})
+	got, err := svc.GetBatch(context.Background(), "tenant-b", "batch-a")
+	if err != nil {
+		t.Fatalf("GetBatch() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetBatch() = %#v, want nil for another tenant", got)
+	}
+}
+
+func TestBatchService_CreateBatchFailsWhenProcessorIsNotConfigured(t *testing.T) {
+	svc := NewService(newMemBatches(), nil, domain.SystemClock{}, domain.BatchConfig{Mode: domain.BatchModeNone})
+	_, err := svc.CreateBatch(context.Background(), "tenant-a", "partition", "orders", []string{"event-1"})
+	if !errors.Is(err, domain.ErrBatchProcessingUnavailable) {
+		t.Fatalf("CreateBatch() error = %v, want ErrBatchProcessingUnavailable", err)
 	}
 }

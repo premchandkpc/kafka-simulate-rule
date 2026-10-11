@@ -12,7 +12,7 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
-// RouterConfig holds router configuration
+// RouterConfig holds authentication settings for the HTTP API.
 type RouterConfig struct {
 	AuthValidator  *auth.Validator
 	RequireAuth    bool
@@ -24,7 +24,7 @@ type Router struct {
 	handler http.Handler
 }
 
-// NewRouter creates a new HTTP router with all routes registered
+// NewRouter creates a management API router without event publication configured.
 func NewRouter(
 	ruleSvc ports.RuleService,
 	workflowSvc ports.WorkflowService,
@@ -33,6 +33,21 @@ func NewRouter(
 	batchSvc ports.BatchService,
 	quarantineSvc ports.QuarantineService,
 	scheduledRepo ports.ScheduledEventRepository,
+) *Router {
+	return NewRouterWithPublisher(ruleSvc, workflowSvc, workflowDefRepo, contractRegistry, batchSvc, quarantineSvc, scheduledRepo, nil, 4096, RouterConfig{})
+}
+
+// NewRouterWithPublisher also registers the SDK-compatible event ingestion endpoint.
+func NewRouterWithPublisher(
+	ruleSvc ports.RuleService,
+	workflowSvc ports.WorkflowService,
+	workflowDefRepo ports.WorkflowDefinitionRepository,
+	contractRegistry ports.ContractRegistry,
+	batchSvc ports.BatchService,
+	quarantineSvc ports.QuarantineService,
+	scheduledRepo ports.ScheduledEventRepository,
+	publisher ports.BrokerPublisher,
+	numShards uint32,
 	config RouterConfig,
 ) *Router {
 	mux := http.NewServeMux()
@@ -40,8 +55,6 @@ func NewRouter(
 	// Apply middleware chain
 	handler := middleware.Recovery(mux)
 	handler = middleware.TenantExtractor(handler)
-
-	// Apply auth middleware if validator is provided
 	if config.AuthValidator != nil {
 		if config.RequireAuth {
 			handler = auth.Middleware(config.AuthValidator, config.RequiredScopes...)(handler)
@@ -50,8 +63,8 @@ func NewRouter(
 		}
 	}
 
-	// Health endpoint (public)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+	// Health endpoint
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		responses.WriteOK(w, map[string]string{"status": "ok"})
 	})
 
@@ -78,6 +91,10 @@ func NewRouter(
 	// Scheduled event handlers
 	scheduledHandler := handlers.NewScheduledHandler(scheduledRepo)
 	scheduledHandler.RegisterRoutes(mux)
+
+	// Event ingestion used by the Go SDK's HTTP transport.
+	eventHandler := handlers.NewEventIngestionHandler(publisher, numShards)
+	eventHandler.RegisterRoutes(mux)
 
 	return &Router{handler: handler}
 }
@@ -106,9 +123,9 @@ func (r *Router) Run(ctx context.Context, addr string) error {
 	// Wait for context cancellation or server error
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:contextcheck // shutdown context is intentionally separate
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return server.Shutdown(shutdownCtx) //nolint:contextcheck // shutdown context is intentionally separate
+		return server.Shutdown(shutdownCtx)
 	case err := <-serverErr:
 		return err
 	}

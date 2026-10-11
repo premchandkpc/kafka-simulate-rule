@@ -129,7 +129,10 @@ func (s *Scheduler) tick(ctx context.Context) {
 		eventIDs[i] = evt.EventID
 	}
 
-	claimedEvents, err := s.repo.Claim(ctx, eventIDs, "scheduler", 5*time.Minute)
+	// Give each claim batch a unique token. A later tick must not be able to
+	// settle work claimed by an earlier tick after that claim has expired.
+	claimant := "scheduler-" + domain.NewID()
+	claimedEvents, err := s.repo.Claim(ctx, eventIDs, claimant, 5*time.Minute)
 	if err != nil {
 		log.Printf("scheduler: claim events: %v", err)
 		return
@@ -143,14 +146,14 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if err := s.releaseEvent(ctx, evt, idempotencyKey); err != nil {
 			log.Printf("scheduler: release event %s: %v", evt.EventID, err)
 			// Mark as failed
-			if markErr := s.repo.MarkFailed(ctx, evt.EventID, err.Error()); markErr != nil {
+			if markErr := s.repo.MarkFailed(ctx, evt.EventID, claimant, err.Error()); markErr != nil {
 				log.Printf("scheduler: mark failed %s: %v", evt.EventID, markErr)
 			}
 			continue
 		}
 
 		// Mark released with the same timestamp used for idempotency
-		if err := s.repo.MarkReleased(ctx, evt.EventID, now); err != nil {
+		if err := s.repo.MarkReleased(ctx, evt.EventID, claimant, now); err != nil {
 			log.Printf("scheduler: mark released %s: %v", evt.EventID, err)
 		}
 	}

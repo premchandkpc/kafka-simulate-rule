@@ -56,18 +56,25 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Entry point: cmd/api/main.go.
 - Loads internal/config, opens and initializes internal/storage, constructs compiler and use-case services, registers HTTP handlers, and starts the HTTP server. The default HTTP bind is loopback; Compose publishes service ports on host loopback only.
 - Route registration: internal/adapters/http/router.go.
-- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go.
+- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go. Shared HTTP request helpers live in handlers/utils.go and query_params.go.
 - Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
-- Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
+- Workflow definitions are global platform configuration in the current schema. The tenant-facing API exposes read-only GET routes under /v1/workflows/definitions; create/delete routes are deliberately not registered until an authenticated admin API and explicit ownership model exist.
 - /health is liveness only; it does not check storage or broker readiness.
+- The HTTP SDK transport targets POST /v1/events/{type}; verify that route is implemented and contract-tested before selecting HTTP transport. Do not assume the management API accepts producer events.
+- Scheduled-event list/get/cancel operations use tenant-scoped repository queries. Cancellation is allowed only while the event is pending; repository conflicts return an HTTP conflict rather than reporting success.
 - The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
-SECURITY BLOCKER: no authentication/authorization is implemented. TenantExtractor accepts X-Tenant-ID, then tenant_id query parameter, then the fallback value default. All of these are caller-controlled, not authenticated identity. Do not expose this API to untrusted networks or treat tenant data access as isolated until identity and resource authorization are implemented.
+SECURITY / DEPLOYMENT REQUIREMENT:
+- Development and test may use caller-provided X-Tenant-ID or tenant_id values for local isolation only.
+- In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN and validates X-Proxy-Auth with a constant-time comparison. It takes tenant identity only from X-Authenticated-Tenant-ID; it does not fall back to caller-controlled tenant headers/query values.
+- This is a trusted-proxy integration contract, not first-party authentication. The proxy must authenticate and authorize the caller, strip any inbound X-Proxy-Auth and X-Authenticated-Tenant-ID headers, then set fresh trusted values. Protect the token as a secret and keep API ingress private to the proxy.
+- Health is intentionally exempt from tenant identity extraction. It is liveness only, not a readiness/security check.
+- Workflow definitions are treated as global, read-only platform configuration at the tenant-facing HTTP boundary; do not re-enable mutations without an authenticated admin API and an explicit ownership model. Quarantine GET/replay/delete operations now carry tenant identity into repository queries, and unscoped list queries fail closed. New effect quarantines carry tenant identity from the event through the outbox; SQL migrations and Mongo startup backfill repair legacy records when their source chain is available. Orphan records without an authoritative source remain unscoped and must not be assigned a tenant from a request. Production multi-tenant exposure remains blocked until proxy deployment, every resource path, and cross-tenant negative tests are verified.
 
 ### Worker
 
 - Entry point: cmd/worker/main.go.
-- Loads config, initializes observability and storage, constructs the NATS JetStream consumer, event/effect/batch services, lease manager, scheduler, and application.Worker.
+- Loads config, initializes observability and storage, constructs the NATS JetStream consumer, event/effect/batch services, lease manager, scheduler, and application.Worker. The batch service is constructed, but non-none BATCH_MODE values are rejected by config because batch execution is not integrated with shard fencing and the per-key queue.
 - NATS adapter: internal/adapters/nats/jetstream.go. The worker subject base is events; consumers filter events.shard.N.
 - Runtime loop and polling: internal/application/worker.go.
 - Bounded per-key queue and hot-key observation: internal/runtime/keyqueue/queue.go.
@@ -91,7 +98,7 @@ Keep dependencies moving inward:
 - internal/rules compiles and evaluates rules. Evaluation must remain deterministic, side-effect-free, and clock-injected; do not add I/O or randomness.
 - internal/services/* contains use-case orchestration. It should depend on domain and consumer-owned ports, not concrete SQL, Mongo, NATS or HTTP packages.
 - internal/application coordinates worker runtime. internal/runtime/* owns bounded queues, shard leases and scheduler loops.
-- internal/ports declares broker, repository, transaction, runtime and service contracts. Prefer small interfaces owned by the consumer. Current transaction abstractions still expose adapter lifecycle details and TxRepos is broad; treat those as technical debt, not a pattern to expand.
+- internal/ports declares broker, repository, transaction, runtime and service contracts. Prefer small interfaces owned by the consumer. EventTxRepos and RuleTxRepos are deliberately narrow transaction-scoped views; adapter-owned factories perform concrete transaction assertions and driver-specific repository wiring. The Transaction port still exposes context/fencing details and should not grow without a use-case need.
 - internal/adapters/* implements I/O and translates between ports/domain and transport or persistence details.
 - internal/storage selects the configured backend and composes repositories. Current API/worker entrypoints use it.
 - internal/factory/factory.go is an older broad Mongo-oriented assembly factory that overlaps current storage/wiring. Do not add new wiring paths there without migrating callers and consolidating composition.
@@ -147,7 +154,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - internal/services/events/service.go — transactional fencing, inbox deduplication, activation/revision lookup, evaluation, execution and outbox writes.
 - internal/services/effects/service.go — outbox claiming, delivery, retries/backoff and quarantine coordination.
 - internal/services/effects/router.go — broker routing for child events and delegation for external effects.
-- internal/services/effects/router_test.go, service_test files — effect-routing and service regression tests.
+- internal/services/effects/router_test.go and service_test.go — effect-routing, claim-token, and settlement-error regression tests.
 - internal/services/rules/service.go — revision/activation transactions and rule queries.
 - internal/services/batches/service.go, service_test.go — batch formation/processing and query APIs.
 - internal/services/workflow/service.go — workflow instance creation/state transitions. Definition helper methods currently contain not-implemented placeholders; HTTP handlers use WorkflowDefinitionRepository separately.
@@ -174,7 +181,9 @@ HTTP:
 - internal/adapters/http/handlers/contracts.go — contract registry and generation endpoints.
 - internal/adapters/http/handlers/batch_quarantine.go — batch/quarantine endpoints.
 - internal/adapters/http/handlers/scheduled.go — scheduled-event endpoints.
-- internal/adapters/http/handlers/utils.go — JSON/YAML request decoder.
+- internal/adapters/http/handlers/utils.go — JSON/YAML decoder, 1 MiB request-body limit, strict single-document handling.
+- internal/adapters/http/handlers/safe_output_path.go and safe_output_path_test.go — code-generation output containment, symlink resolution, and path traversal regression tests.
+- internal/adapters/http/handlers/scheduled_test.go, workflows_test.go, batch_quarantine_test.go, quarantine_tenant_test.go — API behavior, tenant-body mismatch, read-only global workflow definitions, and tenant-scoped quarantine regression tests.
 - internal/adapters/http/middleware/middleware.go — current tenant extraction and panic recovery; not authentication.
 - internal/adapters/http/responses/responses.go — response and error helpers.
 
@@ -188,11 +197,14 @@ Storage/messaging:
 - internal/adapters/sql/workflow.go — workflow instances and definitions.
 - internal/adapters/sql/batch.go — batch persistence.
 - internal/adapters/sql/quarantine.go — quarantine persistence.
-- internal/adapters/sql/scheduled.go — scheduled-event persistence.
+- internal/adapters/sql/scheduled.go — scheduled-event persistence, tenant-scoped listing/cancellation, expired-claim recovery, and claimant-fenced settlement.
+- internal/adapters/mongo/serialization_test.go — BSON round-trip regression tests for JSON payloads, headers, context, and rule data.
+- migrations/015_scheduled_event_claims.sql — claim expiry/claimant/error fields and scheduled-event indexes; never rewrite already-applied migration 011.
 - internal/adapters/sql/contract.go — contract registry.
 - internal/adapters/mongo/db.go, transaction.go — Mongo client/session lifecycle and transactions.
 - internal/adapters/mongo/event.go, inbox.go, execution.go, outbox.go, rules.go, shard.go — event processing repository implementations.
 - internal/adapters/mongo/workflow.go, batch.go, scheduled.go, quarantine.go, contract.go — workflow and supporting repositories.
+- internal/adapters/mongo/serialization_test.go — BSON round-trip coverage for JSON payloads/context/rule source and compiled rules.
 - internal/adapters/nats/jetstream.go — JetStream stream configuration, shard consumers, fetch, ACK/NAK/retry, and broker publishing.
 - internal/adapters/redis/client.go, cache.go — Redis lifecycle and cache adapter; not in the primary event path today.
 - internal/adapters/memory/contract_registry.go — in-memory contract registry.
@@ -202,7 +214,7 @@ Storage/messaging:
 
 - api/envelope-schema.json — event envelope JSON Schema.
 - api/rule-schema.json — rule-set JSON Schema for leaf/composite predicates and emit, emit_event, and command actions. The schema is not automatically applied by every handler; keep it aligned with compiler behavior.
-- migrations/001_rule_revisions.sql through migrations/014_workflow_definitions.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; do not renumber/edit applied migrations.
+- migrations/001_rule_revisions.sql through migrations/015_scheduled_event_claims.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; migration 015 adds scheduled-event claim/expiry/error fields. Do not renumber or edit applied migrations.
 - sdk/go/go.mod — original independent SDK module definition.
 - sdk/go/runtime/envelope.go — public envelope, payload and shard hashing.
 - sdk/go/runtime/publisher.go — JetStream publisher.
@@ -243,10 +255,12 @@ Storage/messaging:
 - For event processing, fencing assertion, dedup, execution/outbox writes and inbox commit state must share the correct transaction. Do not ACK before durable commit.
 - Preserve per-key ordering and claimant/fencing semantics. Retry/quarantine/delivery state changes must handle expired and competing claims safely.
 - Child event publishing must use the same NATS subject family and NUM_SHARDS as the worker/scheduler/SDK. Event type is in the envelope; do not substitute it for the configured stream subject.
+- Mongo JSON payload/source/context fields must be stored as BSON binary bytes (or properly converted BSON documents), never cast directly from JSON bytes to bson.Raw; bson.Raw expects encoded BSON.
+- Batch creation/list/get API handlers may exist while worker batch execution remains unsupported. Do not enable BATCH_MODE until processing receives a real owned-shard fencing token and passes through the key queue.
 - Bound HTTP request bodies, reject malformed or extra trailing documents, and validate tenant scoping on every resource access.
 - Never log secrets or full sensitive payload bodies.
 - Do not check in binaries, credentials, local DB data, generated build artifacts or temporary files.
-- A bug fix should add a regression test. Concurrency changes require race-enabled tests. Adapter methods need contract coverage for SQL and Mongo before parity is claimed.
+- A bug fix should add a regression test. Concurrency changes require race-enabled tests. Adapter methods need contract coverage for SQL and Mongo before parity is claimed. BSON JSON-backed document fields use binary byte slices and must retain the round-trip regression coverage.
 - Do not edit applied migrations. Add a new numbered migration and test upgrade behavior. Down migrations must be separately designed/tested before promising rollback.
 - Avoid hiding state-changing errors behind logs; an unavailable durable state transition must be observable to the caller/worker.
 - Exported Go symbols require useful comments. Keep source formatted and update docs when an interface, route or runtime behavior changes.
@@ -254,17 +268,19 @@ Storage/messaging:
 ## 7. Confirmed risks and backlog
 
 1. P0 security: API has no authN/authZ or trusted tenant resolver. Tenant values from request headers/query/body are not identity. Implement authenticated claims, per-resource tenant authorization and cross-tenant negative tests before untrusted production exposure.
-2. P1 outbox ownership: ScheduleRetry and Quarantine do not currently accept claimant identity like MarkDelivered does. Expired/competing publishers can race state changes. Add claimant-fenced transitions.
-3. P1 outbox failure handling: publishing is sequential with a fixed claim TTL; some MarkDelivered, ScheduleRetry and quarantine persistence failures are logged and swallowed. Use bounded sends, per-effect timeouts, claimant-safe transitions and return/aggregate durable-state errors.
-4. P1 transaction abstraction: ports.Transaction exposes context and fencing mutators; TxRepos combines many repositories; SQL wiring type-asserts concrete transaction types. Redesign around use-case-owned unit-of-work contracts with atomicity tests.
+2. P1 outbox lease duration: delivery/retry/quarantine settlement now checks a unique claim token and claim expiry in SQL and Mongo, and the service returns durable settlement errors. Publishing remains sequential with a fixed two-minute claim TTL and no per-effect timeout, so slow destinations can still outlive the claim.
+3. P1 quarantine atomicity: quarantine records and outbox status are stored separately. If cleanup after losing a claim also fails, an orphan quarantine record can remain; live failure-injection tests and a transactional/repairable protocol are still needed.
+4. P1 transaction abstraction: event and rule transaction repository bundles are now narrow and adapter-owned factories isolate concrete SQL/Mongo transaction assertions. Remaining debt: ports.Transaction exposes context/fencing mutators; validate their necessity and add transaction atomicity/conformance tests.
 5. P1 adapter conformance: current contract suites use in-memory repositories. Run identical contracts against live PostgreSQL and Mongo transaction-capable configurations; document unsupported semantics.
-6. P1 request boundaries: tenant extraction is untrusted and JSON/YAML decoding does not impose a body-size limit or explicitly reject trailing content. Add auth-derived tenant context, request limits and strict decoding.
+6. P1 tenant authorization: JSON/YAML request bodies are bounded to 1 MiB and extra JSON values/multiple YAML documents are rejected. Workflow definitions are global and read-only on the tenant-facing API; quarantine item reads and mutations now include tenant predicates in repository operations, and unscoped quarantine lists fail closed. Authentication still depends on the trusted-proxy deployment contract. Legacy effect quarantine records are backfilled from the outbox/execution source chain where available; orphan records without that source remain unscoped. Verify every resource path and cross-tenant negative tests before production exposure.
 7. P2 workflow API clarity: workflow.Service definition methods currently return not-implemented errors; handlers use a separate definition repository. Remove or implement the placeholders intentionally.
 8. P2 composition: internal/factory overlaps internal/storage and is not used by main entrypoints. Verify callers before deleting or migrating it.
 9. P2 operational surface: /health is liveness only; the API has no gRPC listener; migration down/status are unsupported.
 10. P2 proof/performance: tests do not prove crash recovery against live PostgreSQL/NATS, lease fencing during long pauses, network failure recovery, real destination idempotency, or throughput/p99 targets. Add failure-injection tests and benchmarks before making those claims.
-11. P2 hot path: SQL outbox Insert currently sends one INSERT per effect. Measure and batch inserts/settlement where beneficial.
-12. P2 mixed helpers: internal/adapters/effects/fake.go combines production HTTP code with test clock/ID/fake destination; separate by responsibility when changing that area.
+11. P1 shard assignment: LeaseManager targets numShards/3 per worker without a configured worker count or membership/rebalance protocol. This implicitly assumes a three-worker deployment and can leave shards unowned when replica count differs. Add explicit membership/rebalancing or a documented, validated fixed-replica contract before scaling.
+12. P2 scheduled retry policy: scheduler publish errors are currently marked failed rather than retried with delayed backoff; define retryable/permanent classes and maximum-attempt behavior.
+13. P2 hot path: SQL outbox Insert currently sends one INSERT per effect. Measure and batch inserts/settlement where beneficial.
+14. P2 mixed helpers: internal/adapters/effects/fake.go combines production HTTP code with test clock/ID/fake destination; separate by responsibility when changing that area.
 
 ## 8. Pull-request evidence checklist
 

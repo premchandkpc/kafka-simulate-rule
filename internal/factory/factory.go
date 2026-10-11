@@ -166,7 +166,7 @@ func (f *Factory) NATSConsumer(ctx context.Context) (*nats.Consumer, error) {
 	return consumer, nil
 }
 
-func (f *Factory) NATSPublisher(_ context.Context) (*nats.Publisher, error) {
+func (f *Factory) NATSPublisher(ctx context.Context) (*nats.Publisher, error) {
 	if f.natsPublisher != nil {
 		return f.natsPublisher, nil
 	}
@@ -204,7 +204,7 @@ func (f *Factory) OutboxRepository(db *mongo.DB) ports.OutboxRepository {
 }
 
 func (f *Factory) RuleRepository(db *mongo.DB) ports.RuleRepository {
-	return mongo.NewRepository(mongo.NewQuerier(db.Database()))
+	return mongo.NewRuleRepository(mongo.NewQuerier(db.Database()))
 }
 
 func (f *Factory) ActivationRepository(db *mongo.DB) ports.ActivationRepository {
@@ -275,7 +275,7 @@ func (f *Factory) EventService(
 	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
 	beginTx ports.TransactionManager,
-	newRepos ports.RepositoryFactory,
+	newRepos ports.EventTxRepositoryFactory,
 ) *events.Service {
 	return events.NewService(compiler, evaluator, quarantine, clock, beginTx, newRepos)
 }
@@ -287,7 +287,7 @@ func (f *Factory) RuleService(
 	executions ports.ExecutionRepository,
 	clock ports.Clock,
 	txManager ports.TransactionManager,
-	newTxRepos ports.RepositoryFactory,
+	newTxRepos ports.RuleTxRepositoryFactory,
 ) *rules.Service {
 	return rules.NewService(compiler, ruleRepo, activation, executions, clock, txManager, newTxRepos)
 }
@@ -295,7 +295,7 @@ func (f *Factory) RuleService(
 func (f *Factory) EffectService(
 	outbox ports.OutboxRepository,
 	sender ports.EffectSender,
-	quarantine ports.QuarantineRepository,
+	quarantine *mongo.QuarantineRepository,
 	clock ports.Clock,
 ) *effects.Service {
 	return effects.NewService(outbox, sender, quarantine, clock, "mongo-worker")

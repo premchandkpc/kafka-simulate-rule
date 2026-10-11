@@ -2,57 +2,125 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
+
+	"github.com/flowrule/flowrule/internal/auth"
+	"os"
+	"strings"
+	"unicode"
 )
 
-// TenantContextKey is the context key for tenant information
+// TenantContextKey is the context key for tenant information.
 type TenantContextKey string
 
 const (
 	TenantIDKey TenantContextKey = "tenant_id"
+
+	trustedProxyTokenEnv    = "FLOWRULE_TRUSTED_PROXY_TOKEN"
+	trustedProxyTokenHeader = "X-Proxy-Auth"
+	trustedTenantHeader     = "X-Authenticated-Tenant-ID"
 )
 
-// TenantExtractor extracts tenant ID from request
+// TenantExtractor establishes tenant context. Development and test environments
+// may use caller-provided tenant IDs for local testing only. Production requires
+// a trusted proxy that authenticates callers and overwrites the trusted headers.
 func TenantExtractor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tenantID := extractTenantID(r)
-		if tenantID != "" {
-			ctx := context.WithValue(r.Context(), TenantIDKey, tenantID)
-			r = r.WithContext(ctx)
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
 		}
-		next.ServeHTTP(w, r)
+
+		tenantID, status := tenantForRequest(r)
+		if status != http.StatusOK {
+			if status == http.StatusServiceUnavailable {
+				http.Error(w, "tenant authentication is not configured", status)
+				return
+			}
+			http.Error(w, "authenticated tenant identity is required", status)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), TenantIDKey, tenantID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// extractTenantID extracts tenant ID from various sources
-func extractTenantID(r *http.Request) string {
-	// Check header first (for multi-tenant testing)
-	if tenant := r.Header.Get("X-Tenant-ID"); tenant != "" {
-		return tenant
+func tenantForRequest(r *http.Request) (string, int) {
+	// A validated JWT claim is the authoritative tenant identity. Caller-supplied
+	// headers/query parameters may not override it.
+	if tenantID, ok := auth.TenantFromContext(r.Context()); ok {
+		tenantID = strings.TrimSpace(tenantID)
+		if !validTenantID(tenantID) {
+			return "", http.StatusUnauthorized
+		}
+		if supplied := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); supplied != "" && supplied != tenantID {
+			return "", http.StatusForbidden
+		}
+		if supplied := strings.TrimSpace(r.URL.Query().Get("tenant_id")); supplied != "" && supplied != tenantID {
+			return "", http.StatusForbidden
+		}
+		return tenantID, http.StatusOK
 	}
-	// Check query param
-	if tenant := r.URL.Query().Get("tenant_id"); tenant != "" {
-		return tenant
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "" || env == "development" || env == "dev" || env == "test" {
+		tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+		if tenantID == "" {
+			tenantID = strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+		}
+		if tenantID == "" {
+			tenantID = "default"
+		}
+		if !validTenantID(tenantID) {
+			return "", http.StatusBadRequest
+		}
+		return tenantID, http.StatusOK
 	}
-	// Default for single-tenant deployments
-	return "default"
+
+	expected := os.Getenv(trustedProxyTokenEnv)
+	if expected == "" {
+		return "", http.StatusServiceUnavailable
+	}
+	provided := r.Header.Get(trustedProxyTokenHeader)
+	if len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		return "", http.StatusUnauthorized
+	}
+
+	tenantID := strings.TrimSpace(r.Header.Get(trustedTenantHeader))
+	if !validTenantID(tenantID) {
+		return "", http.StatusUnauthorized
+	}
+	return tenantID, http.StatusOK
 }
 
-// GetTenantID retrieves tenant ID from context
+func validTenantID(tenantID string) bool {
+	if tenantID == "" || len(tenantID) > 128 {
+		return false
+	}
+	for _, r := range tenantID {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// GetTenantID returns the tenant established by middleware. An empty result
+// means no trusted tenant context was established; it never invents a default.
 func GetTenantID(ctx context.Context) string {
 	if tenant, ok := ctx.Value(TenantIDKey).(string); ok {
 		return tenant
 	}
-	return "default"
+	return ""
 }
 
-// Recovery middleware recovers from panics
+// Recovery middleware recovers from panics.
 func Recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			if err := recover(); err != nil {
-				// In production, log the panic with stack trace
-				http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			if recover() != nil {
+				http.Error(w, "{\"error\":\"internal server error\"}", http.StatusInternalServerError)
 			}
 		}()
 		next.ServeHTTP(w, r)

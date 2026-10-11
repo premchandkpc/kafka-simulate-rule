@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -34,6 +33,9 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 
 	docs := make([]interface{}, len(effects))
 	for i, ef := range effects {
+		if ef.TenantID == "" {
+			return fmt.Errorf("insert outbox: tenant_id is required")
+		}
 		docs[i] = OutboxDocFromDomain(&ef)
 	}
 
@@ -84,26 +86,61 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 		var doc OutboxDoc
 		err := coll.FindOneAndUpdate(ctx, filter, bson.M{"$set": update["$set"]}, opts).Decode(&doc)
 		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
+			if err == mongo.ErrNoDocuments {
 				break
 			}
 			return nil, fmt.Errorf("claim pending: %w", err)
 		}
-		effects = append(effects, *doc.ToDomain())
+		effect := doc.ToDomain()
+		if effect.TenantID == "" {
+			if err := r.resolveLegacyTenant(ctx, effect); err != nil {
+				return nil, fmt.Errorf("resolve tenant for legacy outbox effect %s: %w", effect.ID, err)
+			}
+		}
+		effects = append(effects, *effect)
 	}
 
 	return effects, nil
 }
 
+// resolveLegacyTenant backfills tenant identity for effects written before the
+// outbox schema carried tenant_id. The execution record is the authoritative source.
+func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *domain.OutboxEffect) error {
+	var execution struct {
+		TenantID string `bson:"tenant_id"`
+	}
+	if err := r.collection("executions").FindOne(ctx, bson.M{
+		"execution_id": effect.ExecutionID,
+	}).Decode(&execution); err != nil {
+		return fmt.Errorf("load source execution: %w", err)
+	}
+	if execution.TenantID == "" {
+		return fmt.Errorf("source execution has no tenant identity")
+	}
+
+	_, err := r.collection("outbox_effects").UpdateOne(ctx,
+		bson.M{"effect_id": effect.ID, "tenant_id": bson.M{"$exists": false}},
+		bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
+	)
+	if err != nil {
+		return fmt.Errorf("persist tenant identity: %w", err)
+	}
+	effect.TenantID = execution.TenantID
+	return nil
+}
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
+	if len(effectIDs) == 0 {
+		return nil
+	}
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 
-	_, err := coll.UpdateMany(ctx,
+	result, err := coll.UpdateMany(ctx,
 		bson.M{
-			"effect_id":  bson.M{"$in": effectIDs},
-			"status":     domain.OutboxStatusClaimed,
-			"claimed_by": claimant,
+			"effect_id":        bson.M{"$in": effectIDs},
+			"status":           domain.OutboxStatusClaimed,
+			"claimed_by":       claimant,
+			"claim_expires_at": bson.M{"$gt": now},
 		},
 		bson.M{
 			"$set": bson.M{
@@ -118,18 +155,23 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	if err != nil {
 		return fmt.Errorf("mark delivered: %w", err)
 	}
+	if int(result.MatchedCount) != len(effectIDs) {
+		return domain.ErrOutboxClaimLost
+	}
 	return nil
 }
 
-func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error {
+func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 	availableAt := now.Add(delay)
 
-	_, err := coll.UpdateOne(ctx,
+	result, err := coll.UpdateOne(ctx,
 		bson.M{
-			"effect_id": effectID,
-			"status":    domain.OutboxStatusClaimed,
+			"effect_id":        effectID,
+			"status":           domain.OutboxStatusClaimed,
+			"claimed_by":       claimant,
+			"claim_expires_at": bson.M{"$gt": now},
 		},
 		bson.M{
 			"$set": bson.M{
@@ -147,17 +189,22 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, d
 	if err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
 	}
+	if result.MatchedCount != 1 {
+		return domain.ErrOutboxClaimLost
+	}
 	return nil
 }
 
-func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errMsg string) error {
+func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 
-	_, err := coll.UpdateOne(ctx,
+	result, err := coll.UpdateOne(ctx,
 		bson.M{
-			"effect_id": effectID,
-			"status":    domain.OutboxStatusClaimed,
+			"effect_id":        effectID,
+			"status":           domain.OutboxStatusClaimed,
+			"claimed_by":       claimant,
+			"claim_expires_at": bson.M{"$gt": now},
 		},
 		bson.M{
 			"$set": bson.M{
@@ -173,15 +220,19 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errM
 	if err != nil {
 		return fmt.Errorf("quarantine effect: %w", err)
 	}
+	if result.MatchedCount != 1 {
+		return domain.ErrOutboxClaimLost
+	}
 	return nil
 }
 
 type OutboxDoc struct {
 	EffectID       string     `bson:"effect_id"`
 	ExecutionID    string     `bson:"execution_id"`
+	TenantID       string     `bson:"tenant_id"`
 	Destination    string     `bson:"destination"`
 	Name           string     `bson:"name"`
-	Payload        bson.Raw   `bson:"payload"`
+	Payload        []byte     `bson:"payload"`
 	EffectType     string     `bson:"effect_type"`
 	Status         string     `bson:"status"`
 	Attempts       int        `bson:"attempts"`
@@ -199,9 +250,10 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	return &OutboxDoc{
 		EffectID:       ef.ID,
 		ExecutionID:    ef.ExecutionID,
+		TenantID:       ef.TenantID,
 		Destination:    ef.Destination,
 		Name:           ef.Name,
-		Payload:        bson.Raw(ef.Payload),
+		Payload:        append([]byte(nil), ef.Payload...),
 		EffectType:     string(ef.EffectType),
 		Status:         string(ef.Status),
 		Attempts:       ef.Attempts,
@@ -220,9 +272,10 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	return &domain.OutboxEffect{
 		ID:             d.EffectID,
 		ExecutionID:    d.ExecutionID,
+		TenantID:       d.TenantID,
 		Destination:    d.Destination,
 		Name:           d.Name,
-		Payload:        json.RawMessage(d.Payload),
+		Payload:        json.RawMessage(append([]byte(nil), d.Payload...)),
 		EffectType:     domain.EffectType(d.EffectType),
 		Status:         domain.OutboxStatus(d.Status),
 		Attempts:       d.Attempts,

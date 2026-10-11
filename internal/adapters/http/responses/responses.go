@@ -54,6 +54,7 @@ const (
 	CodeBadRequest        = "BAD_REQUEST"
 	CodeUnauthorized      = "UNAUTHORIZED"
 	CodeForbidden         = "FORBIDDEN"
+	CodeConflict          = "CONFLICT"
 	CodeTenantRequired    = "TENANT_REQUIRED"
 	CodeValidationFailed  = "VALIDATION_FAILED"
 	CodeActivationFailed  = "ACTIVATION_FAILED"

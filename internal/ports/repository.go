@@ -37,8 +37,8 @@ type OutboxRepository interface {
 	Insert(ctx context.Context, effects []domain.OutboxEffect) error
 	ClaimPending(ctx context.Context, batchSize int, claimant string, claimTTL time.Duration) ([]domain.OutboxEffect, error)
 	MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error
-	ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error
-	Quarantine(ctx context.Context, effectID, errMsg string) error
+	ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error
+	Quarantine(ctx context.Context, effectID, claimant, errMsg string) error
 	GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error)
 	GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error)
 }
@@ -66,10 +66,10 @@ type ActivationRepository interface {
 // WorkflowRepository handles workflow instances
 type WorkflowRepository interface {
 	Save(ctx context.Context, workflow *domain.WorkflowInstance) error
-	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error)
 	Update(ctx context.Context, workflow *domain.WorkflowInstance) error
 	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
-	GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error)
+	GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error)
 }
 
 // WorkflowDefinitionRepository handles workflow definitions (templates)
@@ -80,20 +80,26 @@ type WorkflowDefinitionRepository interface {
 	Delete(ctx context.Context, workflowType string, version int64) error
 }
 
-// ScheduledEventRepository handles scheduled/delayed events
+// ScheduledEventRepository handles scheduled/delayed events. Public read and
+// cancel operations are tenant-scoped; scheduler settlement is fenced by the
+// unique claim token returned to the claimant's call path.
 type ScheduledEventRepository interface {
 	Save(ctx context.Context, event *domain.ScheduledEvent) error
 	GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error)
 	Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error)
-	MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error
-	MarkFailed(ctx context.Context, eventID, errMsg string) error
-	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)
+	MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error
+	MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error
+	Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error)
+	List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error)
+	Cancel(ctx context.Context, tenantID, eventID string) error
 }
 
 // BatchRepository handles batch processing
 type BatchRepository interface {
 	SaveRun(ctx context.Context, run *domain.BatchRun) error
 	GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error)
+	GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error)
+	ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error)
 	ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error)
 	MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error
 }
@@ -113,10 +119,10 @@ type ShardLeaseRepository interface {
 // QuarantineRepository handles failed items
 type QuarantineRepository interface {
 	Save(ctx context.Context, entry *domain.QuarantineEntry) error
-	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
+	Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error)
 	List(ctx context.Context, filter QuarantineFilter) ([]*domain.QuarantineEntry, error)
-	Replay(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
+	Replay(ctx context.Context, tenantID, id string) error
+	Delete(ctx context.Context, tenantID, id string) error
 }
 
 // QuarantineFilter for filtering quarantine entries

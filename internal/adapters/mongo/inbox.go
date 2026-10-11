@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -46,7 +45,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 		"event_id":  eventID,
 	}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get inbox: %w", err)
@@ -86,15 +85,11 @@ type InboxDoc struct {
 	CommittedAt  *time.Time `bson:"committed_at,omitempty"`
 	PartitionKey string     `bson:"partition_key,omitempty"`
 	RuleSet      string     `bson:"rule_set,omitempty"`
-	Payload      bson.Raw   `bson:"payload,omitempty"`
+	Payload      []byte     `bson:"payload,omitempty"`
 	BatchID      string     `bson:"batch_id,omitempty"`
 }
 
 func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
-	var payload bson.Raw
-	if entry.Payload != nil {
-		payload, _ = bson.Marshal(entry.Payload)
-	}
 	return &InboxDoc{
 		TenantID:     entry.TenantID,
 		EventID:      entry.EventID,
@@ -104,7 +99,7 @@ func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
 		CommittedAt:  entry.CommittedAt,
 		PartitionKey: entry.PartitionKey,
 		RuleSet:      entry.RuleSet,
-		Payload:      payload,
+		Payload:      append([]byte(nil), entry.Payload...),
 		BatchID:      entry.BatchID,
 	}
 }
@@ -112,7 +107,7 @@ func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
 func (d *InboxDoc) ToDomain() *domain.InboxEntry {
 	var payload json.RawMessage
 	if d.Payload != nil {
-		payload = json.RawMessage(d.Payload)
+		payload = json.RawMessage(append([]byte(nil), d.Payload...))
 	}
 	return &domain.InboxEntry{
 		TenantID:     d.TenantID,
