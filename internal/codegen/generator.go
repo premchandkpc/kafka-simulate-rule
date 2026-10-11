@@ -41,6 +41,21 @@ func runtimeOutputDir(outputDir string) string {
 	return filepath.Join(outputDir, TargetGo, runtimeDirectoryName)
 }
 
+func sanitizeGeneratedOutputDir(outputDir string) (string, error) {
+	if outputDir == "" {
+		return "", fmt.Errorf("output directory is required")
+	}
+
+	cleaned := filepath.Clean(outputDir)
+	for _, part := range strings.Split(cleaned, string(filepath.Separator)) {
+		if part == ".." {
+			return "", fmt.Errorf("output directory must not contain parent traversal")
+		}
+	}
+
+	return cleaned, nil
+}
+
 type RuleSet struct {
 	RuleSet  string `yaml:"rule_set"`
 	Revision int    `yaml:"revision"`
@@ -87,6 +102,12 @@ func NewGeneratorWithRules(schema *domain.ContractSchema, ruleSet *RuleSet) *Gen
 }
 
 func (g *Generator) GenerateGo(outputDir string) ([]string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
 	files, err := g.generate(outputDir, TargetGo, goTemplate, goFileExtension)
 	if err != nil {
 		return nil, err
@@ -111,6 +132,12 @@ func (g *Generator) GenerateJSONSchema(outputDir string) ([]string, error) {
 }
 
 func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
 	var allFiles []string
 
 	// Contract types
@@ -147,6 +174,12 @@ func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
 }
 
 func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
 	var allFiles []string
 
 	files, err := g.generateEnvelope(outputDir)
@@ -171,6 +204,12 @@ func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
 }
 
 func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
 	if g.ruleSet == nil {
 		return nil, fmt.Errorf("rule set required for evaluator generation")
 	}
@@ -386,6 +425,12 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 }
 
 func (g *Generator) GenerateService(outputDir string) ([]string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
 	if g.ruleSet == nil {
 		return nil, fmt.Errorf("rule set required for service generation")
 	}
@@ -451,6 +496,12 @@ func (g *Generator) GenerateService(outputDir string) ([]string, error) {
 }
 
 func (g *Generator) generate(outputDir, subdir string, tmpl *template.Template, ext string) ([]string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
 	dir := filepath.Join(outputDir, subdir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create output dir: %w", err)
@@ -503,6 +554,12 @@ func validateGeneratedTypeName(name string) error {
 }
 
 func (g *Generator) generateTypedClient(outputDir string) (string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return "", err
+	}
+
 	dir := filepath.Join(outputDir, TargetGo)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create Go client output dir: %w", err)
