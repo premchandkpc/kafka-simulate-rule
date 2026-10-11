@@ -13,9 +13,9 @@ import (
 )
 
 var supportedEventTypes = map[string]struct{}{
-	"order.created": {},
+	"order.created":         {},
 	"transaction.initiated": {},
-	"order.placed": {},
+	"order.placed":          {},
 }
 
 type fakePublisher struct {
