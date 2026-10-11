@@ -197,7 +197,7 @@ type OutboxDoc struct {
 	ExecutionID    string     `bson:"execution_id"`
 	Destination    string     `bson:"destination"`
 	Name           string     `bson:"name"`
-	Payload        bson.Raw   `bson:"payload"`
+	Payload        []byte     `bson:"payload"`
 	EffectType     string     `bson:"effect_type"`
 	Status         string     `bson:"status"`
 	Attempts       int        `bson:"attempts"`
@@ -217,7 +217,7 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 		ExecutionID:    ef.ExecutionID,
 		Destination:    ef.Destination,
 		Name:           ef.Name,
-		Payload:        bson.Raw(ef.Payload),
+		Payload:        append([]byte(nil), ef.Payload...),
 		EffectType:     string(ef.EffectType),
 		Status:         string(ef.Status),
 		Attempts:       ef.Attempts,
@@ -238,7 +238,7 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 		ExecutionID:    d.ExecutionID,
 		Destination:    d.Destination,
 		Name:           d.Name,
-		Payload:        json.RawMessage(d.Payload),
+		Payload:        json.RawMessage(append([]byte(nil), d.Payload...)),
 		EffectType:     domain.EffectType(d.EffectType),
 		Status:         domain.OutboxStatus(d.Status),
 		Attempts:       d.Attempts,
