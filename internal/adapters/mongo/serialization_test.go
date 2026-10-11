@@ -96,7 +96,7 @@ func TestJSONPayloadDocumentsRoundTripThroughBSON(t *testing.T) {
 	t.Run("rule source and compiled rules", func(t *testing.T) {
 		source := &domain.RuleRevision{
 			TenantScope: "tenant-a", RuleID: "orders.created", Revision: 1,
-			Source: json.RawMessage(`{"rule_set":"orders.created","revision":1,"rules":[]}`),
+			Source:   json.RawMessage(`{"rule_set":"orders.created","revision":1,"rules":[]}`),
 			Compiled: []domain.CompiledRule{},
 		}
 		var stored RevisionDoc
