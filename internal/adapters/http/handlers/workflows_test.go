@@ -41,3 +41,27 @@ func TestCreateWorkflowRejectsTenantMismatch(t *testing.T) {
 		t.Fatalf("Create calls = %d, want 0", service.createCalls)
 	}
 }
+
+func TestWorkflowDefinitionMutationRoutesAreNotExposed(t *testing.T) {
+	mux := http.NewServeMux()
+	NewWorkflowHandler(&workflowServiceStub{}, nil, nil).RegisterRoutes(mux)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   int
+	}{
+		{name: "create is not exposed", method: http.MethodPost, path: "/v1/workflows/definitions", want: http.StatusMethodNotAllowed},
+		{name: "delete is not exposed", method: http.MethodDelete, path: "/v1/workflows/definitions/order/1", want: http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			mux.ServeHTTP(res, httptest.NewRequest(tt.method, tt.path, nil))
+			if res.Code != tt.want {
+				t.Fatalf("status = %d, want %d", res.Code, tt.want)
+			}
+		})
+	}
+}
