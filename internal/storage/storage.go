@@ -9,6 +9,7 @@ import (
 	sqladapter "github.com/flowrule/flowrule/internal/adapters/sql"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/ports"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repositories struct {
@@ -35,6 +36,26 @@ type Storage struct {
 	close        func()
 }
 
+// Backend returns the storage backend name
+func (s *Storage) Backend() string {
+	return s.backend
+}
+
+// Repositories returns the repository instances
+func (s *Storage) Repositories() Repositories {
+	return s.repositories
+}
+
+// Initialize initializes the storage (runs migrations, etc.)
+func (s *Storage) Initialize(ctx context.Context) error {
+	return s.initialize(ctx)
+}
+
+// Close closes the storage connection
+func (s *Storage) Close() {
+	s.close()
+}
+
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 	backend := strings.ToLower(strings.TrimSpace(cfg.StorageBackend))
 	if backend == "" {
@@ -49,43 +70,10 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 		}
 		pool := db.Pool()
 		return &Storage{
-			backend: backend,
-			repositories: Repositories{
-				Inbox:               sqladapter.NewInboxRepository(pool),
-				Activations:         sqladapter.NewActivationRepository(pool),
-				Rules:               sqladapter.NewRuleRepository(pool),
-				Executions:          sqladapter.NewExecutionRepository(pool),
-				Outbox:              sqladapter.NewOutboxRepository(pool),
-				ShardLeases:         sqladapter.NewShardLeaseRepository(pool),
-				Workflows:           sqladapter.NewWorkflowRepository(pool),
-				WorkflowDefinitions: sqladapter.NewWorkflowDefinitionRepository(pool),
-				ScheduledEvents:     sqladapter.NewScheduledEventRepository(pool),
-				Batches:             sqladapter.NewBatchRepository(pool),
-				Quarantine:          sqladapter.NewQuarantineRepository(pool),
-				Contracts:           sqladapter.NewContractRegistry(pool),
-				Transactions:        sqladapter.NewTransactionManager(pool),
-				NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
-					sqlTx, ok := tx.(*sqladapter.Tx)
-					if !ok {
-						return ports.TxRepos{}, fmt.Errorf("postgres transaction has unexpected type %T", tx)
-					}
-					q := sqladapter.NewTxQuerier(sqlTx)
-					return ports.TxRepos{
-						Inbox:           sqladapter.NewInboxRepository(q),
-						Activations:     sqladapter.NewActivationRepository(q),
-						RuleRepo:        sqladapter.NewRuleRepository(q),
-						Executions:      sqladapter.NewExecutionRepository(q),
-						Outbox:          sqladapter.NewOutboxRepository(q),
-						ShardLeases:     sqladapter.NewShardLeaseRepository(q),
-						Workflow:        sqladapter.NewWorkflowRepository(q),
-						ScheduledEvents: sqladapter.NewScheduledEventRepository(q),
-						Batches:         sqladapter.NewBatchRepository(q),
-						Quarantine:      sqladapter.NewQuarantineRepository(q),
-					}, nil
-				},
-			},
-			initialize: db.RunMigrations,
-			close:      db.Close,
+			backend:      backend,
+			repositories: buildPostgresRepos(pool, db),
+			initialize:   db.RunMigrations,
+			close:        db.Close,
 		}, nil
 
 	case "mongodb":
@@ -98,43 +86,10 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 		}
 		q := mongoadapter.NewQuerier(db.Database())
 		return &Storage{
-			backend: backend,
-			repositories: Repositories{
-				Inbox:               mongoadapter.NewInboxRepository(q),
-				Activations:         mongoadapter.NewActivationRepository(q),
-				Rules:               mongoadapter.NewRepository(q),
-				Executions:          mongoadapter.NewExecutionRepository(q),
-				Outbox:              mongoadapter.NewOutboxRepository(q),
-				ShardLeases:         mongoadapter.NewShardLeaseRepository(q),
-				Workflows:           mongoadapter.NewWorkflowRepository(q),
-				WorkflowDefinitions: mongoadapter.NewWorkflowDefinitionRepository(q),
-				ScheduledEvents:     mongoadapter.NewScheduledEventRepository(q),
-				Batches:             mongoadapter.NewBatchRepository(q),
-				Quarantine:          mongoadapter.NewQuarantineRepository(q),
-				Contracts:           mongoadapter.NewContractRegistry(q),
-				Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
-				NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
-					mongoTx, ok := tx.(*mongoadapter.Transaction)
-					if !ok {
-						return ports.TxRepos{}, fmt.Errorf("mongodb transaction has unexpected type %T", tx)
-					}
-					txQuerier := mongoadapter.NewTxQuerier(mongoTx.Session(), db.Database())
-					return ports.TxRepos{
-						Inbox:           mongoadapter.NewInboxRepository(txQuerier),
-						Activations:     mongoadapter.NewActivationRepository(txQuerier),
-						RuleRepo:        mongoadapter.NewRepository(txQuerier),
-						Executions:      mongoadapter.NewExecutionRepository(txQuerier),
-						Outbox:          mongoadapter.NewOutboxRepository(txQuerier),
-						ShardLeases:     mongoadapter.NewShardLeaseRepository(txQuerier),
-						Workflow:        mongoadapter.NewWorkflowRepository(txQuerier),
-						ScheduledEvents: mongoadapter.NewScheduledEventRepository(txQuerier),
-						Batches:         mongoadapter.NewBatchRepository(txQuerier),
-						Quarantine:      mongoadapter.NewQuarantineRepository(txQuerier),
-					}, nil
-				},
-			},
-			initialize: func(context.Context) error { return nil },
-			close:      db.Close,
+			backend:      backend,
+			repositories: buildMongoRepos(q, db),
+			initialize:   func(context.Context) error { return nil },
+			close:        db.Close,
 		}, nil
 
 	default:
@@ -142,18 +97,84 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 	}
 }
 
-func (s *Storage) Backend() string {
-	return s.backend
+func buildPostgresRepos(pool *pgxpool.Pool, _ *sqladapter.DB) Repositories {
+	return Repositories{
+		Inbox:               sqladapter.NewInboxRepository(pool),
+		Activations:         sqladapter.NewActivationRepository(pool),
+		Rules:               sqladapter.NewRuleRepository(pool),
+		Executions:          sqladapter.NewExecutionRepository(pool),
+		Outbox:              sqladapter.NewOutboxRepository(pool),
+		ShardLeases:         sqladapter.NewShardLeaseRepository(pool),
+		Workflows:           sqladapter.NewWorkflowRepository(pool),
+		WorkflowDefinitions: sqladapter.NewWorkflowDefinitionRepository(pool),
+		ScheduledEvents:     sqladapter.NewScheduledEventRepository(pool),
+		Batches:             sqladapter.NewBatchRepository(pool),
+		Quarantine:          sqladapter.NewQuarantineRepository(pool),
+		Contracts:           sqladapter.NewContractRegistry(pool),
+		Transactions:        sqladapter.NewTransactionManager(pool),
+		NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
+			sqlTx, ok := tx.(*sqladapter.Tx)
+			if !ok {
+				return ports.TxRepos{}, fmt.Errorf("postgres transaction has unexpected type %T", tx)
+			}
+			q := sqladapter.NewTxQuerier(sqlTx)
+			return buildPostgresTxRepos(q), nil
+		},
+	}
 }
 
-func (s *Storage) Repositories() Repositories {
-	return s.repositories
+func buildPostgresTxRepos(q sqladapter.Querier) ports.TxRepos {
+	return ports.TxRepos{
+		Inbox:           sqladapter.NewInboxRepository(q),
+		Activations:     sqladapter.NewActivationRepository(q),
+		RuleRepo:        sqladapter.NewRuleRepository(q),
+		Executions:      sqladapter.NewExecutionRepository(q),
+		Outbox:          sqladapter.NewOutboxRepository(q),
+		ShardLeases:     sqladapter.NewShardLeaseRepository(q),
+		Workflow:        sqladapter.NewWorkflowRepository(q),
+		ScheduledEvents: sqladapter.NewScheduledEventRepository(q),
+		Batches:         sqladapter.NewBatchRepository(q),
+		Quarantine:      sqladapter.NewQuarantineRepository(q),
+	}
 }
 
-func (s *Storage) Initialize(ctx context.Context) error {
-	return s.initialize(ctx)
+func buildMongoRepos(q mongoadapter.Querier, db *mongoadapter.DB) Repositories {
+	return Repositories{
+		Inbox:               mongoadapter.NewInboxRepository(q),
+		Activations:         mongoadapter.NewActivationRepository(q),
+		Rules:               mongoadapter.NewRepository(q),
+		Executions:          mongoadapter.NewExecutionRepository(q),
+		Outbox:              mongoadapter.NewOutboxRepository(q),
+		ShardLeases:         mongoadapter.NewShardLeaseRepository(q),
+		Workflows:           mongoadapter.NewWorkflowRepository(q),
+		WorkflowDefinitions: mongoadapter.NewWorkflowDefinitionRepository(q),
+		ScheduledEvents:     mongoadapter.NewScheduledEventRepository(q),
+		Batches:             mongoadapter.NewBatchRepository(q),
+		Quarantine:          mongoadapter.NewQuarantineRepository(q),
+		Contracts:           mongoadapter.NewContractRegistry(q),
+		Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
+		NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
+			mongoTx, ok := tx.(*mongoadapter.Transaction)
+			if !ok {
+				return ports.TxRepos{}, fmt.Errorf("mongodb transaction has unexpected type %T", tx)
+			}
+			txQuerier := mongoadapter.NewTxQuerier(mongoTx.Session(), db.Database())
+			return buildMongoTxRepos(txQuerier), nil
+		},
+	}
 }
 
-func (s *Storage) Close() {
-	s.close()
+func buildMongoTxRepos(txQuerier mongoadapter.Querier) ports.TxRepos {
+	return ports.TxRepos{
+		Inbox:           mongoadapter.NewInboxRepository(txQuerier),
+		Activations:     mongoadapter.NewActivationRepository(txQuerier),
+		RuleRepo:        mongoadapter.NewRepository(txQuerier),
+		Executions:      mongoadapter.NewExecutionRepository(txQuerier),
+		Outbox:          mongoadapter.NewOutboxRepository(txQuerier),
+		ShardLeases:     mongoadapter.NewShardLeaseRepository(txQuerier),
+		Workflow:        mongoadapter.NewWorkflowRepository(txQuerier),
+		ScheduledEvents: mongoadapter.NewScheduledEventRepository(txQuerier),
+		Batches:         mongoadapter.NewBatchRepository(txQuerier),
+		Quarantine:      mongoadapter.NewQuarantineRepository(txQuerier),
+	}
 }
