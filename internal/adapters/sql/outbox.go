@@ -19,6 +19,9 @@ func NewOutboxRepository(db Querier) *OutboxRepository {
 
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	for _, ef := range effects {
+		if ef.TenantID == "" {
+			return fmt.Errorf("insert outbox: tenant_id is required")
+		}
 		_, err := r.db.Exec(ctx, `
 			INSERT INTO outbox_effects (effect_id, execution_id, tenant_id, destination, name, payload, effect_type, status, attempts, max_attempts, available_at, last_error, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
