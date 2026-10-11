@@ -21,7 +21,7 @@ const (
 	maxMessages      = 100
 	minConcurrency   = 1
 	maxConcurrency   = 256
-	defaultBaseTopic = "events"
+	DefaultBaseSubject = "events"
 )
 
 // Publisher is the smallest transport contract required by the simulator.
