@@ -142,27 +142,12 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	state := r.URL.Query().Get("state")
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 100
-	if limitStr != "" {
-		parsed, err := strconv.Atoi(limitStr)
-		if err != nil || parsed < 1 || parsed > 1000 {
-			responses.WriteError(w, http.StatusBadRequest, "limit must be between 1 and 1000", responses.CodeValidationFailed)
-			return
-		}
-		limit = parsed
+	pagination, err := parsePagination(r, 100, 1000, 10000)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	offset := 0
-	if offsetStr != "" {
-		parsed, err := strconv.Atoi(offsetStr)
-		if err != nil || parsed < 0 || parsed > 10000 {
-			responses.WriteError(w, http.StatusBadRequest, "offset must be between 0 and 10000", responses.CodeValidationFailed)
-			return
-		}
-		offset = parsed
-	}
+	limit, offset := pagination.Limit, pagination.Offset
 
 	ctx := r.Context()
 	var workflows []*domain.WorkflowInstance
