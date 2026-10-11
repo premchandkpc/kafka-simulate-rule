@@ -127,6 +127,35 @@ func TestValidateRejectsBatchModeWithoutLeaseAndQueueIntegration(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsProductionWithoutAuthentication(t *testing.T) {
+	t.Setenv("FLOWRULE_TRUSTED_PROXY_TOKEN", "")
+	cfg := validConfigForTest()
+	cfg.App.Env = "production"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "production authentication is not configured") {
+		t.Fatalf("Validate() error = %v, want production authentication configuration error", err)
+	}
+}
+
+func TestValidateAllowsProductionTrustedProxyAuthentication(t *testing.T) {
+	t.Setenv("FLOWRULE_TRUSTED_PROXY_TOKEN", "test-proxy-secret")
+	cfg := validConfigForTest()
+	cfg.App.Env = "production"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want trusted-proxy configuration to be accepted", err)
+	}
+}
+
+func TestValidateAllowsProductionJWTAuthentication(t *testing.T) {
+	t.Setenv("FLOWRULE_TRUSTED_PROXY_TOKEN", "")
+	cfg := validConfigForTest()
+	cfg.App.Env = "production"
+	cfg.Auth.RequireAuth = true
+	cfg.Auth.JWTSecret = strings.Repeat("s", 32)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want valid JWT configuration to be accepted", err)
+	}
+}
+
 func TestLoadRejectsMalformedRequireAuth(t *testing.T) {
 	t.Setenv("REQUIRE_AUTH", "definitely-not-a-boolean")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REQUIRE_AUTH must be a boolean") {

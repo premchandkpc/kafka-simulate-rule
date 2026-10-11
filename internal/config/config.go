@@ -197,6 +197,15 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("JWT_SECRET must be at least 32 characters")
 		}
 	}
+
+	// Non-local deployments must establish tenant identity through either
+	// first-party JWT authentication or an explicitly configured trusted proxy.
+	// TenantExtractor independently validates the proxy token on every request.
+	env := strings.ToLower(strings.TrimSpace(c.App.Env))
+	localEnv := env == "" || env == "development" || env == "dev" || env == "test"
+	if !localEnv && !c.Auth.RequireAuth && strings.TrimSpace(os.Getenv("FLOWRULE_TRUSTED_PROXY_TOKEN")) == "" {
+		return fmt.Errorf("production authentication is not configured: set REQUIRE_AUTH=true with JWT_SECRET or configure FLOWRULE_TRUSTED_PROXY_TOKEN for a trusted proxy")
+	}
 	if c.Worker.NumShards == 0 {
 		return fmt.Errorf("NUM_SHARDS must be > 0")
 	}
