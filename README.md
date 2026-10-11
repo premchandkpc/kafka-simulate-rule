@@ -110,3 +110,7 @@ Start with docs/README.md for the documentation index.
 - Scheduled-event SQL claim columns are introduced in migration 015. Expired claims can be reclaimed; list/get/cancel are tenant-filtered and cancel only pending events. Publish errors still mark scheduled events failed without retry/backoff.
 - Batch reads are tenant-scoped, but batch event execution has not been integrated with owned-shard fencing and the per-key queue. Non-none BATCH_MODE values are rejected until this is fixed; do not bypass the validation guard.
 - The shard lease manager currently targets NUM_SHARDS/3 per worker without membership/rebalancing, so the current implementation implicitly assumes three worker replicas. Validate all shards remain assigned before changing replica count.
+
+## Random producer simulation
+
+An opt-in random producer can publish 1–100 messages per simulated client through NATS JetStream using Compose service discovery. See [docs/simulation.md](docs/simulation.md) for run commands, ACK semantics, shard routing, and the current limits around master election and dynamic worker membership.
