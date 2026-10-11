@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
+	"github.com/flowrule/flowrule/internal/auth"
 	"github.com/flowrule/flowrule/internal/codegen"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
@@ -30,6 +31,9 @@ func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request) {
+	if !requireContractAdmin(w, r) {
+		return
+	}
 	var schema domain.ContractSchema
 	if err := decodeRequestBody(r, &schema); err != nil {
 		responses.WriteError(w, http.StatusBadRequest, messageInvalidBodyPrefix+err.Error(), responses.CodeInvalidJSON)
@@ -105,6 +109,9 @@ func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request) {
+	if !requireContractAdmin(w, r) {
+		return
+	}
 	name := r.PathValue("name")
 	version := r.PathValue("version")
 
@@ -117,6 +124,9 @@ func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Request) {
+	if !requireContractAdmin(w, r) {
+		return
+	}
 	name := r.PathValue("name")
 	version := r.PathValue("version")
 
@@ -193,4 +203,21 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		"output_dir":      outputDir,
 		"generated_files": generatedFiles,
 	})
+}
+
+ 
+// requireContractAdmin protects global contract mutations and code generation.
+// Tenant identity alone is not sufficient authorization for platform-wide data.
+func requireContractAdmin(w http.ResponseWriter, r *http.Request) bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "" || env == "development" || env == "dev" || env == "test" {
+		return true
+	}
+	if auth.HasScope(r.Context(), "contracts:admin") ||
+		auth.HasScope(r.Context(), "flowrule:admin") ||
+		auth.HasScope(r.Context(), "admin") {
+		return true
+	}
+	responses.WriteError(w, http.StatusForbidden, "contracts:admin scope is required for global contract mutations and code generation", responses.CodeForbidden)
+	return false
 }
