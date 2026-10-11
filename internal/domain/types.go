@@ -447,17 +447,17 @@ func ComputeChildEventID(parentEventID, ruleID string, actionIndex int) string {
 }
 
 type ScheduledEvent struct {
-	EventID      string            `json:"event_id"`
-	TenantID     string            `json:"tenant_id"`
-	EventType    string            `json:"event_type"`
-	PartitionKey string            `json:"partition_key"`
-	WorkflowID   string            `json:"workflow_id,omitempty"`
-	Payload      json.RawMessage   `json:"payload"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	ScheduledAt  time.Time         `json:"scheduled_at"`
+	EventID      string               `json:"event_id"`
+	TenantID     string               `json:"tenant_id"`
+	EventType    string               `json:"event_type"`
+	PartitionKey string               `json:"partition_key"`
+	WorkflowID   string               `json:"workflow_id,omitempty"`
+	Payload      json.RawMessage      `json:"payload"`
+	Headers      map[string]string    `json:"headers,omitempty"`
+	ScheduledAt  time.Time            `json:"scheduled_at"`
 	Status       ScheduledEventStatus `json:"status"`
-	CreatedAt    time.Time         `json:"created_at"`
-	ReleasedAt   *time.Time        `json:"released_at,omitempty"`
+	CreatedAt    time.Time            `json:"created_at"`
+	ReleasedAt   *time.Time           `json:"released_at,omitempty"`
 }
 
 type WorkflowInstance struct {
