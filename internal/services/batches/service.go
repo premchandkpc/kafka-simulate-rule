@@ -4,15 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 )
-
-var ruleSetPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
 
 type Service struct {
 	batches ports.BatchRepository
@@ -141,10 +137,6 @@ func (s *Service) GetBatch(ctx context.Context, tenantID, batchID string) (*doma
 
 // ListBatches lists batch runs with optional filters
 func (s *Service) ListBatches(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
-	ruleSet = strings.TrimSpace(ruleSet)
-	if ruleSet != "" && !ruleSetPattern.MatchString(ruleSet) {
-		return nil, fmt.Errorf("invalid ruleSet")
-	}
 	return s.batches.ListRuns(ctx, tenantID, ruleSet, limit, offset)
 }
 
