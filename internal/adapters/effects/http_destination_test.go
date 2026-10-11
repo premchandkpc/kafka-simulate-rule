@@ -45,7 +45,7 @@ func TestHTTPDestinationRejectsNon2xxStatus(t *testing.T) {
 	if err == nil {
 		t.Fatal("Send() error = nil, want non-2xx status error")
 	}
-	if !strings.Contains(err.Error(), "destination returned 302") {
+	if !strings.Contains(err.Error(), "destination returned non-success status 302") {
 		t.Fatalf("Send() error = %q, want status 302", err)
 	}
 }
