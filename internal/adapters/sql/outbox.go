@@ -158,7 +158,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 	for rows.Next() {
 		var ef domain.OutboxEffect
 		if err := rows.Scan(
-			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.ID, &ef.ExecutionID, &ef.TenantID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
 			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
@@ -170,7 +170,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 
 func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT effect_id, execution_id, destination, name, payload, effect_type,
+		SELECT effect_id, execution_id, tenant_id, destination, name, payload, effect_type,
 		       status, attempts, max_attempts, available_at, last_error, created_at, updated_at
 		FROM outbox_effects
 		WHERE execution_id = $1
@@ -185,7 +185,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 	for rows.Next() {
 		var ef domain.OutboxEffect
 		if err := rows.Scan(
-			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.ID, &ef.ExecutionID, &ef.TenantID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
 			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
