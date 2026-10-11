@@ -22,7 +22,7 @@ func NewMetricsServer(allowedOrigin string) *http.Server {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Max-Age", "600")
 		w.Header().Add("Vary", "Origin")
 		w.WriteHeader(http.StatusNoContent)
