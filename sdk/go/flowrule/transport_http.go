@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,11 +88,9 @@ func (t *httpTransport) sendLocked(ctx context.Context, env *Envelope) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if readErr != nil {
-			return fmt.Errorf("HTTP %d; failed to read response body: %w", resp.StatusCode, readErr)
-		}
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		// Do not include response bodies in errors: upstreams may echo secrets,
+		// credentials, or tenant data into their error responses.
+		return fmt.Errorf("HTTP %d response from FlowRule API", resp.StatusCode)
 	}
 	return nil
 }
