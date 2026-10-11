@@ -59,3 +59,24 @@ jobs:
       - name: Test food-delivery example module
         working-directory: examples/food-delivery
         run: go test -race -count=1 ./...
+
+  console:
+    name: Build React operations console
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/console
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install console dependencies
+        run: npm install
+
+      - name: Build React console
+        run: npm run build
