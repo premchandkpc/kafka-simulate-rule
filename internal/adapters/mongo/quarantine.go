@@ -196,7 +196,7 @@ func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) 
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"quarantine_id": id,
-			"tenant_id": tenantID,
+			"tenant_id":     tenantID,
 		},
 		bson.M{
 			"$set": bson.M{
