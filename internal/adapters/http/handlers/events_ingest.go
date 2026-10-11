@@ -71,6 +71,20 @@ func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	headers := make(map[string]string, len(req.Headers)+3)
+	for key, value := range req.Headers {
+		headers[key] = value
+	}
+	if req.CorrelationID != "" {
+		headers["Correlation-ID"] = req.CorrelationID
+	}
+	if req.CausationID != "" {
+		headers["Causation-ID"] = req.CausationID
+	}
+	if req.SchemaVersion != "" {
+		headers["Schema-Version"] = req.SchemaVersion
+	}
+
 	event := &domain.EventEnvelope{
 		ID:           strings.TrimSpace(req.ID),
 		Type:         eventType,
@@ -79,7 +93,7 @@ func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Requ
 		WorkflowID:   req.WorkflowID,
 		OccurredAt:   req.OccurredAt,
 		Data:         json.RawMessage(req.Data),
-		Headers:      req.Headers,
+		Headers:      headers,
 	}
 	if err := event.Validate(); err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
