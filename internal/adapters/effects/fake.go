@@ -111,20 +111,17 @@ func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect, idemp
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		const maxErrorBodyBytes = 4 << 10
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes+1))
-		if readErr != nil {
-			return fmt.Errorf("read destination error response (status %d): %w", resp.StatusCode, readErr)
+		// Drain only a bounded amount for connection reuse. Never copy a
+		// destination response body into the returned error or logs: it may
+		// contain credentials or sensitive downstream data.
+		const maxDrainBytes = 4 << 10
+		if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes)); drainErr != nil {
+			return fmt.Errorf("destination returned status %d; drain error response: %w", resp.StatusCode, drainErr)
 		}
-		suffix := ""
-		if len(body) > maxErrorBodyBytes {
-			body = body[:maxErrorBodyBytes]
-			suffix = " [response body truncated]"
-		}
-		return fmt.Errorf("destination returned %d: %s%s", resp.StatusCode, string(body), suffix)
+		return fmt.Errorf("destination returned non-success status %d", resp.StatusCode)
 	}
 
-	log.Printf("HTTPDestination: sent effect %s to %s (idempotency: %s)", effect.ID, url, idempotencyKey)
+	log.Printf("HTTPDestination: sent effect %s to %s/%s (idempotency: %s)", effect.ID, effect.Destination, effect.Name, idempotencyKey)
 	return nil
 }
 
