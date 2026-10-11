@@ -22,7 +22,7 @@ Reviewed the main-branch snapshot at commit ce533ad522a5616a9c5e0118d7d37aba00da
 - Removed checked-in compiled root/sample executables and added ignore entries for those build outputs. Removed a hidden duplicate ecommerce `.generated` tree containing malformed, unused Go output; retained the valid `generated/go` sources and added an ignore rule for temporary `.generated` directories.
 - Expanded Go CI to cover root commands/packages, both independent SDK modules, and all three example modules, plus formatting, JSON schema syntax, and shell syntax checks.
 - Replaced AGENTS.md with current source-backed instructions and a file-by-file map. Replaced ARCHITECTURE_MAP.md and docs/README.md with current flow/route/guarantee statements, added the root README, and replaced the generic SECURITY.md template.
-- Aligned Makefile targets to implemented codegen/migration CLIs, added non-mutating format verification (including correctly escaped shell variables), removed nonexistent E2E/protobuf/rollback recipes, and stopped the clean task from clearing the user's entire Go module cache.
+- Aligned Makefile targets to implemented codegen/migration CLIs, added non-mutating format verification (including correctly escaped shell variables), removed nonexistent E2E/protobuf/rollback recipes, and stopped the clean task from clearing the user's entire Go module cache. Corrected the check-fmt recipe after CI caught GNU Make expanding `$files` before the shell; it now uses `printf` with escaped shell variables.
 
 ## Open findings requiring follow-up
 
