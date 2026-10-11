@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,10 +64,31 @@ func createGeneratedFile(outputDir, relativePath string) (*os.File, string, erro
 	}
 	relativePath = filepath.Clean(relativePath)
 
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, "", fmt.Errorf("create output dir: %w", err)
+	absoluteOutputDir, err := filepath.Abs(outputDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve output dir: %w", err)
 	}
-	root, err := os.OpenRoot(outputDir)
+	volumeRoot := filepath.VolumeName(absoluteOutputDir) + string(filepath.Separator)
+	relativeOutputDir, err := filepath.Rel(volumeRoot, absoluteOutputDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve output dir relative to volume root: %w", err)
+	}
+	if !filepath.IsLocal(relativeOutputDir) {
+		return nil, "", fmt.Errorf("output directory must be local to its volume root")
+	}
+
+	volume, err := os.OpenRoot(volumeRoot)
+	if err != nil {
+		return nil, "", fmt.Errorf("open volume root: %w", err)
+	}
+	if err := volume.MkdirAll(relativeOutputDir, 0755); err != nil {
+		return nil, "", errors.Join(fmt.Errorf("create output dir: %w", err), volume.Close())
+	}
+	if err := volume.Close(); err != nil {
+		return nil, "", fmt.Errorf("close volume root: %w", err)
+	}
+
+	root, err := os.OpenRoot(absoluteOutputDir)
 	if err != nil {
 		return nil, "", fmt.Errorf("open output dir: %w", err)
 	}
@@ -74,8 +96,7 @@ func createGeneratedFile(outputDir, relativePath string) (*os.File, string, erro
 	relativeDir := filepath.Dir(relativePath)
 	if relativeDir != "." {
 		if err := root.MkdirAll(relativeDir, 0755); err != nil {
-			_ = root.Close()
-			return nil, "", fmt.Errorf("create generated file directory: %w", err)
+			return nil, "", errors.Join(fmt.Errorf("create generated file directory: %w", err), root.Close())
 		}
 	}
 
