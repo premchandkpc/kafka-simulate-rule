@@ -95,7 +95,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 		UPDATE scheduled_events
 		SET status = 'released', released_at = $3,
 		    claimant = NULL, claimed_at = NULL, claim_expires_at = NULL
-		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2
+		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2 AND claim_expires_at > NOW()
 	`, eventID, claimant, releasedAt)
 	if err != nil {
 		return fmt.Errorf("mark scheduled event released: %w", err)
@@ -111,7 +111,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 		UPDATE scheduled_events
 		SET status = 'failed', last_error = $3,
 		    claimant = NULL, claimed_at = NULL, claim_expires_at = NULL
-		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2
+		WHERE event_id = $1 AND status = 'claimed' AND claimant = $2 AND claim_expires_at > NOW()
 	`, eventID, claimant, errMsg)
 	if err != nil {
 		return fmt.Errorf("mark scheduled event failed: %w", err)
