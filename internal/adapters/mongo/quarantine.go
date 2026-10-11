@@ -30,12 +30,12 @@ func (r *QuarantineRepository) collection(name string) *mongo.Collection {
 // source chain no longer exists are left unscoped and remain invisible to tenants.
 func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) error {
 	coll := r.collection(collectionQuarantine)
-	cursor, err := coll.Find(ctx, bson.M{
-		"source_type": "effect",
-		"$or": []bson.M{
-			{"tenant_id": bson.M{"$exists": false}},
-			{"tenant_id": ""},
-		},
+	cursor, err := coll.Find(ctx, bson.D{
+		{Key: "source_type", Value: "effect"},
+		{Key: "$or", Value: bson.A{
+			bson.D{{Key: "tenant_id", Value: bson.D{{Key: "$exists", Value: false}}}},
+			bson.D{{Key: "tenant_id", Value: ""}},
+		}},
 	})
 	if err != nil {
 		return fmt.Errorf("find legacy effect quarantine entries: %w", err)
@@ -50,8 +50,8 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 		var effect struct {
 			ExecutionID string `bson:"execution_id"`
 		}
-		if err := r.collection(collectionOutboxEffects).FindOne(ctx, bson.M{
-			"effect_id": entry.SourceID,
+		if err := r.collection(collectionOutboxEffects).FindOne(ctx, bson.D{
+			{Key: "effect_id", Value: entry.SourceID},
 		}).Decode(&effect); err != nil {
 			if err == mongo.ErrNoDocuments {
 				continue
@@ -61,8 +61,8 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 		var execution struct {
 			TenantID string `bson:"tenant_id"`
 		}
-		if err := r.collection(collectionExecutions).FindOne(ctx, bson.M{
-			"execution_id": effect.ExecutionID,
+		if err := r.collection(collectionExecutions).FindOne(ctx, bson.D{
+			{Key: "execution_id", Value: effect.ExecutionID},
 		}).Decode(&execution); err != nil {
 			if err == mongo.ErrNoDocuments {
 				continue
@@ -73,14 +73,14 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 			continue
 		}
 		_, err := coll.UpdateOne(ctx,
-			bson.M{
-				"quarantine_id": entry.QuarantineID,
-				"$or": []bson.M{
-					{"tenant_id": bson.M{"$exists": false}},
-					{"tenant_id": ""},
-				},
+			bson.D{
+				{Key: "quarantine_id", Value: entry.QuarantineID},
+				{Key: "$or", Value: bson.A{
+					bson.D{{Key: "tenant_id", Value: bson.D{{Key: "$exists", Value: false}}}},
+					bson.D{{Key: "tenant_id", Value: ""}},
+				}},
 			},
-			bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "tenant_id", Value: execution.TenantID}}}},
 		)
 		if err != nil {
 			return fmt.Errorf("backfill tenant for quarantine entry %s: %w", entry.QuarantineID, err)
@@ -96,8 +96,8 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	coll := r.collection(collectionQuarantine)
 	doc := QuarantineDocFromDomain(entry)
 	_, err := coll.UpdateOne(ctx,
-		bson.M{"quarantine_id": entry.ID},
-		bson.M{"$setOnInsert": doc},
+		bson.D{{Key: "quarantine_id", Value: entry.ID}},
+		bson.D{{Key: "$setOnInsert", Value: doc}},
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
@@ -112,9 +112,9 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 	}
 	coll := r.collection(collectionQuarantine)
 	var doc QuarantineDoc
-	err := coll.FindOne(ctx, bson.M{
-		"quarantine_id": id,
-		"tenant_id":     tenantID,
+	err := coll.FindOne(ctx, bson.D{
+		{Key: "quarantine_id", Value: id},
+		{Key: "tenant_id", Value: tenantID},
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -130,7 +130,7 @@ func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) 
 		return domain.ErrQuarantineNotFound
 	}
 	coll := r.collection(collectionQuarantine)
-	result, err := coll.DeleteOne(ctx, bson.M{"quarantine_id": id, "tenant_id": tenantID})
+	result, err := coll.DeleteOne(ctx, bson.D{{Key: "quarantine_id", Value: id}, {Key: "tenant_id", Value: tenantID}})
 	if err != nil {
 		return fmt.Errorf("delete quarantine entry: %w", err)
 	}
@@ -146,26 +146,24 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	}
 	coll := r.collection(collectionQuarantine)
 
-	f := bson.M{"tenant_id": filter.TenantID}
+	f := bson.D{{Key: "tenant_id", Value: filter.TenantID}}
 	if filter.SourceType != "" {
-		f["source_type"] = filter.SourceType
+		f = append(f, bson.E{Key: "source_type", Value: filter.SourceType})
 	}
 	if filter.ErrorClass != "" {
-		f["error_class"] = filter.ErrorClass
+		f = append(f, bson.E{Key: "error_class", Value: filter.ErrorClass})
 	}
-	if !filter.From.IsZero() {
-		f["created_at"] = bson.M{"$gte": filter.From}
-	}
-	if !filter.To.IsZero() {
-		createdAt, ok := f["created_at"].(bson.M)
-		if !ok {
-			createdAt = bson.M{}
-			f["created_at"] = createdAt
+	if !filter.From.IsZero() || !filter.To.IsZero() {
+		dateRange := bson.D{}
+		if !filter.From.IsZero() {
+			dateRange = append(dateRange, bson.E{Key: "$gte", Value: filter.From})
 		}
-		createdAt["$lte"] = filter.To
+		if !filter.To.IsZero() {
+			dateRange = append(dateRange, bson.E{Key: "$lte", Value: filter.To})
+		}
+		f = append(f, bson.E{Key: "created_at", Value: dateRange})
 	}
 
-	// lgtm[go/sql-injection] Filter keys are fixed and all request values are BSON scalars.
 	cursor, err := coll.Find(ctx, f, options.Find().
 		SetLimit(int64(filter.Limit)).
 		SetSkip(int64(filter.Offset)).
@@ -183,6 +181,9 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		}
 		entries = append(entries, doc.ToDomain())
 	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate quarantine: %w", err)
+	}
 
 	return entries, nil
 }
@@ -195,15 +196,11 @@ func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) 
 	now := time.Now().UTC()
 
 	result, err := coll.UpdateOne(ctx,
-		bson.M{
-			"quarantine_id": id,
-			"tenant_id":     tenantID,
+		bson.D{
+			{Key: "quarantine_id", Value: id},
+			{Key: "tenant_id", Value: tenantID},
 		},
-		bson.M{
-			"$set": bson.M{
-				"updated_at": now,
-			},
-		},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "updated_at", Value: now}}}},
 	)
 	if err != nil {
 		return fmt.Errorf("record quarantine replay: %w", err)

@@ -41,9 +41,9 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.Workflow
 func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
 	coll := r.collection(collectionWorkflowInstances)
 	var doc WorkflowDoc
-	err := coll.FindOne(ctx, bson.M{
-		"workflow_id": workflowID,
-		"tenant_id":   tenantID,
+	err := coll.FindOne(ctx, bson.D{
+		{Key: "workflow_id", Value: workflowID},
+		{Key: "tenant_id", Value: tenantID},
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -61,23 +61,21 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 		updatedAt = time.Now().UTC()
 	}
 
-	filter := bson.M{
-		"workflow_id": workflow.WorkflowID,
-		"tenant_id":   workflow.TenantID,
-		"version":     workflow.Version - 1,
+	filter := bson.D{
+		{Key: "workflow_id", Value: workflow.WorkflowID},
+		{Key: "tenant_id", Value: workflow.TenantID},
+		{Key: "version", Value: workflow.Version - 1},
 	}
 
-	update := bson.M{
-		"$set": bson.M{
-			"state":            workflow.State,
-			"current_revision": workflow.CurrentRevision,
-			"context":          workflow.Context,
-			"updated_at":       updatedAt,
-			"completed_at":     workflow.CompletedAt,
-		},
-		"$inc": bson.M{
-			"version": 1,
-		},
+	update := bson.D{
+		{Key: "$set", Value: bson.D{
+			{Key: "state", Value: workflow.State},
+			{Key: "current_revision", Value: workflow.CurrentRevision},
+			{Key: "context", Value: workflow.Context},
+			{Key: "updated_at", Value: updatedAt},
+			{Key: "completed_at", Value: workflow.CompletedAt},
+		}},
+		{Key: "$inc", Value: bson.D{{Key: "version", Value: 1}}},
 	}
 
 	result, err := coll.UpdateOne(ctx, filter, update)
@@ -95,14 +93,11 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error) {
 	coll := r.collection(collectionWorkflowInstances)
 
-	filter := bson.M{
-		"tenant_id": tenantID,
-	}
+	filter := bson.D{{Key: "tenant_id", Value: tenantID}}
 	if state != "" {
-		filter["state"] = state
+		filter = append(filter, bson.E{Key: "state", Value: state})
 	}
 
-	// lgtm[go/sql-injection] Tenant and state are BSON scalars under fixed keys.
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetLimit(int64(limit)).
 		SetSort(bson.D{{Key: "updated_at", Value: 1}}))
@@ -119,6 +114,9 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 		}
 		workflows = append(workflows, doc.ToDomain())
 	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workflows: %w", err)
+	}
 
 	return workflows, nil
 }
@@ -126,9 +124,9 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
 	coll := r.collection(collectionWorkflowInstances)
 
-	filter := bson.M{
-		"tenant_id":      tenantID,
-		"correlation_id": correlationID,
+	filter := bson.D{
+		{Key: "tenant_id", Value: tenantID},
+		{Key: "correlation_id", Value: correlationID},
 	}
 
 	cursor, err := coll.Find(ctx, filter, options.Find().
@@ -145,6 +143,9 @@ func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, cor
 			return nil, fmt.Errorf("decode workflow: %w", err)
 		}
 		workflows = append(workflows, doc.ToDomain())
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workflows: %w", err)
 	}
 
 	return workflows, nil
@@ -221,8 +222,8 @@ func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.Wor
 	coll := r.collection(collectionWorkflowDefinitions)
 	doc := WorkflowDefinitionDocFromDomain(def)
 	_, err := coll.UpdateOne(ctx,
-		bson.M{"workflow_type": def.WorkflowType, "version": def.Version},
-		bson.M{"$set": doc},
+		bson.D{{Key: "workflow_type", Value: def.WorkflowType}, {Key: "version", Value: def.Version}},
+		bson.D{{Key: "$set", Value: doc}},
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
@@ -234,9 +235,9 @@ func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.Wor
 func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
 	coll := r.collection(collectionWorkflowDefinitions)
 	var doc WorkflowDefinitionDoc
-	err := coll.FindOne(ctx, bson.M{
-		"workflow_type": workflowType,
-		"version":       version,
+	err := coll.FindOne(ctx, bson.D{
+		{Key: "workflow_type", Value: workflowType},
+		{Key: "version", Value: version},
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -249,7 +250,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 
 func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.WorkflowDefinition, error) {
 	coll := r.collection(collectionWorkflowDefinitions)
-	cursor, err := coll.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "workflow_type", Value: 1}, {Key: "version", Value: -1}}))
+	cursor, err := coll.Find(ctx, bson.D{}, options.Find().SetSort(bson.D{{Key: "workflow_type", Value: 1}, {Key: "version", Value: -1}}))
 	if err != nil {
 		return nil, fmt.Errorf("list workflow definitions: %w", err)
 	}
@@ -268,7 +269,7 @@ func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.Work
 
 func (r *WorkflowDefinitionRepository) Delete(ctx context.Context, workflowType string, version int64) error {
 	coll := r.collection(collectionWorkflowDefinitions)
-	_, err := coll.DeleteOne(ctx, bson.M{"workflow_type": workflowType, "version": version})
+	_, err := coll.DeleteOne(ctx, bson.D{{Key: "workflow_type", Value: workflowType}, {Key: "version", Value: version}})
 	if err != nil {
 		return fmt.Errorf("delete workflow definition: %w", err)
 	}

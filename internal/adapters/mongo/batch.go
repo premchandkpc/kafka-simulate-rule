@@ -31,9 +31,9 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		limit = 400
 	}
 
-	filter := bson.M{
-		"status":   "committed",
-		"batch_id": bson.M{"$exists": false},
+	filter := bson.D{
+		{Key: "status", Value: "committed"},
+		{Key: "batch_id", Value: bson.D{{Key: "$exists", Value: false}}},
 	}
 
 	cursor, err := coll.Find(ctx, filter, options.Find().
@@ -52,6 +52,9 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		}
 		entries = append(entries, doc.ToDomain())
 	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unbatched: %w", err)
+	}
 
 	return entries, nil
 }
@@ -60,16 +63,12 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 	coll := r.collection(collectionInbox)
 
 	_, err := coll.UpdateOne(ctx,
-		bson.M{
-			"tenant_id": tenantID,
-			"event_id":  eventID,
-			"batch_id":  bson.M{"$exists": false},
+		bson.D{
+			{Key: "tenant_id", Value: tenantID},
+			{Key: "event_id", Value: eventID},
+			{Key: "batch_id", Value: bson.D{{Key: "$exists", Value: false}}},
 		},
-		bson.M{
-			"$set": bson.M{
-				"batch_id": batchID,
-			},
-		},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "batch_id", Value: batchID}}}},
 	)
 	if err != nil {
 		return fmt.Errorf("mark batched: %w", err)
@@ -82,8 +81,8 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 	doc := BatchRunDocFromDomain(run)
 
 	_, err := coll.UpdateOne(ctx,
-		bson.M{"batch_id": run.BatchID},
-		bson.M{"$set": doc},
+		bson.D{{Key: "batch_id", Value: run.BatchID}},
+		bson.D{{Key: "$set", Value: doc}},
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
@@ -95,7 +94,7 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
-	err := coll.FindOne(ctx, bson.M{"batch_id": batchID}).Decode(&doc)
+	err := coll.FindOne(ctx, bson.D{{Key: "batch_id", Value: batchID}}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -108,7 +107,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
-	err := coll.FindOne(ctx, bson.M{"tenant_id": tenantID, "batch_id": batchID}).Decode(&doc)
+	err := coll.FindOne(ctx, bson.D{{Key: "tenant_id", Value: tenantID}, {Key: "batch_id", Value: batchID}}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -128,12 +127,11 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if offset < 0 {
 		offset = 0
 	}
-	filter := bson.M{"tenant_id": tenantID}
+	filter := bson.D{{Key: "tenant_id", Value: tenantID}}
 	if ruleSet != "" {
-		filter["rule_set"] = ruleSet
+		filter = append(filter, bson.E{Key: "rule_set", Value: ruleSet})
 	}
 
-	// lgtm[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
 	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
 		SetSkip(int64(offset)).

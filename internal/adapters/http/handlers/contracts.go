@@ -133,6 +133,10 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		responses.WriteError(w, http.StatusBadRequest, "language is required (go, java, protobuf, jsonschema)", responses.CodeValidationFailed)
 		return
 	}
+	if req.Output != "" {
+		responses.WriteError(w, http.StatusBadRequest, "output_dir is not supported; generated files use a server-managed directory", responses.CodeValidationFailed)
+		return
+	}
 
 	schema, err := h.registry.Get(r.Context(), name, version)
 	if err != nil {
@@ -144,22 +148,25 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Generated files must remain inside the dedicated temp root. Validate
-	// path components as well as string containment so sibling-prefix paths and
-	// symlinks cannot redirect writes outside the allowed directory.
+	// Never let an API caller select a filesystem path. Generated output is
+	// written to a fresh directory under a private, server-managed temp root.
 	allowedBase := filepath.Join(os.TempDir(), generatedOutputRootName)
-	outputDir := req.Output
-	if outputDir == "" {
-		outputDir = filepath.Join(allowedBase, name, version)
-	}
 	if err := os.MkdirAll(allowedBase, 0o700); err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, "could not prepare output root", responses.CodeInternalError)
 		return
 	}
-	var pathErr error
-	outputDir, pathErr = safeGenerationOutputDir(outputDir, allowedBase)
-	if pathErr != nil {
-		responses.WriteError(w, http.StatusForbidden, "output directory not allowed", responses.CodeForbidden)
+	rootInfo, err := os.Lstat(allowedBase)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		responses.WriteError(w, http.StatusInternalServerError, "generation output root is invalid", responses.CodeInternalError)
+		return
+	}
+	if err := os.Chmod(allowedBase, 0o700); err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, "could not secure output root", responses.CodeInternalError)
+		return
+	}
+	outputDir, err := os.MkdirTemp(allowedBase, "generation-")
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, "could not prepare output directory", responses.CodeInternalError)
 		return
 	}
 
