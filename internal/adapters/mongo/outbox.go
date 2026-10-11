@@ -195,6 +195,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 type OutboxDoc struct {
 	EffectID       string     `bson:"effect_id"`
 	ExecutionID    string     `bson:"execution_id"`
+	TenantID       string     `bson:"tenant_id"`
 	Destination    string     `bson:"destination"`
 	Name           string     `bson:"name"`
 	Payload        []byte     `bson:"payload"`
@@ -215,6 +216,7 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	return &OutboxDoc{
 		EffectID:       ef.ID,
 		ExecutionID:    ef.ExecutionID,
+		TenantID:       ef.TenantID,
 		Destination:    ef.Destination,
 		Name:           ef.Name,
 		Payload:        append([]byte(nil), ef.Payload...),
@@ -236,6 +238,7 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	return &domain.OutboxEffect{
 		ID:             d.EffectID,
 		ExecutionID:    d.ExecutionID,
+		TenantID:       d.TenantID,
 		Destination:    d.Destination,
 		Name:           d.Name,
 		Payload:        json.RawMessage(append([]byte(nil), d.Payload...)),
