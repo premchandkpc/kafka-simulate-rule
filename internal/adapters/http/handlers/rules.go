@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -19,10 +20,49 @@ func NewRuleHandler(ruleSvc ports.RuleService) *RuleHandler {
 }
 
 func (h *RuleHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/rules/{ruleSet}/revisions", h.CreateRevision)
 	mux.HandleFunc("GET /v1/rules/{ruleSet}/revisions", h.ListRevisions)
 	mux.HandleFunc("GET /v1/rules/{ruleSet}/revisions/{revision}", h.GetRevision)
 	mux.HandleFunc("DELETE /v1/rules/{ruleSet}/revisions/{revision}", h.Deactivate)
 	mux.HandleFunc("GET /v1/rules/active", h.ListActiveRules)
+}
+
+// CreateRevision compiles and activates a rule revision from one JSON or YAML document.
+func (h *RuleHandler) CreateRevision(w http.ResponseWriter, r *http.Request) {
+	ruleSet := r.PathValue("ruleSet")
+	if ruleSet == "" {
+		responses.WriteError(w, http.StatusBadRequest, "ruleSet is required", responses.CodeBadRequest)
+		return
+	}
+
+	source, err := decodeRawRequestBody(r)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, "invalid rule source: "+err.Error(), responses.CodeInvalidJSON)
+		return
+	}
+	var metadata struct {
+		RuleSet  string `json:"rule_set"`
+		Revision int64  `json:"revision"`
+	}
+	if err := json.Unmarshal(source, &metadata); err != nil {
+		responses.WriteError(w, http.StatusBadRequest, "invalid rule source metadata: "+err.Error(), responses.CodeInvalidJSON)
+		return
+	}
+	if metadata.RuleSet == "" || metadata.RuleSet != ruleSet {
+		responses.WriteError(w, http.StatusBadRequest, "rule_set must match the ruleSet path parameter", responses.CodeValidationFailed)
+		return
+	}
+	if metadata.Revision <= 0 {
+		responses.WriteError(w, http.StatusBadRequest, "revision must be greater than zero", responses.CodeValidationFailed)
+		return
+	}
+
+	activation, err := h.ruleSvc.CompileAndActivate(r.Context(), middleware.GetTenantID(r.Context()), ruleSet, source, "api")
+	if err != nil {
+		responses.WriteError(w, http.StatusUnprocessableEntity, err.Error(), responses.CodeValidationFailed)
+		return
+	}
+	responses.WriteCreated(w, activation)
 }
 
 func (h *RuleHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
