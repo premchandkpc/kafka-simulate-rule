@@ -1,4 +1,4 @@
-// Package main contains the opt-in random-producer example.
+// Package main contains the opt-in domain-aware producer example.
 package main
 
 import (
@@ -22,6 +22,7 @@ const (
 	maxConcurrency     = 256
 	// DefaultBaseSubject is the base subject used by FlowRule event producers.
 	DefaultBaseSubject = "events"
+	DefaultTenantID    = "acme-corp"
 )
 
 // Publisher is the smallest transport contract required by the example.
@@ -30,12 +31,15 @@ type Publisher interface {
 }
 
 // Config bounds one simulation run. NumShards must match the running workers.
+// Clients are simulated business customers/accounts, not separate FlowRule tenants.
 type Config struct {
 	Clients              int
 	MaxMessagesPerClient int
 	NumShards            uint32
 	Concurrency          int
 	BaseSubject          string
+	TenantID             string
+	Scenario             Scenario
 }
 
 // Summary distinguishes generated attempts from durable broker acknowledgements.
@@ -65,12 +69,17 @@ func (c Config) Validate() error {
 		return fmt.Errorf("concurrency must be between %d and %d", minConcurrency, maxConcurrency)
 	case c.BaseSubject == "":
 		return errors.New("base subject is required")
+	case c.TenantID == "":
+		return errors.New("tenant ID is required")
+	case !c.Scenario.Valid():
+		return fmt.Errorf("unsupported scenario %q (want all, ecommerce, banking, or food-delivery)", c.Scenario)
 	}
 	return nil
 }
 
-// Run generates events and publishes them concurrently. It returns a partial summary
-// if ctx is cancelled; a publish error is counted in Summary.Failed, not hidden.
+// Run generates realistic domain events and publishes them concurrently.
+// It returns a partial summary if ctx is cancelled; publish errors are counted,
+// not hidden. A broker ACK confirms JetStream acceptance, not worker processing.
 func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) {
 	if err := cfg.Validate(); err != nil {
 		return Summary{}, err
@@ -93,11 +102,7 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 		go func() {
 			defer workers.Done()
 			for event := range jobs {
-				if err := publishEvent(ctx, cfg, publisher, event); err != nil {
-					results <- err
-				} else {
-					results <- nil
-				}
+				results <- publishEvent(ctx, cfg, publisher, event)
 			}
 		}()
 	}
@@ -105,7 +110,6 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 		workers.Wait()
 		close(results)
 	}()
-
 	go func() {
 		count, err := generate(ctx, cfg, jobs)
 		close(jobs)
@@ -136,33 +140,16 @@ func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope)
 	attempted := 0
 
 	for client := 1; client <= cfg.Clients; client++ {
-		tenantID := fmt.Sprintf("sim-tenant-%03d", client)
+		clientID := fmt.Sprintf("client-%04d", client)
 		messageCount := rng.Intn(cfg.MaxMessagesPerClient) + 1
 		for sequence := 1; sequence <= messageCount; sequence++ {
-			partitionKey := fmt.Sprintf("key-%04d", rng.Intn(500))
-			payload, err := json.Marshal(struct {
-				ClientID string  `json:"client_id"`
-				Sequence int     `json:"sequence"`
-				Message  string  `json:"message"`
-				Amount   float64 `json:"amount"`
-			}{
-				ClientID: tenantID,
-				Sequence: sequence,
-				Message:  "random-payload-" + domain.NewID(),
-				Amount:   float64(rng.Intn(100000)) / 100,
-			})
-			if err != nil {
-				return attempted, fmt.Errorf("marshal generated payload for tenant %s: %w", tenantID, err)
+			scenario := cfg.Scenario
+			if scenario == ScenarioAll {
+				scenario = scenarioForSequence(sequence)
 			}
-
-			event := domain.EventEnvelope{
-				ID:           domain.NewID(),
-				Type:         "random-producer.message",
-				TenantID:     tenantID,
-				PartitionKey: partitionKey,
-				OccurredAt:   time.Now().UTC(),
-				Data:         payload,
-				Headers:      map[string]string{"source": "random-producer-example"},
+			event, err := newScenarioEvent(scenario, cfg.TenantID, clientID, sequence, rng)
+			if err != nil {
+				return attempted, fmt.Errorf("generate %s event for %s: %w", scenario, clientID, err)
 			}
 			select {
 			case jobs <- event:
@@ -186,7 +173,7 @@ func publishEvent(ctx context.Context, cfg Config, publisher Publisher, event do
 	shard := event.VirtualShard(cfg.NumShards)
 	subject := fmt.Sprintf("%s.shard.%d", cfg.BaseSubject, shard)
 	if err := publisher.Publish(ctx, subject, payload); err != nil {
-		return fmt.Errorf("publish event %q to %s: %w", event.ID, subject, err)
+		return fmt.Errorf("publish event %q (%s) to %s: %w", event.ID, event.Type, subject, err)
 	}
 	return nil
 }
