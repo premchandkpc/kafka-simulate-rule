@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down migrate-up
+.PHONY: help build build-api build-worker build-codegen test test-unit test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
 
 # Default target
 help:
@@ -23,7 +23,7 @@ help:
 	@echo "  fmt             Format code with gofmt"
 	@echo ""
 	@echo "Code generation:"
-	@echo "  generate        Generate all code from contracts"
+	@echo "  generate        Generate artifacts for a registered contract (set CONTRACT and CONTRACT_VERSION)"
 	@echo ""
 	@echo "Run targets:"
 	@echo "  run-api         Run API server"
@@ -87,7 +87,7 @@ run-worker: build-worker
 
 # Run with docker-compose
 run-all: docker-up
-	@echo "Services started. API at http://localhost:8080, gRPC at localhost:9090"
+	@echo "Services started. HTTP API at http://localhost:8080"
 	@echo "Run 'make docker-logs' to view logs"
 	@echo "Run 'make docker-down' to stop"
 
@@ -181,10 +181,10 @@ verify-generated:
 
 # CI pipeline
 check-fmt:
-	@files="$(gofmt -l $(find cmd internal tests sdk examples -name '*.go' -type f))"; \
-	if [ -n "$files" ]; then echo "$files"; exit 1; fi
+	@files="$$(gofmt -l $$(find cmd internal tests sdk examples -name '*.go' -type f))"; \
+	if [ -n "$$files" ]; then echo "$files"; exit 1; fi
 
-ci: deps check-fmt vet lint test-unit verify-generated
+ci: deps check-fmt vet lint test verify-generated
 	@echo "CI pipeline passed!"
 
 # Release
