@@ -103,9 +103,8 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 	return effects, nil
 }
 
-
 // resolveLegacyTenant backfills tenant identity for effects written before the
- // outbox schema carried tenant_id. The execution record is the authoritative source.
+// outbox schema carried tenant_id. The execution record is the authoritative source.
 func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *domain.OutboxEffect) error {
 	var execution struct {
 		TenantID string `bson:"tenant_id"`
