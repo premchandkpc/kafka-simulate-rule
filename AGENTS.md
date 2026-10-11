@@ -61,19 +61,19 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
 - /health is liveness only; it does not check storage or broker readiness.
 - The HTTP SDK transport targets POST /v1/events/{type}; verify that route is implemented and contract-tested before selecting HTTP transport. Do not assume the management API accepts producer events.
-- Scheduled-event listing and cancellation must be tenant-scoped in repository queries and must not report false success when unsupported.
+- Scheduled-event list/get/cancel operations use tenant-scoped repository queries. Cancellation is allowed only while the event is pending; repository conflicts return an HTTP conflict rather than reporting success.
 - The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
 SECURITY / DEPLOYMENT REQUIREMENT:
 - Development and test may use X-Tenant-ID or tenant_id for local isolation only. These are caller-controlled and are not authentication.
-- In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN and validates X-Proxy-Auth using a constant-time comparison. The trusted proxy must authenticate callers, authorize the tenant, strip any inbound X-Proxy-Auth and X-Authenticated-Tenant-ID values, then set both headers itself. The API should only be reachable from that proxy.
-- If FLOWRULE_TRUSTED_PROXY_TOKEN is absent in a non-development environment, tenant middleware fails closed with 503. Do not set a shared proxy token on a public listener or treat it as a user identity provider.
+- No trusted-proxy token, JWT, mTLS, or user authentication is implemented by TenantExtractor. Do not configure FLOWRULE_TRUSTED_PROXY_TOKEN expecting enforcement; current middleware trusts X-Tenant-ID, then tenant_id query, then default. These values are caller-controlled.
+- Loopback defaults and local Compose port binding reduce accidental exposure only; they do not create an identity boundary. Keep the API private until authentication and authorization are actually implemented.
 - Resource-level tenant checks are required in handlers and persistence queries. This is not yet complete for all resources; production multi-tenant exposure remains blocked until every read/write path is tenant-scoped and tested.
 
 ### Worker
 
 - Entry point: cmd/worker/main.go.
-- Loads config, initializes observability and storage, constructs the NATS JetStream consumer, event/effect/batch services, lease manager, scheduler, and application.Worker.
+- Loads config, initializes observability and storage, constructs the NATS JetStream consumer, event/effect/batch services, lease manager, scheduler, and application.Worker. The batch service is constructed, but non-none BATCH_MODE values are rejected by config because batch execution is not integrated with shard fencing and the per-key queue.
 - NATS adapter: internal/adapters/nats/jetstream.go. The worker subject base is events; consumers filter events.shard.N.
 - Runtime loop and polling: internal/application/worker.go.
 - Bounded per-key queue and hot-key observation: internal/runtime/keyqueue/queue.go.
@@ -194,7 +194,9 @@ Storage/messaging:
 - internal/adapters/sql/workflow.go — workflow instances and definitions.
 - internal/adapters/sql/batch.go — batch persistence.
 - internal/adapters/sql/quarantine.go — quarantine persistence.
-- internal/adapters/sql/scheduled.go — scheduled-event persistence.
+- internal/adapters/sql/scheduled.go — scheduled-event persistence, tenant-scoped listing/cancellation, expired-claim recovery, and claimant-fenced settlement.
+- internal/adapters/mongo/serialization_test.go — BSON round-trip regression tests for JSON payloads, headers, context, and rule data.
+- migrations/015_scheduled_event_claims.sql — claim expiry/claimant/error fields and scheduled-event indexes; never rewrite already-applied migration 011.
 - internal/adapters/sql/contract.go — contract registry.
 - internal/adapters/mongo/db.go, transaction.go — Mongo client/session lifecycle and transactions.
 - internal/adapters/mongo/event.go, inbox.go, execution.go, outbox.go, rules.go, shard.go — event processing repository implementations.
@@ -249,6 +251,8 @@ Storage/messaging:
 - For event processing, fencing assertion, dedup, execution/outbox writes and inbox commit state must share the correct transaction. Do not ACK before durable commit.
 - Preserve per-key ordering and claimant/fencing semantics. Retry/quarantine/delivery state changes must handle expired and competing claims safely.
 - Child event publishing must use the same NATS subject family and NUM_SHARDS as the worker/scheduler/SDK. Event type is in the envelope; do not substitute it for the configured stream subject.
+- Mongo JSON payload/source/context fields must be stored as BSON binary bytes (or properly converted BSON documents), never cast directly from JSON bytes to bson.Raw; bson.Raw expects encoded BSON.
+- Batch creation/list/get API handlers may exist while worker batch execution remains unsupported. Do not enable BATCH_MODE until processing receives a real owned-shard fencing token and passes through the key queue.
 - Bound HTTP request bodies, reject malformed or extra trailing documents, and validate tenant scoping on every resource access.
 - Never log secrets or full sensitive payload bodies.
 - Do not check in binaries, credentials, local DB data, generated build artifacts or temporary files.
@@ -260,17 +264,19 @@ Storage/messaging:
 ## 7. Confirmed risks and backlog
 
 1. P0 security: API has no authN/authZ or trusted tenant resolver. Tenant values from request headers/query/body are not identity. Implement authenticated claims, per-resource tenant authorization and cross-tenant negative tests before untrusted production exposure.
-2. P1 outbox ownership: ScheduleRetry and Quarantine do not currently accept claimant identity like MarkDelivered does. Expired/competing publishers can race state changes. Add claimant-fenced transitions.
-3. P1 outbox failure handling: publishing is sequential with a fixed claim TTL; some MarkDelivered, ScheduleRetry and quarantine persistence failures are logged and swallowed. Use bounded sends, per-effect timeouts, claimant-safe transitions and return/aggregate durable-state errors.
+2. P1 outbox lease duration: delivery/retry/quarantine settlement now checks a unique claim token and claim expiry in SQL and Mongo, and the service returns durable settlement errors. Publishing remains sequential with a fixed two-minute claim TTL and no per-effect timeout, so slow destinations can still outlive the claim.
+3. P1 quarantine atomicity: quarantine records and outbox status are stored separately. If cleanup after losing a claim also fails, an orphan quarantine record can remain; live failure-injection tests and a transactional/repairable protocol are still needed.
 4. P1 transaction abstraction: ports.Transaction exposes context and fencing mutators; TxRepos combines many repositories; SQL wiring type-asserts concrete transaction types. Redesign around use-case-owned unit-of-work contracts with atomicity tests.
 5. P1 adapter conformance: current contract suites use in-memory repositories. Run identical contracts against live PostgreSQL and Mongo transaction-capable configurations; document unsupported semantics.
-6. P1 request boundaries: tenant extraction is untrusted and JSON/YAML decoding does not impose a body-size limit or explicitly reject trailing content. Add auth-derived tenant context, request limits and strict decoding.
+6. P1 tenant authorization: JSON/YAML request bodies are bounded to 1 MiB and extra JSON values/multiple YAML documents are rejected, but authentication is absent and some workflow/quarantine/resource reads remain unscoped. Derive tenant identity from a verified identity provider and enforce tenant ownership on every resource operation.
 7. P2 workflow API clarity: workflow.Service definition methods currently return not-implemented errors; handlers use a separate definition repository. Remove or implement the placeholders intentionally.
 8. P2 composition: internal/factory overlaps internal/storage and is not used by main entrypoints. Verify callers before deleting or migrating it.
 9. P2 operational surface: /health is liveness only; the API has no gRPC listener; migration down/status are unsupported.
 10. P2 proof/performance: tests do not prove crash recovery against live PostgreSQL/NATS, lease fencing during long pauses, network failure recovery, real destination idempotency, or throughput/p99 targets. Add failure-injection tests and benchmarks before making those claims.
-11. P2 hot path: SQL outbox Insert currently sends one INSERT per effect. Measure and batch inserts/settlement where beneficial.
-12. P2 mixed helpers: internal/adapters/effects/fake.go combines production HTTP code with test clock/ID/fake destination; separate by responsibility when changing that area.
+11. P1 shard assignment: LeaseManager targets numShards/3 per worker without a configured worker count or membership/rebalance protocol. This implicitly assumes a three-worker deployment and can leave shards unowned when replica count differs. Add explicit membership/rebalancing or a documented, validated fixed-replica contract before scaling.
+12. P2 scheduled retry policy: scheduler publish errors are currently marked failed rather than retried with delayed backoff; define retryable/permanent classes and maximum-attempt behavior.
+13. P2 hot path: SQL outbox Insert currently sends one INSERT per effect. Measure and batch inserts/settlement where beneficial.
+14. P2 mixed helpers: internal/adapters/effects/fake.go combines production HTTP code with test clock/ID/fake destination; separate by responsibility when changing that area.
 
 ## 8. Pull-request evidence checklist
 
