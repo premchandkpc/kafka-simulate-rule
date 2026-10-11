@@ -1,8 +1,8 @@
 package rules
 
 import (
-	"errors"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -32,5 +32,25 @@ func TestCompileRejectsEmptyCompositePredicate(t *testing.T) {
 
 	if _, err := compiler.Compile(source); !errors.Is(err, domain.ErrInvalidPredicate) {
 		t.Fatalf("Compile error = %v, want ErrInvalidPredicate", err)
+	}
+}
+
+func TestCompileEnforcesPredicateBudgetAcrossRuleSet(t *testing.T) {
+	source := json.RawMessage(`{"rule_set":"limited.rules","revision":1,"mode":"all_matches","rules":[{"id":"first","priority":20,"when":{"path":"$.first","op":"exists"},"then":[{"emit":{"topic":"first.event","data":{}}}]},{"id":"second","priority":10,"when":{"path":"$.second","op":"exists"},"then":[{"emit":{"topic":"second.event","data":{}}}]}]}`)
+	limits := DefaultLimits()
+	limits.MaxPredicates = 1
+
+	if _, err := NewCompiler(limits).Compile(source); !errors.Is(err, domain.ErrRuleExceedsLimits) {
+		t.Fatalf("Compile error = %v, want ErrRuleExceedsLimits for aggregate predicate budget", err)
+	}
+}
+
+func TestCompileEnforcesActionBudgetAcrossRuleSet(t *testing.T) {
+	source := json.RawMessage(`{"rule_set":"limited.rules","revision":1,"mode":"all_matches","rules":[{"id":"first","priority":20,"when":{"path":"$.first","op":"exists"},"then":[{"emit":{"topic":"first.event","data":{}}}]},{"id":"second","priority":10,"when":{"path":"$.second","op":"exists"},"then":[{"emit":{"topic":"second.event","data":{}}}]}]}`)
+	limits := DefaultLimits()
+	limits.MaxActionsPerSet = 1
+
+	if _, err := NewCompiler(limits).Compile(source); !errors.Is(err, domain.ErrRuleExceedsLimits) {
+		t.Fatalf("Compile error = %v, want ErrRuleExceedsLimits for aggregate action budget", err)
 	}
 }
