@@ -62,7 +62,7 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 			candidate := resolved
 			for _, part := range suffix {
 
-				// codeql[go/path-injection] Each segment is relative, traversal-rejected, and checked against the resolved root.
+				// lgtm[go/path-injection] Each segment is relative, traversal-rejected, and checked against the resolved root.
 				candidate = filepath.Join(candidate, part)
 			}
 			resolvedRel, relErr := filepath.Rel(realRoot, candidate)
