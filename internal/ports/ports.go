@@ -35,11 +35,20 @@ type EventTxRepos struct {
 	ShardLeases ShardLeaseRepository
 }
 
+// RuleTxRepos contains only the repositories needed to activate a rule revision.
+type RuleTxRepos struct {
+	RuleRepo    RuleRepository
+	Activations ActivationRepository
+}
+
 // Transaction factory
 type TransactionFactory func(ctx context.Context) (Transaction, error)
 
 // EventTxRepositoryFactory builds event-processing repositories scoped to a transaction.
 type EventTxRepositoryFactory func(Transaction) (EventTxRepos, error)
+
+// RuleTxRepositoryFactory builds rule-activation repositories scoped to a transaction.
+type RuleTxRepositoryFactory func(Transaction) (RuleTxRepos, error)
 
 // RuleCompiler compiles raw rule source into an immutable revision.
 type RuleCompiler interface {
