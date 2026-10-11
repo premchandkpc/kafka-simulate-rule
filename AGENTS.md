@@ -1,305 +1,316 @@
-# AGENTS.md — FlowRule Engineering Standards
+# AGENTS.md
+## FlowRule Engineering Standards
 
-> **Purpose:** Give engineers and coding agents one reliable set of rules for understanding, changing, testing, and reviewing this repository.
+> **Purpose:** A practical guide for engineers and coding agents changing this repository.
 >
-> **Priority:** Current source, executable tests, configuration, migrations, and CI are the evidence of what the system does. This guide describes intended boundaries and required practices; it is not proof that a feature works.
+> **Source of truth:** Current source, configuration, schemas, migrations, tests and CI. Roadmaps, diagrams, comments and old audits are not proof that a feature works. Verify behavior before making claims.
 
-## 1. Working rules
+## 1. Non-negotiable principles
 
-1. Inspect before editing. Read the relevant implementation, callers, tests, configuration, schemas, migrations, build targets, and documentation.
-2. Trace the complete behavior. Follow data from entry point through validation, use case, persistence or broker interaction, and the resulting state.
-3. Make cohesive changes. Fix the cause, not just the visible symptom. Avoid unrelated rewrites and cosmetic file moves.
-4. Preserve existing contracts unless a change explicitly requires a migration. Consider API, event, database, SDK, and configuration compatibility.
-5. Keep dependencies pointed inward. Business policy belongs in domain/use-case code; infrastructure details belong at adapters and composition roots.
-6. Prefer simple, explicit designs. Add interfaces or layers only when they protect a real boundary, enable meaningful substitution, or remove genuine duplication.
-7. Prove claims. Report the exact checks run and their actual outcomes. A queued CI run is not a pass; a mock test is not proof of live infrastructure behavior.
-8. Never commit secrets, credentials, local database data, binaries, temporary files, or generated build artifacts.
+1. Inspect the implementation, callers, tests and runtime path before editing.
+2. Make one cohesive, observable change at a time.
+3. Keep dependencies pointing inward: business policy must not depend on transport, storage or vendor libraries.
+4. Reuse existing domain types, schemas, shard-routing logic and helpers. Do not create parallel contracts.
+5. Prefer the smallest design that preserves clear ownership, testability and correct failure behavior.
+6. Bound concurrency, queues, retries, outbound calls and shutdown waits.
+7. Treat errors, cancellation, duplicate delivery, partial failure and recovery as part of the design.
+8. Add regression tests for bug fixes. Do not weaken invariants to make tests pass.
+9. Distinguish implemented, tested, partially supported, planned and unverified behavior.
+10. Never claim a check passed unless its actual result was observed for the commit being reported.
 
-## 2. System overview and event lifecycle
+## 2. Product model and event flow
 
-FlowRule is a Go event-driven rules runtime. The root Go module contains the API, worker, and command-line tools. SDKs and domain examples may contain nested Go modules and must be tested separately.
+FlowRule is a Go event-driven rules runtime. The root Go module contains the API, worker and CLI tools. SDKs and domain examples have nested Go modules and require separate checks.
 
-### 2.1 Main event path
+### Event lifecycle
 
-1. A producer creates a valid \`domain.EventEnvelope\` and publishes it to the \`events.shard.N\` subject family. Shard selection must use the shared domain routing logic and the same configured shard count as the worker.
-2. The worker discovers and claims shards through the lease mechanism. Ownership and fencing tokens protect against stale workers.
-3. The worker consumes deliveries and passes them through bounded runtime queues. Events with the same partition key must retain their required ordering.
-4. Event processing validates the envelope and ownership token, deduplicates through the inbox, resolves the active rule revision, evaluates the rule, and persists execution and outbox effects in the appropriate transaction.
-5. The broker delivery is acknowledged only after the durable processing outcome is known. Follow the configured retry or quarantine path when processing fails; do not acknowledge an unknown outcome.
-6. The effects publisher claims outbox work and routes emitted child events back through \`events.shard.N\`. Non-event effects use the configured external destination.
-7. The scheduler publishes due scheduled events. Batch APIs and batch execution are separate capabilities; do not enable unsupported runtime modes by assumption.
+1. A producer creates the shared `internal/domain.EventEnvelope` and publishes to the NATS JetStream subject family `events.shard.N`.
+2. Shard selection uses the shared tenant/partition-key algorithm and configured shard count. Never implement a competing hash or routing scheme.
+3. Workers acquire shard leases and fencing tokens, then consume only the shards they own.
+4. A bounded per-key queue preserves ordering for the same partition key while limiting global work.
+5. Event processing validates the envelope and fencing token, deduplicates through the inbox, loads the active rule revision, evaluates the rule and writes execution/outbox state in the appropriate transaction.
+6. ACK only after successful durable processing. If the durable outcome is unknown, do not ACK as though processing succeeded.
+7. The outbox publisher routes emitted child events back to `events.shard.N`; external command effects use the configured destination.
+8. The scheduler publishes due events through the same subject family. The existence of batch APIs does not prove that batch worker execution is supported.
 
-### 2.2 Delivery and correctness model
+### Distributed-systems guarantees
 
-- Treat broker delivery as **at least once**. Consumers must tolerate duplicates.
-- Inbox deduplication and transactional outbox writes protect internal state transitions when implemented and used in the same transaction.
-- External side effects are only effectively-once when the receiver honors a stable idempotency key.
-- A broker publish acknowledgement proves broker acceptance, **not** worker consumption, durable execution, or completion of downstream effects.
-- Never claim exactly-once delivery, failover correctness, or end-to-end completion without a defined guarantee and tests that demonstrate it.
+- Delivery is **at-least-once**. Inbox deduplication and transactional outbox semantics protect state transitions; they do not guarantee exactly-once external effects.
+- External receivers must honor stable idempotency keys to make repeated effects safe.
+- Preserve lease expiry, fencing validation and claimant-token checks. Stale workers/claimants must not settle work owned by a newer claimant.
+- Do not claim end-to-end processing, failover, service discovery or durable delivery based only on a producer broker ACK.
+- Prove crash recovery and failure behavior with appropriate integration or failure-injection tests.
 
-## 3. Architecture and package ownership
+## 3. Repository map and file ownership
 
-Keep business rules independent of transport, storage, and deployment details. Entrypoints compose concrete implementations; adapters translate external protocols into internal contracts.
-
-| Location | Owns | Must not become |
-| --- | --- | --- |
-| \`cmd/*\` | Process entrypoints, configuration loading, dependency wiring, signal handling, startup and shutdown | Business logic, repositories, or HTTP handler implementations |
-| \`internal/domain\` | Business types, invariants, validation, deterministic IDs/hashes, state transitions, domain errors | I/O, transport types, database-driver types, or adapter dependencies |
-| \`internal/rules\` | Rule parsing, compilation, limits, deterministic evaluation | Persistence, broker calls, global clocks, randomness, or hidden side effects |
-| \`internal/ports\` | Narrow contracts needed by inward-facing consumers | Third-party transport types, catch-all interfaces, or speculative abstractions |
-| \`internal/services/*\` | Use-case orchestration and transaction coordination | Direct dependencies on concrete SQL, MongoDB, NATS, or HTTP adapters |
-| \`internal/application\` | Worker lifecycle and coordination of runtime collaborators | Duplicate business use cases already owned by services |
-| \`internal/runtime/*\` | Runtime mechanics such as bounded queues, shard leases, and scheduling | Unrelated domain policy or unbounded background work |
-| \`internal/adapters/*\` | HTTP, broker, persistence, cache, and external-system integration | Business policy that belongs inward |
-| \`internal/storage\` | Backend selection, repository construction, initialization, and closure | A second competing composition root |
-| \`internal/observability\` | Logging, metrics, tracing, and lifecycle integration | Business decisions or vendor-specific dependencies in domain code |
-| \`internal/codegen\` | Artifact generation and templates | HTTP routing or CLI lifecycle management |
-| \`api/\`, migrations, SDKs, examples, docs | Public schemas, persistence evolution, client contracts, demonstrations, and engineering documentation | Unreviewed changes that silently diverge from runtime behavior |
-
-These are responsibility boundaries, not a demand to force every file into a perfectly symmetrical tree. Before adding or moving a file, identify its single responsibility, owning layer, callers, and allowed dependencies. Move files only when ownership or dependency direction materially improves.
-
-### 3.1 Composition and interfaces
-
-- Treat \`cmd/api\` and \`cmd/worker\` as composition roots. Construct concrete adapters there or through the established storage/wiring path, then inject them into use cases.
-- Define interfaces near the consumer that needs the behavior. Keep them small, cohesive, and explicit about error and lifecycle semantics.
-- Avoid an interface with one implementation when it creates no meaningful boundary or test seam. Do not create generic registries, factories, service locators, or frameworks for hypothetical future use.
-- Keep transaction-scoped repository contracts narrow. Driver-specific transaction assertions and repository wiring belong in adapter-owned implementations.
-- \`internal/factory\` is a legacy broad assembly path that overlaps \`internal/storage\`. Inspect callers before changing or deleting it; do not add another wiring path by default.
-- Share stable mechanics only when behavior and invariants are truly identical. Do not move unrelated helpers into a miscellaneous \`common\` or \`utils\` package.
-
-### 3.2 NATS and transport boundary
-
-- The NATS Go client and JetStream-specific types belong inside \`internal/adapters/nats\`.
-- Application services, runtime packages, domain types, and ports must not expose NATS connection, message, fetch, ACK/NAK, stream, or subject-mapping types.
-- Use transport-neutral publisher/consumer and delivery contracts at internal boundaries.
-- The generic FlowRule event stream uses \`events.shard.N\`; the event type belongs in the envelope. Do not route the generic pipeline through an example-specific subject or contract without an explicit domain requirement.
-- Keep shard hashing, tenant/partition-key routing, and shard-count assumptions consistent across producers, worker, scheduler, and SDK integrations.
-
-## 4. Important entrypoints and file map
-
-This is a responsibility guide, not an exhaustive inventory. Confirm current paths in the repository before editing; update this section when a structural change makes it inaccurate.
+This map explains responsibility; it is not a requirement to make the directory tree symmetrical. Place files where their responsibility belongs.
 
 ### Root and operations
 
-- \`README.md\`: project purpose, getting started, event flow, and user-facing limitations.
-- \`AGENTS.md\`: engineering rules and agent workflow.
-- \`ARCHITECTURE_MAP.md\`: architecture, runtime topology, dependency flow, and known gaps.
-- \`Makefile\`: canonical developer commands; keep targets aligned with actual CLI flags and module boundaries.
-- \`.env.example\`: non-secret local configuration examples. Never put real credentials here.
-- \`docker-compose.yml\` and override files: local service composition; development credentials are not production credentials.
-- \`Dockerfile.api\`, \`Dockerfile.worker\`, \`Dockerfile.codegen\`: service/tool images.
-- \`Dockerfile.random-producer\`: opt-in example producer image.
-- \`.github/workflows/go-ci.yml\`: automated build, test, lint/analysis, and image checks. Inspect its current jobs rather than assuming the list here is exhaustive.
-- \`SECURITY.md\`: vulnerability reporting and security process.
-- \`IMPLEMENTATION_PLAN.md\`, roadmap/future-architecture docs, and dated audit files: historical or forward-looking context. Verify every claimed status against current code.
+| Path | Responsibility |
+|---|---|
+| `README.md` | Overview, getting started, event flow and limitations |
+| `AGENTS.md` | Engineering standards, package ownership and verification workflow |
+| `ARCHITECTURE_MAP.md` | Runtime topology, dependencies and known gaps |
+| `IMPLEMENTATION_PLAN.md` | Plan/history; verify against source before treating as current |
+| `go.mod`, `go.sum` | Root Go module and checksums |
+| `Makefile` | Build, test, lint, format, Compose, migrations and code generation |
+| `.env.example` | Configuration names and safe placeholders; never secrets |
+| `docker-compose.yml`, `docker-compose.override.yml` | Local development stack |
+| `Dockerfile.api`, `Dockerfile.worker`, `Dockerfile.codegen` | Core service/tool images |
+| `Dockerfile.random-producer` | Opt-in example producer image |
+| `.github/workflows/` | CI definitions and verification gates |
+| `api/` | Public JSON schemas; verify runtime validation actually uses them |
+| `migrations/` | Ordered schema changes; applied migrations are immutable |
+| `docs/` | Architecture, operations, diagrams, plans and dated audits |
 
-### Commands
+### Entrypoints and core packages
 
-- \`cmd/api/main.go\`: API lifecycle and dependency wiring.
-- \`cmd/worker/main.go\`: worker lifecycle, broker setup, runtime/service wiring, and shutdown.
-- \`cmd/codegen/main.go\`: database-backed registered-contract generation CLI.
-- \`cmd/migrate/main.go\`: migration CLI. Advertise only commands actually implemented.
+| Path | Responsibility |
+|---|---|
+| `cmd/api/main.go` | API composition root, configuration and HTTP lifecycle |
+| `cmd/worker/main.go` | Worker composition root, broker setup, services and runtime lifecycle |
+| `cmd/codegen/main.go` | Database-backed code-generation CLI |
+| `cmd/migrate/main.go` | Migration-up CLI |
+| `internal/domain/` | Business types, invariants, validation, IDs, routing helpers and domain errors |
+| `internal/rules/` | Pure rule parsing, compilation, validation and evaluation |
+| `internal/ports/` | Narrow consumer-owned interfaces/contracts |
+| `internal/services/events/` | Fencing, inbox deduplication, rule evaluation, execution and outbox writes |
+| `internal/services/rules/` | Rule revision and activation use cases |
+| `internal/services/effects/` | Outbox claims, delivery, retries, settlement and quarantine coordination |
+| `internal/services/workflow/` | Workflow instance orchestration and state transitions |
+| `internal/services/batches/` | Batch use cases; verify worker support separately |
+| `internal/services/quarantine/` | Quarantine use cases |
+| `internal/application/` | Worker orchestration and lifecycle coordination |
+| `internal/runtime/keyqueue/` | Bounded work and per-key serialization |
+| `internal/runtime/shard/` | Lease ownership and fencing tokens |
+| `internal/runtime/scheduler/` | Scheduled-event claiming and publishing |
+| `internal/config/` | Central configuration parsing and validation |
+| `internal/storage/` | Storage selection, repository composition and lifecycle |
+| `internal/factory/` | Legacy broad factory; current entrypoints use `internal/storage` |
+| `internal/codegen/` | Code-generation logic and templates |
+| `internal/observability/` | Logging, metrics, tracing and lifecycle |
 
-Command entrypoints should delegate to internal packages. Resource-owning \`run\` functions should return errors so deferred cleanup can run; avoid \`log.Fatal\`, \`log.Fatalf\`, or \`os.Exit\` inside those functions.
+### Adapters and data boundaries
 
-### Core packages
+| Path | Responsibility |
+|---|---|
+| `internal/adapters/http/` | HTTP routing, handlers, middleware and request/response translation |
+| `internal/adapters/nats/` | NATS/JetStream connection, subject mapping, message conversion and ACK/NAK |
+| `internal/adapters/postgres/` | SQL repositories, transactions and driver-specific behavior |
+| `internal/adapters/mongo/` | Mongo repositories, BSON conversion, indexes and driver-specific behavior |
+| `internal/adapters/cache/` | Cache implementation |
+| `internal/adapters/effects/` | External effect delivery and development/test destinations |
+| `sdk/go/`, `sdk/go/flowrule/` | Separate Go SDK modules |
+| `examples/ecommerce/`, `examples/banking/`, `examples/food-delivery/` | Domain-specific contracts, definitions, scripts and tests |
+| `examples/random-producer/` | Opt-in producer using existing domain contracts |
+| `tests/` | Root test suites; inspect whether each uses mocks, in-memory storage or live services |
 
-- \`internal/config\`: environment parsing, raw-value checks, defaults, and validation.
-- \`internal/domain\`: event envelope, rules/actions, decisions, executions/effects, schedules, leases, contracts, and domain errors.
-- \`internal/ports\`: repository, transaction, broker, cache, runtime, and service contracts.
-- \`internal/rules\`: rule compiler and evaluator.
-- \`internal/services/events\`: event-processing use case and durable state transition.
-- \`internal/services/effects\`: outbox claiming, dispatch, retry/settlement, and quarantine coordination.
-- \`internal/services/effects/router.go\`: routes child events to the broker and non-event effects to the external sender.
-- \`internal/services/rules\`: rule revision and activation use cases.
-- \`internal/services/batches\`: batch use cases and query operations.
-- \`internal/services/workflow\`: workflow-instance operations. Verify any definition-management methods before assuming they are implemented.
-- \`internal/services/quarantine\`: quarantine queries and replay-related operations.
-- \`internal/application/worker.go\`: worker coordination, delivery handling, and periodic loops.
-- \`internal/runtime/keyqueue\`: bounded work and per-key serialization.
-- \`internal/runtime/shard\`: shard lease ownership, renewal, and fencing.
-- \`internal/runtime/scheduler\`: scheduled-event claims and publication.
-- \`internal/storage\`: backend selection and repository composition.
-- \`internal/observability\`: logging, metrics, tracing, and instrumentation lifecycle.
-- \`internal/codegen\`: code generation logic and templates.
-- \`internal/factory\`: legacy factory; inspect current callers before extending it.
+Keep vendor types inside adapters. NATS library imports belong in the NATS adapter; services/runtime should depend on transport-neutral ports, not NATS messages, JetStream consumers, SQL rows, Mongo sessions or concrete drivers. Generated consumer code must not import inaccessible server `internal/` packages.
 
-### Adapters and external contracts
+## 4. Dependency direction, SOLID and reuse
 
-- \`internal/adapters/http/router.go\`: HTTP server lifecycle and route registration.
-- \`internal/adapters/http/handlers/*\`: request/response handling, boundary validation, and mapping use-case results to HTTP.
-- \`internal/adapters/nats/jetstream.go\`: NATS/JetStream implementation of internal broker contracts.
-- SQL and MongoDB adapters under \`internal/adapters\`: driver-specific persistence, queries, migrations or index setup, and transaction behavior.
-- \`api/*.json\`: public JSON schema artifacts. A schema file alone does not prove that an API path invokes schema validation.
-- \`sdk/go\`, \`sdk/go/flowrule\`: separate Go modules and public client contracts. Test each module independently.
-- \`examples/ecommerce\`, \`examples/banking\`, \`examples/food-delivery\`: domain contracts and example deployments.
-- \`examples/random-producer\`: opt-in bounded load generator that reuses the domain envelope, shard routing, and existing e-commerce/banking/food-delivery contracts. Its scenario tests should validate generated payloads against the corresponding YAML contracts. It is not part of API or worker startup.
+Expected direction:
 
-## 5. Security, tenancy, and configuration
+```text
+cmd/* (composition roots)
+  -> concrete adapters + storage + services/application
+services/application/runtime
+  -> domain + consumer-owned ports
+adapters/storage
+  -> ports + domain + external libraries
+domain/rules
+  -> standard library and justified pure dependencies
+```
 
-Security behavior must be established from current middleware, configuration, routes, and repository predicates. Do not infer production safety from a flag or a passing unit test.
+Review every changed dependency edge:
 
-- Fail closed for missing or invalid production security configuration.
-- In non-development deployments, tenant identity must come from the configured authenticated identity mechanism, not from arbitrary caller-controlled tenant headers, query parameters, or body fields.
-- For the trusted-proxy contract, the proxy must authenticate/authorize the caller, strip inbound trusted-identity/authentication headers, set fresh trusted values, and be the only path to the private API ingress. Protect the proxy token as a secret. A proxy token is not itself end-user authentication.
-- If JWT authentication is configured, verify issuer, audience, signature, required scopes, and authoritative tenant claims. Reject conflicting untrusted tenant values.
-- Apply tenant predicates at the repository query boundary for every tenant-owned read and mutation, including list, replay, cancel, and delete paths. Unscoped tenant-facing queries must fail closed.
-- Treat platform-global resources separately from tenant-owned resources. Do not expose global mutation endpoints without explicit authenticated admin authorization and an ownership model.
-- Bound request bodies, reject malformed or extra trailing JSON/YAML documents, validate path and query parameters, use parameterized SQL, construct BSON safely, and constrain generated output paths.
-- Never log secrets, authentication tokens, or full sensitive payloads.
-- Keep health/liveness and readiness distinct. Do not claim a liveness endpoint verifies storage, broker, or dependency readiness unless it actually does.
-- Keep \`.env.example\`, config validation, Compose, Dockerfiles, deployment docs, and tests consistent. Do not enable a runtime mode merely because its configuration field exists.
+- **SRP:** one cohesive reason to change per package/type.
+- **OCP/LSP:** implementations preserve the documented contract and error semantics.
+- **ISP:** consumers depend only on methods they need.
+- **DIP:** use cases own policy; adapters own I/O and technology details.
+- **Low coupling/high cohesion:** no import cycles, service-to-concrete-adapter shortcuts or hidden global dependencies.
+- **Explicit composition:** use existing composition roots; do not add another factory to avoid a small constructor.
+- **Meaningful reuse:** compare behavior and invariants before extracting duplicated code. Share common mechanics, not distinct domain policy.
+- **Justified interfaces:** interfaces belong near the consumer and should isolate a real boundary or testing seam. Do not add speculative abstractions or catch-all `common`/`utils` packages.
 
-## 6. Data, persistence, and compatibility rules
+Before adding, moving or deleting a file, identify its single responsibility, owning layer, callers, allowed dependencies, existing alternatives and affected tests/docs/configuration. Trace callers before refactoring; separate policy from mechanism and pure logic from I/O. Remove obsolete code only after checking usage and compatibility. Avoid unrelated mass renames and formatting noise.
 
-For changes to event envelopes, rule models, API payloads, stored records, SDKs, generated code, or configuration formats:
+## 5. Contracts, persistence and security
 
-1. Find the authoritative schema and trace where validation is actually invoked.
-2. Define required and optional fields, defaults, unknown-field behavior, limits, and malformed-input behavior.
-3. Check compatibility with deployed producers/consumers, existing stored records, generated clients, and examples.
-4. Verify SQL and MongoDB behavior separately: indexes, uniqueness, query scoping, atomicity, transaction support, and error semantics.
-5. Assess migration ordering, repeatability, backfills, locking/downtime, and rollback feasibility.
-6. Add or update contract tests and examples for the affected behavior.
+For event/API/rule/schema/SDK/configuration changes, assess:
 
-Additional rules:
+- Source-of-truth schema and whether the runtime actually validates against it.
+- Required/optional fields, defaults, unknown-field handling, size limits and malformed-input behavior.
+- Backward/forward compatibility with producers, consumers, stored data and generated clients.
+- SQL/Mongo parity, indexes, uniqueness, transactions and tenant-scoped queries.
+- Migration ordering, repeatability, backfill, downtime/locking and rollback feasibility.
+- Tenant propagation, authorization, injection, path traversal, secret leakage and overly broad queries.
 
-- Never rewrite an already-applied migration to change historical behavior. Add a new numbered migration and test upgrade behavior.
-- Do not promise rollback unless a tested down-migration or recovery procedure exists.
-- Use parameterized SQL. For MongoDB, store JSON bytes as BSON binary or explicitly convert them to BSON documents; do not cast raw JSON bytes to \`bson.Raw\`, which represents encoded BSON.
-- Preserve tenant ownership and source-of-truth relationships when migrating legacy records. Never infer ownership from a request when the authoritative source is missing.
-- Generated code must not depend on inaccessible \`internal\` packages from the server module.
-- Keep API/schema documentation synchronized with real runtime validation and behavior.
+Rules:
 
-## 7. Runtime, concurrency, and distributed-systems invariants
+- Never edit an applied migration to change historical behavior. Add a new numbered migration and test upgrades.
+- JSON bytes are not encoded BSON. Store JSON payloads as binary bytes or convert to BSON documents; never cast raw JSON bytes directly to `bson.Raw`.
+- Use parameterized SQL and safe BSON construction.
+- Bound HTTP request bodies and reject malformed or unexpected trailing documents.
+- Enforce tenant scoping at repository query boundaries. Never assign a tenant to orphan data without an authoritative source.
+- Fail closed on sensitive production configuration. A trusted-proxy token is not first-party authentication: the proxy must authenticate callers, strip inbound trust headers, and set fresh trusted identity headers.
+- Never log secrets, credentials, tokens or full sensitive payloads. Local Compose placeholders must not be reused in production.
 
-Changes to event processing, broker handling, queues, leases, outbox, scheduler, or transactions must explicitly consider:
+Verify these current caveats against source before relying on them:
 
-- **Durability and ACK timing:** do not ACK before the required durable outcome is known.
-- **Idempotency:** handle redelivery and duplicate requests with stable keys and clear uniqueness boundaries.
-- **Transactions:** keep fencing checks, inbox/dedup state, execution records, and outbox writes within the intended atomic boundary.
-- **Fencing and leases:** reject stale tokens; handle expiry, renewal failure, stale workers, and competing claims safely.
-- **Claim settlement:** settlement must be fenced by the current claim identity/expiry where required; a stale claimant must not overwrite a newer result.
-- **Ordering and backpressure:** preserve per-key ordering where required; bound queues, worker concurrency, fetch batches, and outbound requests.
-- **Lifecycle:** every goroutine needs clear ownership, cancellation, termination, and synchronization. Shutdown must be bounded and must not abandon required durable work silently.
-- **Retries and poison messages:** distinguish retryable and permanent failures, bound attempts/backoff, and make quarantine outcomes observable.
-- **Failure windows:** consider crashes before and after commit, publish, ACK, settlement, and lease transfer. Add failure-injection tests for material risks.
-- **Observability:** propagate useful operation context in errors and expose enough metrics/logging to diagnose retries, lag, ownership, and failures without leaking secrets.
+- `/health` is liveness, not readiness.
+- The API starts HTTP only; no gRPC server is implemented here.
+- The migration CLI supports `up`; do not advertise down/status.
+- Workflow-definition mutation routes are not exposed on the tenant-facing API without authenticated admin controls and an ownership model.
+- Batch API presence does not imply worker batch execution is safe or enabled.
+- `internal/factory` overlaps `internal/storage`; inspect callers before expanding either.
+- Production multi-tenant exposure requires verified authentication, authorization on every resource path, trusted-proxy deployment and cross-tenant negative tests.
 
-Never weaken a correctness invariant merely to make a test pass. Do not claim that broker ACK means consumer completion, that replica configuration provides dynamic membership, or that a happy-path test proves failover recovery.
+## 6. Runtime and Go coding standards
 
-## 8. Go implementation standards
+For worker, broker, outbox, scheduler, lease, queue and transaction changes, review at-least-once delivery, duplicates, idempotency, ACK timing, unknown commit outcomes, retry classification, poison messages, quarantine, lease expiry, fencing, per-key ordering, bounded backpressure, tenant propagation, deadlines, cancellation, shutdown and crash recovery.
 
-- Run \`gofmt\` on changed Go files and follow repository lint rules and idiomatic naming.
-- Pass \`context.Context\` explicitly for request- or operation-scoped work. Do not hide it in structs or replace it with \`context.Background()\` in request paths.
-- Wrap errors with useful operation context. Preserve error classification using \`errors.Is\` and \`errors.As\` where appropriate.
-- Never silently swallow persistence, cleanup, cancellation, or settlement errors.
-- Keep concurrency bounded. Avoid detached goroutines, unbounded fan-out, unsafe shared mutable state, and goroutine leaks.
-- Inject clocks, IDs, and randomness when deterministic tests or reproducibility require them.
-- Validate untrusted inputs at boundaries; use explicit timeout/deadline policies for network and external-destination calls.
-- Document exported symbols and keep public contracts stable unless a breaking change is intentional and documented.
-- Add regression tests for bug fixes, race-enabled tests for concurrency changes, and benchmarks before making performance claims.
-- Avoid duplicated policy. Extract shared code only when semantics match and there is a clear owner.
+Go standards:
 
-## 9. Development and verification workflow
+- Run `gofmt` and follow idiomatic naming/project lint rules.
+- Pass `context.Context` explicitly for operation-scoped work. Do not hide request contexts in structs or replace them with `context.Background()` in request paths.
+- Wrap errors with useful operation context and preserve classification using `errors.Is`/`errors.As`.
+- Do not swallow persistence, cleanup, cancellation or settlement errors.
+- Make goroutine ownership, cancellation, synchronization and termination explicit. Avoid detached goroutines and unbounded fan-out.
+- Centralize configuration parsing; validate numeric bounds, enums, timeouts, tenant IDs and shard counts at boundaries.
+- Use deterministic clocks/IDs where helpful; add table-driven tests, race tests for concurrency changes, and benchmarks before performance claims.
+- Document exported symbols and keep public SDK contracts stable.
 
-### 9.1 Before implementation
+## 7. Random producer requirements
 
-For any non-trivial or cross-package change:
+The producer is a development/load example, not part of API or worker startup.
 
-1. Identify the branch and base commit. Work on the requested branch; do not commit directly to the default branch unless explicitly instructed.
-2. Reproduce or describe the observable failure with evidence.
-3. Trace callers, state changes, external side effects, cancellation, retries, and shutdown.
-4. Record the current flow, the proposed flow, the affected file/package ownership, and the dependency changes.
-5. Define acceptance criteria and tests, including failure cases and compatibility requirements.
-6. Consider simpler alternatives. Do not add a layer or abstraction without a concrete benefit.
+| File | Responsibility |
+|---|---|
+| `examples/random-producer/main.go` | Flags/env, signal handling, lifecycle and adapter wiring |
+| `examples/random-producer/producer.go` | Bounded workload, narrow `Publisher` contract, publication orchestration and attempted/ACKed/failed counts |
+| `examples/random-producer/scenarios.go` | Domain event factories |
+| `examples/random-producer/*_test.go` | Producer behavior, scenario rotation and contract validation |
+| `Dockerfile.random-producer` | Standalone image used by the opt-in Compose profile |
 
-### 9.2 During implementation
+Requirements:
 
-1. Keep the diff cohesive and reviewable.
-2. Update configuration, schemas, migrations, tests, Compose, build targets, and docs together when affected.
-3. Remove obsolete code only after checking callers and compatibility obligations.
-4. Do not preserve a bad boundary just to minimize the diff; do not rewrite stable code without a demonstrated correctness, maintainability, security, or performance benefit.
-5. Re-check the complete flow after moving code or changing wiring.
+- Bound clients, messages/client, concurrency and publication work; validate configured ranges.
+- Reuse `internal/domain.EventEnvelope` and shared shard-routing logic.
+- Keep the use case transport-neutral; NATS connection/publishing belongs in the adapter.
+- Support `all`, `ecommerce`, `banking` and `food-delivery`. `all` rotates by a global sequence across clients.
+- Validate generated JSON against existing YAML contracts instead of maintaining duplicate schema definitions.
+- Keep tenant ID separate from simulated customer/account/client identity.
+- Report broker ACKs as broker ACKs only. They do not prove worker processing.
+- Keep README, Compose flags, env names, Make targets, Docker context and CI consistent.
+- End-to-end claims require correlating generated event IDs with durable execution results and testing worker restart/lease reassignment against real services where feasible.
 
-### 9.3 Root-module checks
+A typical local workflow, after checking the current README and Compose configuration:
 
-Run the relevant narrow test while iterating. Before completion, run the applicable full checks:
+```sh
+cp .env.example .env
+docker compose up -d postgres nats redis api worker
+(cd examples/ecommerce && ./deploy.sh)
+(cd examples/banking && ./deploy.sh)
+(cd examples/food-delivery && ./deploy.sh)
+docker compose --profile examples run --rm random-producer
+```
 
-~~~sh
-gofmt -w <changed-go-files>
+## 8. Build and verification
+
+Run from the repository root unless stated otherwise. Check the current Makefile/CI before assuming a target exists.
+
+### Root module
+
+```sh
 go build ./cmd/...
 go test -race -count=1 ./...
 go vet ./...
-~~~
+```
 
-Useful project targets include:
+### Nested Go modules
 
-- \`make build\`: build configured binaries.
-- \`make test-unit\`: unit tests for internal packages.
-- \`make test-examples\`: random-producer tests, including domain contract checks.
-- \`make test-integration\`: tests under \`tests/integration\`; inspect their implementation before describing their coverage.
-- \`make fmt\` / \`make check-fmt\`: format and verify formatting.
-- \`make lint\` / \`make vet\`: lint and static analysis.
-- \`make docker-up\` / \`make docker-down\`: manage the local Compose stack.
-- \`make migrate-up\`: apply pending SQL migrations.
-- \`make generate\`: code generation; inspect current required variables and CLI flags first.
+When their code or shared contracts are affected:
 
-### 9.4 Nested Go modules and infrastructure
-
-Nested modules do not automatically receive coverage from root-module commands. When affected, run checks separately:
-
-~~~sh
+```sh
 (cd sdk/go && go test -race -count=1 ./...)
 (cd sdk/go/flowrule && go test -race -count=1 ./...)
 (cd examples/banking && go test -race -count=1 ./...)
 (cd examples/ecommerce && go test -race -count=1 ./...)
 (cd examples/food-delivery && go test -race -count=1 ./...)
-~~~
+```
 
-Use live PostgreSQL, MongoDB, and NATS tests when making claims about their transaction, persistence, delivery, or recovery behavior. In-memory repositories and mocks are useful but do not establish adapter conformance. For end-to-end producer claims, correlate generated event IDs with durable worker results; publish ACK counts alone are insufficient.
+### Useful Make targets
 
-### 9.5 Reporting results
+- `make build`: build API, worker and codegen binaries into `bin/`.
+- `make test-unit`: root internal unit tests.
+- `make test-examples`: random-producer tests, including existing YAML contract checks.
+- `make test-integration`: tests under `tests/integration`; inspect them before calling them live infrastructure tests.
+- `make test`: combined test target; verify the current Makefile.
+- `make fmt` / `make check-fmt`: format or verify Go formatting.
+- `make lint` / `make vet`: lint and static analysis.
+- `make docker-up` / `make docker-down`: local Compose stack.
+- `make migrate-up`: apply pending migrations.
+- `make generate`: codegen from a registered contract; requires `CONTRACT`, `CONTRACT_VERSION`, `TARGET` and `OUTPUT_DIR`.
 
-- List the exact commands run and whether each passed, failed, or could not run.
-- Include the relevant CI workflow/run and commit SHA when available.
-- State environmental limitations and unverified risks.
-- Never report queued or running checks as passed.
-- Never infer support from a type, interface, route name, configuration field, diagram, roadmap, or example alone. Verify the path is wired and exercised.
+Verification rules:
 
-## 10. Pull-request definition of done
+- Run focused regression tests while developing, then all applicable checks before completion.
+- Use live infrastructure tests when claiming SQL/Mongo/NATS behavior. In-memory suites alone do not establish adapter conformance.
+- Verify CI against the exact current head SHA. Queued/in-progress is not passed.
+- Report exact commands and actual outcomes, skipped checks and remaining risks. Never invent results.
 
-For each non-trivial change, the PR description or review record must cover:
+## 9. Required change workflow
 
-- [ ] Problem and observable behavior addressed.
-- [ ] Before/after flow and affected invariants explained.
-- [ ] New/moved files have clear ownership and appropriate placement.
-- [ ] Coupling, dependency direction, SOLID, interface segregation, and duplication reviewed.
-- [ ] Public contracts, schemas, persistence, SDKs, and migration compatibility assessed where relevant.
-- [ ] Security, tenant isolation, retries, concurrency, and operational behavior assessed where relevant.
-- [ ] Regression and appropriate contract/race/failure-injection tests added.
-- [ ] Formatting, build, tests, vet, lint/security checks, and CI results reported accurately.
-- [ ] README, architecture map, file map, schema docs, and operational docs updated where affected.
-- [ ] No secrets, binaries, dead paths, or unrelated changes introduced.
-- [ ] Remaining limitations, deployment prerequisites, and rollback constraints stated honestly.
+### A. Inspect
+- Confirm working branch, base branch and current commit.
+- Inspect source, callers, tests, schemas, migrations, config, Makefile, Docker/Compose, docs and CI relevant to the change.
+- Reproduce the observable issue or state a measurable acceptance criterion.
+- Trace success, error, retry, cancellation, shutdown and recovery paths.
 
-For documentation-only changes, validate paths, commands, links, terminology, and consistency with the current source. Do not claim runtime behavior was tested by formatting a Markdown file.
+### B. Design
+For non-trivial or multi-package changes, record:
+- Problem and current execution/dependency flow.
+- Proposed flow and rationale.
+- File/package ownership and interface changes.
+- Data/API compatibility, transaction boundaries, idempotency and tenant isolation.
+- Failure/security/operational implications and rollback limits.
+- Alternatives rejected, acceptance criteria and proof-producing tests.
 
-## 11. Known limitations and status discipline
+### C. Implement
+- Keep the change cohesive and the dependency direction explicit.
+- Update code, tests, schemas, config, docs, examples, Compose and CI together where relevant.
+- Remove obsolete code only after checking callers/compatibility.
+- Do not include secrets, binaries, temporary files or unrelated churn.
 
-Do not maintain a long list of time-sensitive bug claims here unless each item has a clear owner and verification date. Track active defects in issues or a maintained implementation plan. When investigating an older audit or plan:
+### D. Verify and review
+- Format changed files; run focused tests first.
+- Run root and relevant nested-module tests, race checks, vet, lint, schema/migration checks, container builds and live tests as applicable.
+- Review the complete diff for misplaced files, duplicate logic, unsafe abstractions, stale comments and mismatched docs.
+- Inspect CI status for the exact head SHA.
 
-1. Reproduce the reported behavior against the current branch.
-2. Inspect the current implementation and regression tests.
-3. Mark the finding as confirmed, fixed, not reproducible, or unverified.
-4. Avoid carrying stale findings forward as current facts.
+### E. Report
+Every completion report must state:
+1. What changed and why.
+2. Files/packages changed and their responsibilities.
+3. The resulting data/dependency flow.
+4. Checks actually run and pass/fail/skipped outcomes.
+5. CI link and commit SHA when available.
+6. Remaining limitations, deployment impact and rollback constraints.
 
-At minimum, verify these areas before making strong production-readiness claims:
+## 10. Definition of done
 
-- Production authentication, authorization, tenant isolation, and trusted-proxy configuration.
-- SQL/MongoDB adapter conformance and transaction semantics.
-- Durable event processing, outbox settlement, retry/quarantine behavior, and crash recovery.
-- Lease fencing, replica coordination, worker restart, and shard reassignment.
-- Readiness checks, bounded shutdown, operational metrics, and real workload performance.
-- End-to-end consumption and downstream completion for the random-producer example.
+- [ ] Root cause/requirement addressed with observable behavior.
+- [ ] File placement, ownership, dependency direction, SOLID and interface scope reviewed.
+- [ ] Duplicate logic assessed; shared behavior extracted only when semantics match.
+- [ ] API/event/schema/SDK compatibility and migrations assessed where relevant.
+- [ ] Security, tenant isolation, validation, retries, cancellation and failure modes reviewed.
+- [ ] Regression tests added; race, contract and live integration tests selected appropriately.
+- [ ] Formatting, build, tests, vet, lint and relevant security checks reported accurately.
+- [ ] Docker, Compose, env examples, Make targets and CI remain consistent when affected.
+- [ ] Documentation and architecture/file maps match implementation.
+- [ ] Dead code removed safely; no secrets, generated artifacts or unrelated churn.
+- [ ] Remaining risks and unsupported behavior stated honestly.
 
-**Final rule:** describe what the code and tests prove, not what the architecture intends to do.
+For documentation-only changes, verify file paths, commands/flags, links, consistency with source, and actionable, non-contradictory instructions. Runtime tests do not validate documentation.
