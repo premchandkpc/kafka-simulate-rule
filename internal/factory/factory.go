@@ -187,51 +187,51 @@ func (f *Factory) TransactionManager(db *mongo.DB) ports.TransactionManager {
 	return mongo.NewTransactionManager(db.Client(), db.Database())
 }
 
-func (f *Factory) EventRepository(db *mongo.DB) *mongo.EventRepository {
+func (f *Factory) EventRepository(db *mongo.DB) ports.EventRepository {
 	return mongo.NewEventRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) InboxRepository(db *mongo.DB) *mongo.InboxRepository {
+func (f *Factory) InboxRepository(db *mongo.DB) ports.InboxRepository {
 	return mongo.NewInboxRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) ExecutionRepository(db *mongo.DB) *mongo.ExecutionRepository {
+func (f *Factory) ExecutionRepository(db *mongo.DB) ports.ExecutionRepository {
 	return mongo.NewExecutionRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) OutboxRepository(db *mongo.DB) *mongo.OutboxRepository {
+func (f *Factory) OutboxRepository(db *mongo.DB) ports.OutboxRepository {
 	return mongo.NewOutboxRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) RuleRepository(db *mongo.DB) *mongo.Repository {
+func (f *Factory) RuleRepository(db *mongo.DB) ports.RuleRepository {
 	return mongo.NewRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) ActivationRepository(db *mongo.DB) *mongo.ActivationRepository {
+func (f *Factory) ActivationRepository(db *mongo.DB) ports.ActivationRepository {
 	return mongo.NewActivationRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) WorkflowRepository(db *mongo.DB) *mongo.WorkflowRepository {
+func (f *Factory) WorkflowRepository(db *mongo.DB) ports.WorkflowRepository {
 	return mongo.NewWorkflowRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) ScheduledEventRepository(db *mongo.DB) *mongo.ScheduledEventRepository {
+func (f *Factory) ScheduledEventRepository(db *mongo.DB) ports.ScheduledEventRepository {
 	return mongo.NewScheduledEventRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) BatchRepository(db *mongo.DB) *mongo.BatchRepository {
+func (f *Factory) BatchRepository(db *mongo.DB) ports.BatchRepository {
 	return mongo.NewBatchRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) ShardLeaseRepository(db *mongo.DB) *mongo.ShardLeaseRepository {
+func (f *Factory) ShardLeaseRepository(db *mongo.DB) ports.ShardLeaseRepository {
 	return mongo.NewShardLeaseRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) QuarantineRepository(db *mongo.DB) *mongo.QuarantineRepository {
+func (f *Factory) QuarantineRepository(db *mongo.DB) ports.QuarantineRepository {
 	return mongo.NewQuarantineRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) ContractRegistry(db *mongo.DB) *mongo.ContractRegistry {
+func (f *Factory) ContractRegistry(db *mongo.DB) ports.ContractRegistry {
 	return mongo.NewContractRegistry(mongo.NewQuerier(db.Database()))
 }
 
@@ -272,7 +272,7 @@ func (f *Factory) Scheduler(db *mongo.DB, publisher ports.BrokerPublisher, clock
 func (f *Factory) EventService(
 	compiler ports.RuleCompiler,
 	evaluator ports.RuleEvaluator,
-	quarantine *mongo.QuarantineRepository,
+	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
 	beginTx ports.TransactionManager,
 	newRepos ports.RepositoryFactory,
@@ -282,9 +282,9 @@ func (f *Factory) EventService(
 
 func (f *Factory) RuleService(
 	compiler ports.RuleCompiler,
-	ruleRepo *mongo.Repository,
-	activation *mongo.ActivationRepository,
-	executions *mongo.ExecutionRepository,
+	ruleRepo ports.RuleRepository,
+	activation ports.ActivationRepository,
+	executions ports.ExecutionRepository,
 	clock ports.Clock,
 	txManager ports.TransactionManager,
 	newTxRepos ports.RepositoryFactory,
@@ -293,16 +293,16 @@ func (f *Factory) RuleService(
 }
 
 func (f *Factory) EffectService(
-	outbox *mongo.OutboxRepository,
+	outbox ports.OutboxRepository,
 	sender ports.EffectSender,
-	quarantine *mongo.QuarantineRepository,
+	quarantine ports.QuarantineRepository,
 	clock ports.Clock,
 ) *effects.Service {
 	return effects.NewService(outbox, sender, quarantine, clock, "mongo-worker")
 }
 
 func (f *Factory) BatchService(
-	batchRepo *mongo.BatchRepository,
+	batchRepo ports.BatchRepository,
 	events ports.EventProcessor,
 	clock ports.Clock,
 	cfg domain.BatchConfig,
