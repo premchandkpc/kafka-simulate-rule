@@ -81,7 +81,7 @@ func run() (runErr error) {
 		Stream:     cfg.NATS.Stream,
 		Consumer:   cfg.NATS.Consumer,
 		Subjects:   []string{eventSubject},
-		AckWait:    cfg.Worker.NATSAckWait(),
+		AckWait:    cfg.NATSAckWait(),
 		MaxDeliver: cfg.Worker.NATSMaxDeliver,
 		NumShards:  cfg.Worker.NumShards,
 	}
@@ -150,7 +150,7 @@ func run() (runErr error) {
 	workerConfig.MaxPerKeyQueue = cfg.Worker.MaxPerKeyQueue
 	workerConfig.KeyQueueWorkers = cfg.Worker.KeyQueueWorkers
 	workerConfig.HotKeyThreshold = cfg.Worker.HotKeyThreshold
-	workerConfig.HotKeyCheckInterval = cfg.Worker.HotKeyCheckInterval()
+	workerConfig.HotKeyCheckInterval = cfg.HotKeyCheckInterval()
 
 	worker, err := application.NewWorker(
 		consumer,
