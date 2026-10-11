@@ -28,11 +28,11 @@ func main() {
 }
 
 func run() error {
-	clientsDefault, err := envInt("SIM_CLIENTS", 10)
+	clientsDefault, err := envInt("RANDOM_PRODUCER_CLIENTS", 10)
 	if err != nil {
 		return err
 	}
-	messagesDefault, err := envInt("SIM_MESSAGES_MAX", 100)
+	messagesDefault, err := envInt("RANDOM_PRODUCER_MESSAGES_MAX", 100)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	concurrencyDefault, err := envInt("SIM_CONCURRENCY", 16)
+	concurrencyDefault, err := envInt("RANDOM_PRODUCER_CONCURRENCY", 16)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func run() error {
 	defer cancel()
 
 	summary, runErr := Run(ctx, cfg, publisher)
-	log.Printf("simulation complete: clients=%d attempted=%d broker_acked=%d failed=%d shards=%d",
+	log.Printf("random-producer example complete: clients=%d attempted=%d broker_acked=%d failed=%d shards=%d",
 		summary.Clients, summary.Attempted, summary.BrokerAcked, summary.Failed, summary.NumShards)
 	if runErr != nil {
 		return fmt.Errorf("simulation stopped: %w", runErr)
