@@ -35,7 +35,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 		limit = 100
 	}
 	rows, err := r.db.Query(ctx, `
-		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error
+		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error, retry_at, retry_count, last_error
 		FROM scheduled_events
 		WHERE (status = $2 AND COALESCE(retry_at, scheduled_at) <= $1)
 		   OR (status = $3 AND claim_expires_at <= $1)
@@ -146,7 +146,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 	var evt domain.ScheduledEvent
 	var releasedAt *time.Time
 	err := r.db.QueryRow(ctx, `
-		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
+		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error
 		FROM scheduled_events
 		WHERE tenant_id = $1 AND event_id = $2
 	`, tenantID, eventID).Scan(
@@ -175,7 +175,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 		offset = 0
 	}
 	rows, err := r.db.Query(ctx, `
-		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at
+		SELECT event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error
 		FROM scheduled_events
 		WHERE tenant_id = $1
 		ORDER BY scheduled_at DESC, created_at DESC
