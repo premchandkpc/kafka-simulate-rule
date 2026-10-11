@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -83,7 +84,18 @@ func TestLoadRejectsMalformedShutdownTimeout(t *testing.T) {
 }
 
 func TestLoadDefaultsHTTPAddrToLoopback(t *testing.T) {
-	t.Setenv("HTTP_ADDR", "")
+	previous, wasSet := os.LookupEnv("HTTP_ADDR")
+	if err := os.Unsetenv("HTTP_ADDR"); err != nil {
+		t.Fatalf("Unsetenv(HTTP_ADDR): %v", err)
+	}
+	t.Cleanup(func() {
+		if wasSet {
+			_ = os.Setenv("HTTP_ADDR", previous)
+			return
+		}
+		_ = os.Unsetenv("HTTP_ADDR")
+	})
+
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
