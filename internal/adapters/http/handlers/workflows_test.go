@@ -14,7 +14,7 @@ import (
 
 type workflowServiceStub struct {
 	ports.WorkflowService
-	createCalls int
+	createCalls      int
 	getTenant        string
 	getID            string
 	getCalls         int
