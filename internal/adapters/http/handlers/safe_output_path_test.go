@@ -61,3 +61,19 @@ func TestSafeGenerationOutputDirRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal("expected symlink escape to be rejected")
 	}
 }
+
+func TestSafeGenerationOutputDirRejectsSymlinkRoot(t *testing.T) {
+	parent := t.TempDir()
+	outside := filepath.Join(parent, "outside")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "flowrule-generated")
+	if err := os.Symlink(outside, root); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if _, err := safeGenerationOutputDir(filepath.Join(root, "generated"), root); err == nil {
+		t.Fatal("expected symlink output root to be rejected")
+	}
+}
