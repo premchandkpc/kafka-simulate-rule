@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"testing"
@@ -38,7 +39,7 @@ func (p *fakePublisher) Publish(ctx context.Context, subject string, payload []b
 }
 
 func validConfig() Config {
-	return Config{Clients: 3, MaxMessagesPerClient: 4, NumShards: 64, Concurrency: 3, BaseSubject: DefaultBaseSubject}
+	return Config{Clients: 3, MaxMessagesPerClient: 4, NumShards: 64, Concurrency: 3, BaseSubject: DefaultBaseSubject, TenantID: DefaultTenantID, Scenario: ScenarioAll}
 }
 
 func TestRunPublishesValidEventsToDomainComputedShard(t *testing.T) {
@@ -64,9 +65,15 @@ func TestRunPublishesValidEventsToDomainComputedShard(t *testing.T) {
 		if publisher.subjects[i] != expected {
 			t.Errorf("subject = %q, want %q", publisher.subjects[i], expected)
 		}
+		if event.TenantID != DefaultTenantID {
+			t.Errorf("tenant ID = %q, want shared example tenant %q", event.TenantID, DefaultTenantID)
+		}
 		var data map[string]any
 		if err := json.Unmarshal(event.Data, &data); err != nil {
 			t.Errorf("event data is not valid JSON: %v", err)
+		}
+		if _, ok := supportedEventTypes[event.Type]; !ok {
+			t.Errorf("event type %q is not a supported domain contract", event.Type)
 		}
 	}
 }
@@ -94,6 +101,8 @@ func TestConfigValidation(t *testing.T) {
 		{"zero shards", func(c *Config) { c.NumShards = 0 }, "shards"},
 		{"zero concurrency", func(c *Config) { c.Concurrency = 0 }, "concurrency"},
 		{"missing subject", func(c *Config) { c.BaseSubject = "" }, "base subject"},
+		{"missing tenant", func(c *Config) { c.TenantID = "" }, "tenant ID"},
+		{"unknown scenario", func(c *Config) { c.Scenario = Scenario("unknown") }, "unsupported scenario"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
