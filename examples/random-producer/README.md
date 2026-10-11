@@ -1,6 +1,6 @@
 # Random Producer Example
 
-This example generates random FlowRule event envelopes and publishes them to the same NATS JetStream subject family used by the worker. It is deliberately located under `examples/`: it demonstrates producer-to-broker integration and can be run against a real local stack. It is not part of API/worker startup or a replacement for consumer-side end-to-end tests.
+This example generates domain-shaped FlowRule events using the existing e-commerce, banking, and food-delivery contracts, then publishes them to the same NATS JetStream subject family used by the worker. It is deliberately located under `examples/`: it drives realistic input traffic through the existing example workflows, rather than inventing a separate random message schema. It is not part of API/worker startup or a replacement for consumer-side end-to-end tests.
 
 ## Run against the local stack
 
