@@ -7,16 +7,15 @@ import (
 	"strings"
 )
 
-// safeGenerationOutputDir requires a lexical and symlink-resolved path to stay
-// under root. It does not create the requested output directory.
+// safeGenerationOutputDir validates that a requested output path is contained
+// by root. The directory is not created here; callers should use this only as
+// an input validation layer, not as a substitute for race-safe file creation.
 func safeGenerationOutputDir(outputDir, root string) (string, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve output root: %w", err)
 	}
-	if err := os.MkdirAll(rootAbs, 0o700); err != nil {
-		return "", fmt.Errorf("create output root: %w", err)
-	}
+
 	rootInfo, err := os.Lstat(rootAbs)
 	if err != nil {
 		return "", fmt.Errorf("inspect output root: %w", err)
@@ -24,12 +23,9 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		return "", fmt.Errorf("output root %q must be a real directory, not a symlink or file", rootAbs)
 	}
-	if err := os.Chmod(rootAbs, 0o700); err != nil {
-		return "", fmt.Errorf("restrict output root permissions: %w", err)
-	}
 	realRoot, err := filepath.EvalSymlinks(rootAbs)
 	if err != nil {
-		return "", fmt.Errorf("resolve output root symlinks: %w", err)
+		return "", fmt.Errorf("resolve output root: %w", err)
 	}
 
 	outputAbs, err := filepath.Abs(outputDir)
@@ -44,9 +40,8 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 		return "", fmt.Errorf("output directory must be within %q", rootAbs)
 	}
 
-	// Walk upward to the nearest existing ancestor. Evaluating that ancestor
-	// catches symlink components that would otherwise redirect writes outside
-	// the approved output root.
+	// Resolve the nearest existing ancestor so symlinked path components
+	// cannot redirect the eventual output outside the approved root.
 	current := outputAbs
 	var suffix []string
 	for {
@@ -72,7 +67,6 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 		if !os.IsNotExist(statErr) {
 			return "", fmt.Errorf("inspect output path component %q: %w", current, statErr)
 		}
-
 		parent := filepath.Dir(current)
 		if parent == current {
 			return "", fmt.Errorf("no existing ancestor for output directory %q", outputAbs)
