@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/flowrule/flowrule/internal/adapters/effects"
@@ -62,6 +63,19 @@ func run() (runErr error) {
 	}()
 
 	obs.Logger.Info("worker starting", "environment", cfg.App.Env)
+
+	if metricsAddr := strings.TrimSpace(os.Getenv("FLOWRULE_METRICS_ADDR")); metricsAddr != "" {
+		shutdownMetrics, err := startMetricsServer(metricsAddr, os.Getenv("FLOWRULE_CONSOLE_ORIGIN"))
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := shutdownMetrics(); err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}()
+		obs.Logger.Info("worker metrics endpoint enabled", "address", metricsAddr)
+	}
 
 	db, err := storage.Open(ctx, cfg.Database)
 	if err != nil {
