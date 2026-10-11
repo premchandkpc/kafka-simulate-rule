@@ -56,7 +56,7 @@ func TestLeaseManagerDefaultsInvalidReplicaCount(t *testing.T) {
 }
 
 type leaseAllocationTestRepo struct {
-	released  []uint32
+	released   []uint32
 	releaseErr error
 }
 
