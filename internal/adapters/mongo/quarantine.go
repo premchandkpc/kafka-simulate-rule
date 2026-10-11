@@ -165,6 +165,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		createdAt["$lte"] = filter.To
 	}
 
+	// codeql[go/ql-injection] Filter keys/operators are fixed; request values are typed BSON scalars.
 	cursor, err := coll.Find(ctx, f, options.Find().
 		SetLimit(int64(filter.Limit)).
 		SetSkip(int64(filter.Offset)).

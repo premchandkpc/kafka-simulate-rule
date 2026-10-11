@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
-	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
+	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 )

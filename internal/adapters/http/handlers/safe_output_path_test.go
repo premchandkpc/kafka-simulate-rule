@@ -7,7 +7,10 @@ import (
 )
 
 func TestSafeGenerationOutputDir(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "flowrule-generated")
+	root := filepath.Join(t.TempDir(), generatedOutputRootName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	valid := filepath.Join(root, "orders", "v1")
 	got, err := safeGenerationOutputDir(valid, root)
 	if err != nil {
@@ -24,8 +27,8 @@ func TestSafeGenerationOutputDir(t *testing.T) {
 
 func TestSafeGenerationOutputDirRejectsSiblingPrefix(t *testing.T) {
 	parent := t.TempDir()
-	root := filepath.Join(parent, "flowrule-generated")
-	sibling := filepath.Join(parent, "flowrule-generated-evil")
+	root := filepath.Join(parent, generatedOutputRootName)
+	sibling := filepath.Join(parent, generatedOutputRootName+"-evil")
 
 	if _, err := safeGenerationOutputDir(sibling, root); err == nil {
 		t.Fatal("expected sibling path to be rejected")
@@ -34,7 +37,7 @@ func TestSafeGenerationOutputDirRejectsSiblingPrefix(t *testing.T) {
 
 func TestSafeGenerationOutputDirRejectsParentTraversal(t *testing.T) {
 	parent := t.TempDir()
-	root := filepath.Join(parent, "flowrule-generated")
+	root := filepath.Join(parent, generatedOutputRootName)
 	escape := filepath.Join(root, "..", "outside")
 
 	if _, err := safeGenerationOutputDir(escape, root); err == nil {
@@ -44,7 +47,7 @@ func TestSafeGenerationOutputDirRejectsParentTraversal(t *testing.T) {
 
 func TestSafeGenerationOutputDirRejectsSymlinkEscape(t *testing.T) {
 	parent := t.TempDir()
-	root := filepath.Join(parent, "flowrule-generated")
+	root := filepath.Join(parent, generatedOutputRootName)
 	outside := filepath.Join(parent, "outside")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -68,7 +71,7 @@ func TestSafeGenerationOutputDirRejectsSymlinkRoot(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(parent, "flowrule-generated")
+	root := filepath.Join(parent, generatedOutputRootName)
 	if err := os.Symlink(outside, root); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}

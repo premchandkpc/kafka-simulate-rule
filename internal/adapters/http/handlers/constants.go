@@ -14,16 +14,17 @@ const (
 )
 
 const (
-	defaultPageLimit        = 100
-	maxPageLimit            = 500
-	maxWorkflowPageLimit    = 1000
-	maxPageOffset           = 10000
-	maxRequestBodyBytes     = 1 << 20
+	defaultPageLimit         = 100
+	maxPageLimit             = 500
+	maxWorkflowPageLimit     = 1000
+	maxPageOffset            = 10000
+	maxRequestBodyBytes      = 1 << 20
 	headerContentType        = "Content-Type"
 	mediaTypeYAML            = "yaml"
-	mediaTypeYML              = "yml"
+	mediaTypeYML             = "yml"
 	messageNotFound          = "not found"
 	messageTenantRequired    = "authenticated tenant identity is required"
 	messageTenantMismatch    = "tenant_id must match the request tenant"
 	messageInvalidBodyPrefix = "invalid request body: "
+	generatedOutputRootName  = "flowrule-generated"
 )

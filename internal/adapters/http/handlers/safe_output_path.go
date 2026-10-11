@@ -53,6 +53,7 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 			}
 			candidate := resolved
 			for _, part := range suffix {
+				// codeql[go/path-injection] The final path is checked against the approved root below.
 				candidate = filepath.Join(candidate, part)
 			}
 			resolvedRel, relErr := filepath.Rel(realRoot, candidate)

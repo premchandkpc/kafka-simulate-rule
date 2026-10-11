@@ -147,10 +147,14 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	// Generated files must remain inside the dedicated temp root. Validate
 	// path components as well as string containment so sibling-prefix paths and
 	// symlinks cannot redirect writes outside the allowed directory.
-	allowedBase := filepath.Join(os.TempDir(), "flowrule-generated")
+	allowedBase := filepath.Join(os.TempDir(), generatedOutputRootName)
 	outputDir := req.Output
 	if outputDir == "" {
 		outputDir = filepath.Join(allowedBase, name, version)
+	}
+	if err := os.MkdirAll(allowedBase, 0o700); err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, "could not prepare output root", responses.CodeInternalError)
+		return
 	}
 	var pathErr error
 	outputDir, pathErr = safeGenerationOutputDir(outputDir, allowedBase)

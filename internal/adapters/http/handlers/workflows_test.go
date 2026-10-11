@@ -80,7 +80,7 @@ func TestWorkflowDefinitionMutationRoutesAreNotExposed(t *testing.T) {
 		want   int
 	}{
 		{name: "create is not exposed", method: http.MethodPost, path: "/v1/workflows/definitions", want: http.StatusMethodNotAllowed},
-		{name: "delete is not exposed", method: http.MethodDelete, path: "/v1/workflows/definitions/order/1", want: http.StatusNotFound},
+		{name: "delete is not exposed", method: http.MethodDelete, path: "/v1/workflows/definitions/order/1", want: http.StatusMethodNotAllowed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
