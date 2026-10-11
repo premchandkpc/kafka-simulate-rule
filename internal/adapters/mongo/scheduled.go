@@ -90,8 +90,8 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		filter := bson.M{
 			"event_id": eventID,
 			"$or": []bson.M{
-				{"status": "pending", "scheduled_at": bson.M{"$lte": now}},
-				{"status": "claimed", "claim_expires_at": bson.M{"$lte": now}},
+				{"status": domain.ScheduledEventStatusPending, "scheduled_at": bson.M{"$lte": now}},
+				{"status": domain.ScheduledEventStatusClaimed, "claim_expires_at": bson.M{"$lte": now}},
 			},
 		}
 		err := coll.FindOneAndUpdate(ctx, filter,
@@ -117,7 +117,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
 	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
-		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": releasedAt}},
+		bson.M{"event_id": eventID, "status": domain.ScheduledEventStatusClaimed, "claimant": claimant, "claim_expires_at": bson.M{"$gt": releasedAt}},
 		bson.M{
 			"$set": bson.M{"status": domain.ScheduledEventStatusReleased, "released_at": releasedAt},
 			"$unset": bson.M{
@@ -138,7 +138,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
 	result, err := coll.UpdateOne(ctx,
-		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": now}},
+		bson.M{"event_id": eventID, "status": domain.ScheduledEventStatusClaimed, "claimant": claimant, "claim_expires_at": bson.M{"$gt": now}},
 		bson.M{
 			"$set": bson.M{"status": domain.ScheduledEventStatusFailed, "last_error": errMsg},
 			"$unset": bson.M{
@@ -208,7 +208,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID string) error {
 	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
-		bson.M{"tenant_id": tenantID, "event_id": eventID, "status": "pending"},
+		bson.M{"tenant_id": tenantID, "event_id": eventID, "status": domain.ScheduledEventStatusPending},
 		bson.M{"$set": bson.M{"status": domain.ScheduledEventStatusCancelled}},
 	)
 	if err != nil {
@@ -248,7 +248,7 @@ func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 		Payload:      append([]byte(nil), event.Payload...),
 		Headers:      event.Headers,
 		ScheduledAt:  event.ScheduledAt,
-		Status:       event.Status,
+		Status:       string(event.Status),
 		CreatedAt:    event.CreatedAt,
 		ReleasedAt:   event.ReleasedAt,
 	}
@@ -268,7 +268,7 @@ func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 		Payload:      payload,
 		Headers:      d.Headers,
 		ScheduledAt:  d.ScheduledAt,
-		Status:       d.Status,
+		Status:       domain.ScheduledEventStatus(d.Status),
 		CreatedAt:    d.CreatedAt,
 		ReleasedAt:   d.ReleasedAt,
 	}
