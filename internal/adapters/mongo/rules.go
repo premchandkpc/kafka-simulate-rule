@@ -13,12 +13,21 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// RuleRepository is the domain-specific name for the Mongo rule adapter.
+// Repository remains as a compatibility alias for existing internal wiring.
+type RuleRepository = Repository
+
 type Repository struct {
 	querier Querier
 }
 
 func NewRepository(q Querier) *Repository {
 	return &Repository{querier: q}
+}
+
+// NewRuleRepository constructs the Mongo rule repository with an explicit name.
+func NewRuleRepository(q Querier) *RuleRepository {
+	return NewRepository(q)
 }
 
 func (r *Repository) collection(name string) *mongo.Collection {
