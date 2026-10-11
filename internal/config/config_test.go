@@ -7,7 +7,7 @@ import (
 
 func validConfigForTest() *Config {
 	return &Config{
-		App:      AppConfig{HTTPAddr: ":8080", GRPCAddr: ":9090", ShutdownTimeout: time.Second},
+		App:      AppConfig{HTTPAddr: "127.0.0.1:8080", ShutdownTimeout: time.Second},
 		Database: DatabaseConfig{StorageBackend: "postgres", DSN: "postgres://localhost/flowrule"},
 		NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		Worker: WorkerConfig{
@@ -79,5 +79,16 @@ func TestLoadRejectsMalformedShutdownTimeout(t *testing.T) {
 	t.Setenv("SHUTDOWN_TIMEOUT", "later-ish")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want malformed duration error")
+	}
+}
+
+func TestLoadDefaultsHTTPAddrToLoopback(t *testing.T) {
+	t.Setenv("HTTP_ADDR", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got, want := cfg.App.HTTPAddr, "127.0.0.1:8080"; got != want {
+		t.Fatalf("HTTPAddr = %q, want %q", got, want)
 	}
 }
