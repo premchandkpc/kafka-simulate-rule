@@ -64,7 +64,7 @@ function labeledMetrics(text: string, metric: string) {
         if (char === '"') break;
         if (char === "\\" && cursor < labelText.length) {
           const escaped = labelText[cursor++];
-          value += escaped === "n" ? "\\n" : escaped;
+          value += escaped === "n" ? "\n" : escaped;
         } else {
           value += char;
         }
