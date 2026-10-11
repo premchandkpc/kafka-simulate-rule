@@ -2,149 +2,98 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
+	"os/signal"
 	"strconv"
-	"sync"
+	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	natslib "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/flowrule/flowrule/internal/simulator"
 )
 
-type envelope struct {
-	ID           string            `json:"id"`
-	Type         string            `json:"type"`
-	TenantID     string            `json:"tenant_id"`
-	PartitionKey string            `json:"partition_key"`
-	OccurredAt   time.Time         `json:"occurred_at"`
-	Data         map[string]any    `json:"data"`
-	Headers      map[string]string `json:"headers,omitempty"`
-}
+const (
+	defaultNATSURL = "nats://nats:4222"
+	connectTimeout = 5 * time.Second
+)
 
-type result struct {
-	published int
-	failed    int
+type publishFunc func(context.Context, string, []byte) error
+
+func (p publishFunc) Publish(ctx context.Context, subject string, payload []byte) error {
+	return p(ctx, subject, payload)
 }
 
 func main() {
-	clients := flag.Int("clients", envInt("SIM_CLIENTS", 10), "number of simulated client identities")
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	clients := flag.Int("clients", envInt("SIM_CLIENTS", 10), "number of simulated tenant/client identities")
 	maxMessages := flag.Int("max-messages", envInt("SIM_MESSAGES_MAX", 100), "maximum random messages per client (1-100)")
-	shards := flag.Uint("shards", uint(envInt("NUM_SHARDS", 4096)), "virtual shard count; must match the workers")
-	natsURL := flag.String("nats", env("NATS_URL", "nats://nats:4222"), "NATS URL; use the Compose service name inside the network")
+	shards := flag.Uint64("shards", uint64(envInt("NUM_SHARDS", 4096)), "virtual shard count; must match the workers")
+	natsURL := flag.String("nats", env("NATS_URL", defaultNATSURL), "NATS URL; use the Compose service name inside the network")
 	timeout := flag.Duration("timeout", 30*time.Second, "overall simulation timeout")
-	concurrency := flag.Int("concurrency", 16, "maximum concurrent publishers")
+	concurrency := flag.Int("concurrency", envInt("SIM_CONCURRENCY", 16), "maximum concurrent publishers")
 	flag.Parse()
 
-	if *clients < 1 || *clients > 1000 {
-		log.Fatal("clients must be between 1 and 1000")
+	if *shards == 0 || *shards > uint64(^uint32(0)) {
+		return fmt.Errorf("shards must be between 1 and %d", uint64(^uint32(0)))
 	}
-	if *maxMessages < 1 || *maxMessages > 100 {
-		log.Fatal("max-messages must be between 1 and 100")
+	if *timeout <= 0 {
+		return fmt.Errorf("timeout must be greater than zero")
 	}
-	if *shards < 1 {
-		log.Fatal("shards must be greater than zero")
+	cfg := simulator.Config{
+		Clients:              *clients,
+		MaxMessagesPerClient: *maxMessages,
+		NumShards:            uint32(*shards),
+		Concurrency:          *concurrency,
+		BaseSubject:          "events",
 	}
-	if *concurrency < 1 || *concurrency > 256 {
-		log.Fatal("concurrency must be between 1 and 256")
+	if err := cfg.Validate(); err != nil {
+		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
-
-	conn, err := natslib.Connect(*natsURL, natslib.Name("flowrule-random-producer"))
+	conn, err := natslib.Connect(*natsURL,
+		natslib.Name("flowrule-random-producer"),
+		natslib.Timeout(connectTimeout),
+	)
 	if err != nil {
-		log.Fatalf("connect to NATS: %v", err)
+		return fmt.Errorf("connect to NATS: %w", err)
 	}
 	defer conn.Close()
 
 	js, err := jetstream.New(conn)
 	if err != nil {
-		log.Fatalf("create JetStream client: %v", err)
+		return fmt.Errorf("create JetStream client: %w", err)
 	}
 
-	jobs := make(chan envelope)
-	results := make(chan error)
-	var workers sync.WaitGroup
-	for i := 0; i < *concurrency; i++ {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for event := range jobs {
-				data, marshalErr := json.Marshal(event)
-				if marshalErr != nil {
-					results <- marshalErr
-					continue
-				}
-				shard := virtualShard(event.TenantID, event.PartitionKey, uint32(*shards))
-				subject := fmt.Sprintf("events.shard.%d", shard)
-				// Publish returns only after JetStream acknowledges durable acceptance.
-				_, publishErr := js.Publish(ctx, subject, data)
-				results <- publishErr
-			}
-		}()
-	}
+	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(signalCtx, *timeout)
+	defer cancel()
 
-	total := 0
-	go func() {
-		defer close(jobs)
-		for client := 0; client < *clients; client++ {
-			tenantID := fmt.Sprintf("sim-tenant-%03d", client+1)
-			count := rand.Intn(*maxMessages) + 1
-			for sequence := 1; sequence <= count; sequence++ {
-				key := fmt.Sprintf("key-%04d", rand.Intn(500))
-				jobs <- envelope{
-					ID:           uuid.NewString(),
-					Type:         "simulation.message",
-					TenantID:     tenantID,
-					PartitionKey: key,
-					OccurredAt:   time.Now().UTC(),
-					Data: map[string]any{
-						"client_id": tenantID,
-						"sequence":  sequence,
-						"message":   fmt.Sprintf("random-payload-%s", uuid.NewString()),
-						"amount":    rand.Intn(100000) / 100.0,
-					},
-					Headers: map[string]string{"source": "random-producer-simulator"},
-				}
-				total++
-			}
-		}
-	}()
-
-	go func() {
-		workers.Wait()
-		close(results)
-	}()
-
-	published, failed := 0, 0
-	for publishErr := range results {
-		if publishErr != nil {
-			failed++
-			log.Printf("publish failed: %v", publishErr)
-		} else {
-			published++
-		}
+	publisher := publishFunc(func(ctx context.Context, subject string, payload []byte) error {
+		_, err := js.Publish(ctx, subject, payload)
+		return err
+	})
+	summary, runErr := simulator.Run(ctx, cfg, publisher)
+	log.Printf("simulation complete: clients=%d attempted=%d broker_acked=%d failed=%d shards=%d",
+		summary.Clients, summary.Attempted, summary.BrokerAcked, summary.Failed, summary.NumShards)
+	if runErr != nil {
+		return fmt.Errorf("simulation stopped: %w", runErr)
 	}
-	log.Printf("simulation complete: clients=%d attempted=%d broker_acked=%d failed=%d shards=%d", *clients, total, published, failed, *shards)
-	if failed > 0 {
-		os.Exit(1)
+	if summary.Failed > 0 {
+		return fmt.Errorf("%d of %d publish attempts failed", summary.Failed, summary.Attempted)
 	}
-}
-
-func virtualShard(tenantID, partitionKey string, shards uint32) uint32 {
-	// Must remain identical to domain.EventEnvelope.VirtualShard.
-	hash := uint32(2166136261)
-	for _, b := range []byte(tenantID + ":" + partitionKey) {
-		hash ^= uint32(b)
-		hash *= 16777619
-	}
-	return hash % shards
+	return nil
 }
 
 func env(key, fallback string) string {
