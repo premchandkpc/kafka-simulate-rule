@@ -65,10 +65,11 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
 SECURITY / DEPLOYMENT REQUIREMENT:
-- Development and test may use X-Tenant-ID or tenant_id for local isolation only. These are caller-controlled and are not authentication.
-- No trusted-proxy token, JWT, mTLS, or user authentication is implemented by TenantExtractor. Do not configure FLOWRULE_TRUSTED_PROXY_TOKEN expecting enforcement; current middleware trusts X-Tenant-ID, then tenant_id query, then default. These values are caller-controlled.
-- Loopback defaults and local Compose port binding reduce accidental exposure only; they do not create an identity boundary. Keep the API private until authentication and authorization are actually implemented.
-- Resource-level tenant checks are required in handlers and persistence queries. This is not yet complete for all resources; production multi-tenant exposure remains blocked until every read/write path is tenant-scoped and tested.
+- Development and test may use caller-provided X-Tenant-ID or tenant_id values for local isolation only.
+- In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN and validates X-Proxy-Auth with a constant-time comparison. It takes tenant identity only from X-Authenticated-Tenant-ID; it does not fall back to caller-controlled tenant headers/query values.
+- This is a trusted-proxy integration contract, not first-party authentication. The proxy must authenticate and authorize the caller, strip any inbound X-Proxy-Auth and X-Authenticated-Tenant-ID headers, then set fresh trusted values. Protect the token as a secret and keep API ingress private to the proxy.
+- Health is intentionally exempt from tenant identity extraction. It is liveness only, not a readiness/security check.
+- Resource-level tenant checks and tenant-scoped repository queries are required for every resource path. This is not yet complete for all resources; production multi-tenant exposure remains blocked until workflow definitions, quarantine records, and all remaining reads/writes have verified tenant scoping and cross-tenant negative tests.
 
 ### Worker
 
