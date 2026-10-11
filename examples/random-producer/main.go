@@ -49,7 +49,7 @@ func run() error {
 	maxMessages := flag.Int("max-messages", messagesDefault, "maximum random messages per client (1-100)")
 	shards := flag.Uint64("shards", uint64(shardsDefault), "virtual shard count; must match the workers")
 	natsURL := flag.String("nats", env("NATS_URL", defaultNATSURL), "NATS URL; use the Compose service name inside the network")
-	tenantID := flag.String("tenant", env("FLOWRULE_TENANT_ID", DefaultTenantID), "FlowRule tenant used by the deployed example rules")
+	tenantID := flag.String("tenant", env("RANDOM_PRODUCER_TENANT_ID", DefaultTenantID), "FlowRule tenant used by the deployed example rules")
 	scenario := flag.String("scenario", env("RANDOM_PRODUCER_SCENARIO", string(ScenarioAll)), "business scenario: all, ecommerce, banking, or food-delivery")
 	timeout := flag.Duration("timeout", 30*time.Second, "overall simulation timeout")
 	concurrency := flag.Int("concurrency", concurrencyDefault, "maximum concurrent publishers")
