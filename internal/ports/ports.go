@@ -23,25 +23,23 @@ type TransactionManager interface {
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// TxRepos holds repository instances scoped to a single transaction.
-type TxRepos struct {
-	Inbox           InboxRepository
-	Activations     ActivationRepository
-	RuleRepo        RuleRepository
-	Executions      ExecutionRepository
-	Outbox          OutboxRepository
-	ShardLeases     ShardLeaseRepository
-	Workflow        WorkflowRepository
-	ScheduledEvents ScheduledEventRepository
-	Batches         BatchRepository
-	Quarantine      QuarantineRepository
+// EventTxRepos contains only the repositories required to process one event
+// atomically. Keeping this bundle narrow prevents unrelated persistence concerns
+// from leaking into the event-processing use case.
+type EventTxRepos struct {
+	Inbox       InboxRepository
+	Activations ActivationRepository
+	RuleRepo    RuleRepository
+	Executions  ExecutionRepository
+	Outbox      OutboxRepository
+	ShardLeases ShardLeaseRepository
 }
 
 // Transaction factory
 type TransactionFactory func(ctx context.Context) (Transaction, error)
 
-// Repository factory
-type RepositoryFactory func(Transaction) (TxRepos, error)
+// EventTxRepositoryFactory builds event-processing repositories scoped to a transaction.
+type EventTxRepositoryFactory func(Transaction) (EventTxRepos, error)
 
 // RuleCompiler compiles raw rule source into an immutable revision.
 type RuleCompiler interface {
