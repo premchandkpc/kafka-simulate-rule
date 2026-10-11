@@ -182,7 +182,7 @@ verify-generated:
 # CI pipeline
 check-fmt:
 	@files="$$(gofmt -l $$(find cmd internal tests -name '*.go' -type f))"; \
-	if [ -n "$$files" ]; then printf "%s\n" "$$files"; exit 1; fi
+	if [ -n "$$files" ]; then printf "%s\n" "$$files"; gofmt -d $$files; exit 1; fi
 
 ci: deps check-fmt vet lint test verify-generated
 	@echo "CI pipeline passed!"

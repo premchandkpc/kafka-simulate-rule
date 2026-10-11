@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,5 +103,24 @@ func TestLoadDefaultsHTTPAddrToLoopback(t *testing.T) {
 	}
 	if got, want := cfg.App.HTTPAddr, "127.0.0.1:8080"; got != want {
 		t.Fatalf("HTTPAddr = %q, want %q", got, want)
+	}
+}
+
+func TestValidateRejectsBatchModeWithoutLeaseAndQueueIntegration(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.Worker.BatchMode = "accumulate"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want unsupported batch-mode error")
+	}
+	if !strings.Contains(err.Error(), "shard leases and the key queue") {
+		t.Fatalf("Validate() error = %v, want explanation of missing runtime integration", err)
+	}
+}
+
+func TestLoadRejectsMalformedRequireAuth(t *testing.T) {
+	t.Setenv("REQUIRE_AUTH", "definitely-not-a-boolean")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REQUIRE_AUTH must be a boolean") {
+		t.Fatalf("Load() error = %v, want invalid REQUIRE_AUTH boolean error", err)
 	}
 }

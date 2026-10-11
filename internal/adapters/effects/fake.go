@@ -29,7 +29,7 @@ func NewFakeDestination() *FakeDestination {
 	}
 }
 
-func (f *FakeDestination) Send(_ context.Context, effect *domain.Effect, idempotencyKey string) error {
+func (f *FakeDestination) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -75,15 +75,12 @@ func (f *FakeDestination) FailOn(effectID string) {
 }
 
 type HTTPDestination struct {
-	mu       sync.Mutex
-	sent     map[string]bool
 	endpoint string
 	client   *http.Client
 }
 
 func NewHTTPDestination(endpoint string) *HTTPDestination {
 	return &HTTPDestination{
-		sent:     make(map[string]bool),
 		endpoint: endpoint,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -113,23 +110,19 @@ func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect, idemp
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("destination returned %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		// Drain only a bounded amount for connection reuse. Never copy a
+		// destination response body into the returned error or logs: it may
+		// contain credentials or sensitive downstream data.
+		const maxDrainBytes = 4 << 10
+		if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes)); drainErr != nil {
+			return fmt.Errorf("destination returned status %d; drain error response: %w", resp.StatusCode, drainErr)
+		}
+		return fmt.Errorf("destination returned non-success status %d", resp.StatusCode)
 	}
 
-	h.mu.Lock()
-	h.sent[effect.ID] = true
-	h.mu.Unlock()
-
-	log.Printf("HTTPDestination: sent effect %s to %s (idempotency: %s)", effect.ID, url, idempotencyKey)
+	log.Printf("HTTPDestination: sent effect %s to %s/%s (idempotency: %s)", effect.ID, effect.Destination, effect.Name, idempotencyKey)
 	return nil
-}
-
-func (h *HTTPDestination) WasSent(effectID string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.sent[effectID]
 }
 
 type FakeIDProvider struct{}

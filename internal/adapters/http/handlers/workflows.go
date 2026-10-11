@@ -30,22 +30,23 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workflows/{workflowID}/transition", h.TransitionWorkflow)
 	mux.HandleFunc("GET /v1/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /v1/workflows/definitions", h.ListWorkflowDefinitions)
-	mux.HandleFunc("POST /v1/workflows/definitions", h.CreateWorkflowDefinition)
 	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}", h.GetWorkflowDefinition)
-	mux.HandleFunc("DELETE /v1/workflows/definitions/{workflowType}/{version}", h.DeleteWorkflowDefinition)
+	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}/{version}", h.GetWorkflowDefinition)
 }
 
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var wf domain.WorkflowInstance
 	if err := decodeRequestBody(r, &wf); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		responses.WriteError(w, http.StatusBadRequest, messageInvalidBodyPrefix+err.Error(), responses.CodeInvalidJSON)
 		return
 	}
 
-	// Use tenant from middleware context if not provided
-	if wf.TenantID == "" {
-		wf.TenantID = middleware.GetTenantID(r.Context())
+	tenantID := middleware.GetTenantID(r.Context())
+	if wf.TenantID != "" && wf.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, messageTenantMismatch, responses.CodeForbidden)
+		return
 	}
+	wf.TenantID = tenantID
 	if wf.TenantID == "" {
 		responses.WriteError(w, http.StatusBadRequest, "tenant_id is required", responses.CodeTenantRequired)
 		return
@@ -75,13 +76,13 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if wf == nil {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+	if wf == nil || wf.TenantID != middleware.GetTenantID(r.Context()) {
+		responses.WriteError(w, http.StatusNotFound, messageNotFound, responses.CodeNotFound)
 		return
 	}
 
@@ -110,11 +111,23 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	var err error
+	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if wf == nil || wf.TenantID != middleware.GetTenantID(ctx) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		return
+	}
+	if body.FromState != "" && body.FromState != wf.State {
+		responses.WriteError(w, http.StatusConflict, "from_state does not match current workflow state", responses.CodeConflict)
+		return
+	}
 	if body.FromState != "" {
-		err = h.workflowSvc.Transition(ctx, workflowID, body.FromState, body.ToState)
+		err = h.workflowSvc.Transition(ctx, middleware.GetTenantID(ctx), workflowID, body.FromState, body.ToState)
 	} else {
-		err = h.workflowSvc.UpdateState(ctx, workflowID, body.ToState, 0)
+		err = h.workflowSvc.UpdateState(ctx, middleware.GetTenantID(ctx), workflowID, body.ToState, 0)
 	}
 
 	if err != nil {
@@ -127,31 +140,22 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
-	state := r.URL.Query().Get("state")
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 100
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
-		}
+	state := r.URL.Query().Get(queryParamState)
+	pagination, err := parsePagination(r, defaultPageLimit, maxWorkflowPageLimit, maxPageOffset)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	offset := 0
-	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			offset = o
-		}
-	}
+	limit, offset := pagination.Limit, pagination.Offset
 
 	ctx := r.Context()
 	var workflows []*domain.WorkflowInstance
-	var err error
 
+	fetchLimit := limit + offset
 	if state != "" {
-		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, state, limit)
+		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, state, fetchLimit)
 	} else {
-		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, "", limit)
+		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, "", fetchLimit)
 	}
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
@@ -173,8 +177,6 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
-	_ = middleware.GetTenantID(r.Context()) // tenant extracted for audit/logging
-
 	ctx := r.Context()
 	defs, err := h.workflowDefRepo.List(ctx)
 	if err != nil {
@@ -188,6 +190,9 @@ func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http
 	})
 }
 
+// CreateWorkflowDefinition is intentionally not registered on the tenant-facing router.
+// Definitions are global platform configuration until a separately authorized admin API
+// and an explicit ownership model are introduced.
 func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	var def domain.WorkflowDefinition
 	if err := decodeRequestBody(r, &def); err != nil {
@@ -216,13 +221,16 @@ func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *htt
 func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")
+	if versionStr == "" {
+		versionStr = r.URL.Query().Get(queryParamVersion)
+	}
 
 	if workflowType == "" {
 		responses.WriteError(w, http.StatusBadRequest, "workflowType is required", responses.CodeBadRequest)
 		return
 	}
 
-	var version int64
+	var version int64 = 0
 	if versionStr != "" {
 		var err error
 		version, err = strconv.ParseInt(versionStr, 10, 64)
@@ -239,9 +247,15 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	if version > 0 {
 		def, err = h.workflowDefRepo.Get(ctx, workflowType, version)
 	} else {
-		defs, err := h.workflowDefRepo.List(ctx)
-		if err == nil && len(defs) > 0 {
-			def = defs[0]
+		defs, listErr := h.workflowDefRepo.List(ctx)
+		if listErr != nil {
+			err = listErr
+		} else {
+			for _, candidate := range defs {
+				if candidate.WorkflowType == workflowType && (def == nil || candidate.Version > def.Version) {
+					def = candidate
+				}
+			}
 		}
 	}
 	if err != nil {
@@ -256,6 +270,7 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	responses.WriteOK(w, def)
 }
 
+// DeleteWorkflowDefinition is intentionally not registered on the tenant-facing router.
 func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")

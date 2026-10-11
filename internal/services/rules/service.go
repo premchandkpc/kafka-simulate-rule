@@ -17,7 +17,7 @@ type Service struct {
 	executions  ports.ExecutionRepository
 	clock       ports.Clock
 	txManager   ports.TransactionManager
-	newTxRepos  ports.RepositoryFactory
+	newTxRepos  ports.RuleTxRepositoryFactory
 }
 
 func NewService(
@@ -27,7 +27,7 @@ func NewService(
 	executions ports.ExecutionRepository,
 	clock ports.Clock,
 	txManager ports.TransactionManager,
-	newTxRepos ports.RepositoryFactory,
+	newTxRepos ports.RuleTxRepositoryFactory,
 ) *Service {
 	return &Service{
 		compiler:    compiler,

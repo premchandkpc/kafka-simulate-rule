@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -27,7 +26,7 @@ func (r *EventRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *EventRepository) Save(ctx context.Context, event *domain.EventEnvelope) error {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	doc := EventDocFromDomain(event)
 	_, err := coll.InsertOne(ctx, doc)
 	if err != nil {
@@ -40,14 +39,14 @@ func (r *EventRepository) Save(ctx context.Context, event *domain.EventEnvelope)
 }
 
 func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.EventEnvelope, error) {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	var doc EventDoc
 	err := coll.FindOne(ctx, bson.M{
 		"tenant_id": tenantID,
 		"event_id":  eventID,
 	}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get event: %w", err)
@@ -56,7 +55,7 @@ func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*d
 }
 
 func (r *EventRepository) Exists(ctx context.Context, tenantID, eventID string) (bool, error) {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	count, err := coll.CountDocuments(ctx, bson.M{
 		"tenant_id": tenantID,
 		"event_id":  eventID,
@@ -68,7 +67,7 @@ func (r *EventRepository) Exists(ctx context.Context, tenantID, eventID string) 
 }
 
 func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, executionID string) error {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	now := time.Now().UTC()
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
@@ -87,7 +86,7 @@ func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, 
 }
 
 func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, limit int) ([]*domain.EventEnvelope, error) {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 
 	filter := bson.M{
 		"tenant_id": tenantID,
@@ -115,30 +114,22 @@ func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, l
 }
 
 type EventDoc struct {
-	EventID      string     `bson:"event_id"`
-	TenantID     string     `bson:"tenant_id"`
-	Type         string     `bson:"type"`
-	PartitionKey string     `bson:"partition_key"`
-	WorkflowID   string     `bson:"workflow_id,omitempty"`
-	OccurredAt   time.Time  `bson:"occurred_at"`
-	ScheduledAt  *time.Time `bson:"scheduled_at,omitempty"`
-	Data         bson.Raw   `bson:"data"`
-	Headers      bson.Raw   `bson:"headers,omitempty"`
-	Processed    bool       `bson:"processed"`
-	ExecutionID  string     `bson:"execution_id,omitempty"`
-	ProcessedAt  *time.Time `bson:"processed_at,omitempty"`
-	CreatedAt    time.Time  `bson:"created_at"`
+	EventID      string            `bson:"event_id"`
+	TenantID     string            `bson:"tenant_id"`
+	Type         string            `bson:"type"`
+	PartitionKey string            `bson:"partition_key"`
+	WorkflowID   string            `bson:"workflow_id,omitempty"`
+	OccurredAt   time.Time         `bson:"occurred_at"`
+	ScheduledAt  *time.Time        `bson:"scheduled_at,omitempty"`
+	Data         []byte            `bson:"data"`
+	Headers      map[string]string `bson:"headers,omitempty"`
+	Processed    bool              `bson:"processed"`
+	ExecutionID  string            `bson:"execution_id,omitempty"`
+	ProcessedAt  *time.Time        `bson:"processed_at,omitempty"`
+	CreatedAt    time.Time         `bson:"created_at"`
 }
 
 func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
-	var data, headers bson.Raw
-	if event.Data != nil {
-		data, _ = bson.Marshal(event.Data)
-	}
-	if event.Headers != nil {
-		headers, _ = bson.Marshal(event.Headers)
-	}
-
 	return &EventDoc{
 		EventID:      event.ID,
 		TenantID:     event.TenantID,
@@ -146,8 +137,8 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 		PartitionKey: event.PartitionKey,
 		WorkflowID:   event.WorkflowID,
 		OccurredAt:   event.OccurredAt,
-		Data:         data,
-		Headers:      headers,
+		Data:         append([]byte(nil), event.Data...),
+		Headers:      event.Headers,
 		Processed:    false,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -155,12 +146,8 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 
 func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 	var data json.RawMessage
-	var headers map[string]string
 	if d.Data != nil {
-		data = json.RawMessage(d.Data)
-	}
-	if d.Headers != nil {
-		_ = json.Unmarshal(d.Headers, &headers)
+		data = json.RawMessage(append([]byte(nil), d.Data...))
 	}
 
 	return &domain.EventEnvelope{
@@ -171,6 +158,6 @@ func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 		WorkflowID:   d.WorkflowID,
 		OccurredAt:   d.OccurredAt,
 		Data:         data,
-		Headers:      headers,
+		Headers:      d.Headers,
 	}
 }

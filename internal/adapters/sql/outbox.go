@@ -19,11 +19,14 @@ func NewOutboxRepository(db Querier) *OutboxRepository {
 
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	for _, ef := range effects {
+		if ef.TenantID == "" {
+			return fmt.Errorf("insert outbox: tenant_id is required")
+		}
 		_, err := r.db.Exec(ctx, `
-			INSERT INTO outbox_effects (effect_id, execution_id, destination, name, payload, effect_type, status, attempts, max_attempts, available_at, last_error, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			INSERT INTO outbox_effects (effect_id, execution_id, tenant_id, destination, name, payload, effect_type, status, attempts, max_attempts, available_at, last_error, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			ON CONFLICT (effect_id) DO NOTHING
-		`, ef.ID, ef.ExecutionID, ef.Destination, ef.Name, ef.Payload, ef.EffectType,
+		`, ef.ID, ef.ExecutionID, ef.TenantID, ef.Destination, ef.Name, ef.Payload, ef.EffectType,
 			ef.Status, ef.Attempts, ef.MaxAttempts, ef.AvailableAt, ef.LastError, ef.CreatedAt, ef.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert outbox: %w", err)
@@ -51,7 +54,7 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 			updated_at = NOW()
 		FROM candidates
 		WHERE o.effect_id = candidates.effect_id
-		RETURNING o.effect_id, o.execution_id, o.destination, o.name, o.payload, o.effect_type,
+		RETURNING o.effect_id, o.execution_id, o.tenant_id, o.destination, o.name, o.payload, o.effect_type,
 		          o.status, o.attempts, o.max_attempts, o.available_at, o.last_error, o.created_at, o.updated_at
 	`, batchSize, owner, claimTTL)
 	if err != nil {
@@ -63,7 +66,7 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 	for rows.Next() {
 		var ef domain.OutboxEffect
 		if err := rows.Scan(
-			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.ID, &ef.ExecutionID, &ef.TenantID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
 			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
@@ -92,48 +95,57 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	query := fmt.Sprintf(`
 		UPDATE outbox_effects
 		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
-		WHERE effect_id IN (%s) AND claimed_by = $2
+		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
 	`, strings.Join(placeholders, ","))
 
-	_, err := r.db.Exec(ctx, query, args...)
+	tag, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("mark delivered: %w", err)
 	}
-	return nil
-}
-
-func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error {
-	now := time.Now().UTC()
-	availableAt := now.Add(delay)
-	_, err := r.db.Exec(ctx, `
-		UPDATE outbox_effects
-		SET status = 'pending', attempts = $2, available_at = $3, last_error = $4,
-			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $5
-		WHERE effect_id = $1
-	`, effectID, attempts, availableAt, errMsg, now)
-	if err != nil {
-		return fmt.Errorf("schedule retry: %w", err)
+	if int(tag.RowsAffected()) != len(effectIDs) {
+		return domain.ErrOutboxClaimLost
 	}
 	return nil
 }
 
-func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errMsg string) error {
+func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	now := time.Now().UTC()
-	_, err := r.db.Exec(ctx, `
+	availableAt := now.Add(delay)
+	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
-		SET status = 'quarantined', last_error = $2,
-			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $3
-		WHERE effect_id = $1
-	`, effectID, errMsg, now)
+		SET status = 'pending', attempts = $3, available_at = $4, last_error = $5,
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $6
+		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
+	`, effectID, claimant, attempts, availableAt, errMsg, now)
+	if err != nil {
+		return fmt.Errorf("schedule retry: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return domain.ErrOutboxClaimLost
+	}
+	return nil
+}
+
+func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
+	now := time.Now().UTC()
+	tag, err := r.db.Exec(ctx, `
+		UPDATE outbox_effects
+		SET status = 'quarantined', last_error = $3,
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $4
+		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
+	`, effectID, claimant, errMsg, now)
 	if err != nil {
 		return fmt.Errorf("quarantine effect: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return domain.ErrOutboxClaimLost
 	}
 	return nil
 }
 
 func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT effect_id, execution_id, destination, name, payload, effect_type,
+		SELECT effect_id, execution_id, tenant_id, destination, name, payload, effect_type,
 		       status, attempts, max_attempts, available_at, last_error, created_at, updated_at
 		FROM outbox_effects
 		WHERE status = 'pending' AND available_at <= NOW()
@@ -149,7 +161,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 	for rows.Next() {
 		var ef domain.OutboxEffect
 		if err := rows.Scan(
-			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.ID, &ef.ExecutionID, &ef.TenantID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
 			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
@@ -161,7 +173,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 
 func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT effect_id, execution_id, destination, name, payload, effect_type,
+		SELECT effect_id, execution_id, tenant_id, destination, name, payload, effect_type,
 		       status, attempts, max_attempts, available_at, last_error, created_at, updated_at
 		FROM outbox_effects
 		WHERE execution_id = $1
@@ -176,7 +188,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 	for rows.Next() {
 		var ef domain.OutboxEffect
 		if err := rows.Scan(
-			&ef.ID, &ef.ExecutionID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
+			&ef.ID, &ef.ExecutionID, &ef.TenantID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
 			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)

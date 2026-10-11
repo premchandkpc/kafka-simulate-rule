@@ -2,7 +2,6 @@ package sql
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -30,19 +29,19 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.Workflow
 	return nil
 }
 
-func (r *WorkflowRepository) Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error) {
+func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
 	w := &domain.WorkflowInstance{}
 	var completedAt *time.Time
 	err := r.db.QueryRow(ctx, `
 		SELECT workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at
 		FROM workflow_instances
-		WHERE workflow_id = $1
-	`, workflowID).Scan(
+		WHERE tenant_id = $1 AND workflow_id = $2
+	`, tenantID, workflowID).Scan(
 		&w.WorkflowID, &w.TenantID, &w.WorkflowType, &w.State, &w.Version,
 		&w.CurrentRevision, &w.Context, &w.CreatedAt, &w.UpdatedAt, &completedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow: %w", err)
@@ -52,12 +51,15 @@ func (r *WorkflowRepository) Get(ctx context.Context, workflowID string) (*domai
 }
 
 func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.WorkflowInstance) error {
-	now := time.Now().UTC()
+	updatedAt := workflow.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
 	tag, err := r.db.Exec(ctx, `
 		UPDATE workflow_instances
-		SET state = $2, version = $3, current_revision = $4, context = $5, updated_at = $6, completed_at = $7
-		WHERE workflow_id = $1 AND version = $8
-	`, workflow.WorkflowID, workflow.State, workflow.Version, workflow.CurrentRevision, workflow.Context, now, workflow.CompletedAt, workflow.Version-1)
+		SET state = $3, version = $4, current_revision = $5, context = $6, updated_at = $7, completed_at = $8
+		WHERE tenant_id = $1 AND workflow_id = $2 AND version = $9
+	`, workflow.TenantID, workflow.WorkflowID, workflow.State, workflow.Version, workflow.CurrentRevision, workflow.Context, updatedAt, workflow.CompletedAt, workflow.Version-1)
 	if err != nil {
 		return fmt.Errorf("update workflow: %w", err)
 	}
@@ -105,13 +107,13 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	return workflows, nil
 }
 
-func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error) {
+func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at
 		FROM workflow_instances
-		WHERE (context->>'correlation_id') = $1
+		WHERE tenant_id = $1 AND (context->>'correlation_id') = $2
 		ORDER BY updated_at
-	`, correlationID)
+	`, tenantID, correlationID)
 	if err != nil {
 		return nil, fmt.Errorf("get workflows by correlation: %w", err)
 	}
@@ -167,7 +169,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 		&def.WorkflowType, &def.Version, &def.States, &def.Transitions, &def.Rules, &def.CreatedAt, &def.UpdatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow definition: %w", err)

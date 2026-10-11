@@ -271,6 +271,7 @@ func (e *Execution) Quarantine(now time.Time, errMsg string) error {
 type OutboxEffect struct {
 	ID             string          `json:"id"`
 	ExecutionID    string          `json:"execution_id"`
+	TenantID       string          `json:"tenant_id"`
 	Destination    string          `json:"destination"`
 	Name           string          `json:"name"`
 	Payload        json.RawMessage `json:"payload"`
@@ -298,7 +299,7 @@ const (
 )
 
 // Claim transitions effect from pending to claimed. Only valid from pending.
-func (e *OutboxEffect) Claim(_ string, now time.Time) error {
+func (e *OutboxEffect) Claim(owner string, now time.Time) error {
 	if e.Status != OutboxStatusPending {
 		return fmt.Errorf("cannot claim effect in state %s", e.Status)
 	}
@@ -446,27 +447,18 @@ func ComputeChildEventID(parentEventID, ruleID string, actionIndex int) string {
 }
 
 type ScheduledEvent struct {
-	EventID      string            `json:"event_id"`
-	TenantID     string            `json:"tenant_id"`
-	EventType    string            `json:"event_type"`
-	PartitionKey string            `json:"partition_key"`
-	WorkflowID   string            `json:"workflow_id,omitempty"`
-	Payload      json.RawMessage   `json:"payload"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	ScheduledAt  time.Time         `json:"scheduled_at"`
+	EventID      string               `json:"event_id"`
+	TenantID     string               `json:"tenant_id"`
+	EventType    string               `json:"event_type"`
+	PartitionKey string               `json:"partition_key"`
+	WorkflowID   string               `json:"workflow_id,omitempty"`
+	Payload      json.RawMessage      `json:"payload"`
+	Headers      map[string]string    `json:"headers,omitempty"`
+	ScheduledAt  time.Time            `json:"scheduled_at"`
 	Status       ScheduledEventStatus `json:"status"`
-	CreatedAt    time.Time         `json:"created_at"`
-	ReleasedAt   *time.Time        `json:"released_at,omitempty"`
+	CreatedAt    time.Time            `json:"created_at"`
+	ReleasedAt   *time.Time           `json:"released_at,omitempty"`
 }
-
-type ScheduledEventStatus string
-
-const (
-	ScheduledEventStatusPending   ScheduledEventStatus = "pending"
-	ScheduledEventStatusReleased  ScheduledEventStatus = "released"
-	ScheduledEventStatusFailed    ScheduledEventStatus = "failed"
-	ScheduledEventStatusClaimed   ScheduledEventStatus = "claimed"
-)
 
 type WorkflowInstance struct {
 	WorkflowID      string          `json:"workflow_id"`
@@ -492,11 +484,11 @@ const (
 func (w *WorkflowInstance) CanTransition(from, to string) bool {
 	// Basic state machine - can be extended
 	validTransitions := map[string][]string{
-		"pending":   {"running", "failed"},
-		"running":   {"completed", "failed", "paused"},
-		"paused":    {"running", "failed"},
-		"completed": {},
-		"failed":    {},
+		WorkflowStatusPending:   {WorkflowStatusRunning, WorkflowStatusFailed},
+		WorkflowStatusRunning:   {WorkflowStatusCompleted, WorkflowStatusFailed, WorkflowStatusPaused},
+		WorkflowStatusPaused:    {WorkflowStatusRunning, WorkflowStatusFailed},
+		WorkflowStatusCompleted: {},
+		WorkflowStatusFailed:    {},
 	}
 	if next, ok := validTransitions[from]; ok {
 		for _, s := range next {

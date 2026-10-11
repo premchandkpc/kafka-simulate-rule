@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/flowrule/flowrule/internal/adapters/http"
+	natsadapter "github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/auth"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
@@ -26,7 +29,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (runErr error) {
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,
@@ -49,6 +52,25 @@ func run() error {
 		return err
 	}
 
+	natsCfg := natsadapter.Config{
+		NatsURL:    cfg.NATS.URL,
+		Stream:     cfg.NATS.Stream,
+		Consumer:   cfg.NATS.Consumer,
+		Subjects:   []string{"events"},
+		AckWait:    cfg.NATSAckWait(),
+		MaxDeliver: cfg.Worker.NATSMaxDeliver,
+		NumShards:  cfg.Worker.NumShards,
+	}
+	publisher, err := natsadapter.NewConsumer(ctx, natsCfg)
+	if err != nil {
+		return fmt.Errorf("initialize NATS event publisher: %w", err)
+	}
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close NATS event publisher: %w", err))
+		}
+	}()
+
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	repositories := db.Repositories()
 
@@ -59,7 +81,7 @@ func run() error {
 		repositories.Executions,
 		domain.SystemClock{},
 		repositories.Transactions,
-		repositories.NewTxRepositories,
+		repositories.NewRuleTxRepositories,
 	)
 
 	workflowSvc := svcworkflow.NewService(
@@ -78,17 +100,13 @@ func run() error {
 
 	workflowDefRepo := repositories.WorkflowDefinitions
 
-	// Create auth validator if JWT secret is configured
+	// Configure first-party JWT validation when a secret is supplied.
 	var authValidator *auth.Validator
 	if cfg.Auth.JWTSecret != "" {
-		authValidator = auth.NewValidator(
-			[]byte(cfg.Auth.JWTSecret),
-			cfg.Auth.JWTIssuer,
-			cfg.Auth.JWTAudience,
-		)
+		authValidator = auth.NewValidator([]byte(cfg.Auth.JWTSecret), cfg.Auth.JWTIssuer, cfg.Auth.JWTAudience)
 	}
 
-	router := http.NewRouter(
+	router := http.NewRouterWithPublisher(
 		rulesSvc,
 		workflowSvc,
 		workflowDefRepo,
@@ -96,11 +114,9 @@ func run() error {
 		batchSvc,
 		quarantineSvc,
 		repositories.ScheduledEvents,
-		http.RouterConfig{
-			AuthValidator:  authValidator,
-			RequireAuth:    cfg.Auth.RequireAuth,
-			RequiredScopes: cfg.Auth.RequiredScopes,
-		},
+		publisher,
+		cfg.Worker.NumShards,
+		http.RouterConfig{AuthValidator: authValidator, RequireAuth: cfg.Auth.RequireAuth, RequiredScopes: cfg.Auth.RequiredScopes},
 	)
 
 	log.Printf("API server listening on %s", cfg.App.HTTPAddr)

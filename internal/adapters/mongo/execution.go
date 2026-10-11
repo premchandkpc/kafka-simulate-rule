@@ -25,7 +25,7 @@ func (r *ExecutionRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execution) error {
-	coll := r.collection("executions")
+	coll := r.collection(collectionExecutions)
 	doc := ExecutionDocFromDomain(execution)
 	_, err := coll.InsertOne(ctx, doc)
 	if err != nil {
@@ -38,7 +38,7 @@ func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execut
 }
 
 func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
-	coll := r.collection("executions")
+	coll := r.collection(collectionExecutions)
 	var doc ExecutionDoc
 	err := coll.FindOne(ctx, bson.M{
 		"execution_id": executionID,
@@ -53,7 +53,7 @@ func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*dom
 }
 
 func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
-	coll := r.collection("executions")
+	coll := r.collection(collectionExecutions)
 	now := time.Now().UTC()
 
 	update := bson.M{

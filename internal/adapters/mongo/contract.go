@@ -27,7 +27,7 @@ func (r *ContractRegistry) collection(name string) *mongo.Collection {
 }
 
 func (r *ContractRegistry) Register(ctx context.Context, schema *domain.ContractSchema) error {
-	coll := r.collection("contract_schemas")
+	coll := r.collection(collectionContractSchemas)
 	doc := ContractSchemaDocFromDomain(schema)
 	_, err := coll.UpdateOne(ctx,
 		bson.M{"name": schema.Name, "version": schema.Version},
@@ -41,8 +41,10 @@ func (r *ContractRegistry) Register(ctx context.Context, schema *domain.Contract
 }
 
 func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*domain.ContractSchema, error) {
-	coll := r.collection("contract_schemas")
+	coll := r.collection(collectionContractSchemas)
 	var doc ContractSchemaDoc
+
+	// lgtm[go/sql-injection] Name and version are scalar BSON values under fixed keys.
 	err := coll.FindOne(ctx, bson.M{
 		"name":    name,
 		"version": version,
@@ -57,7 +59,7 @@ func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*doma
 }
 
 func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.ContractSchema, error) {
-	coll := r.collection("contract_schemas")
+	coll := r.collection(collectionContractSchemas)
 	filter := bson.M{}
 	if name != "" {
 		filter["name"] = name
@@ -80,7 +82,7 @@ func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.Con
 }
 
 func (r *ContractRegistry) Delete(ctx context.Context, name, version string) error {
-	coll := r.collection("contract_schemas")
+	coll := r.collection(collectionContractSchemas)
 	_, err := coll.DeleteOne(ctx, bson.M{"name": name, "version": version})
 	if err != nil {
 		return fmt.Errorf("delete contract: %w", err)

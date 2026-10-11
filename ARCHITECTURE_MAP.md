@@ -41,7 +41,13 @@ flowchart LR
 4. Create the HTTP router and register rule, workflow, contract, batch, quarantine, scheduled-event and health handlers.
 5. Serve HTTP and shut down when the process context is cancelled.
 
-The API starts HTTP only. No gRPC listener/configuration exists. The default HTTP bind is loopback; Compose publishes host ports on 127.0.0.1. The /health route is liveness only and does not check storage or NATS readiness. There is no authentication/authorization; tenant extraction reads caller-supplied header/query data and falls back to default, so this process must not be exposed to untrusted users.
+The API starts HTTP only. No gRPC listener/configuration exists. The default HTTP bind is loopback; Compose publishes host ports on 127.0.0.1. The /health route is liveness only and does not check storage or NATS readiness.
+
+Security contract:
+- In development/test, tenant context may be supplied using X-Tenant-ID or tenant_id for local use only.
+- In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN, validates X-Proxy-Auth using constant-time comparison, and accepts tenant identity only from X-Authenticated-Tenant-ID. It fails closed when the token is missing or invalid.
+- This is not first-party authentication. The trusted proxy must authenticate/authorize callers, strip inbound trusted headers, set the tenant header itself, and keep the API inaccessible to direct untrusted traffic.
+- Workflow definitions are global platform configuration and are read-only through the tenant-facing API. Quarantine GET/replay/delete operations are tenant-scoped at repository query time. New effect quarantines inherit tenant identity from the event through the outbox, and legacy records are backfilled from authoritative outbox/execution data where available; orphan records remain unscoped. Do not expose the API to untrusted multi-tenant traffic until source tenant propagation, proxy authentication, and cross-tenant negative tests are verified.
 
 ### Worker — cmd/worker/main.go
 
@@ -51,7 +57,7 @@ The API starts HTTP only. No gRPC listener/configuration exists. The default HTT
 4. Construct batch service, shard lease manager, scheduler and application.Worker.
 5. Start scheduler/worker loops; on shutdown stop loops and close consumer, storage, and observability.
 
-The effect router is part of the runtime wiring, not an optional helper: emitted child events must be published to events.shard.N using the same NUM_SHARDS as the consumer. The event type belongs in EventEnvelope.Type. Non-event command effects use the configured external destination. In development/test only, an absent effect URL may select a fake destination; other environments must fail startup if the URL is absent.
+The effect router is part of the runtime wiring, not an optional helper: emitted child events must be published to events.shard.N using the same NUM_SHARDS as the consumer. The event type belongs in EventEnvelope.Type. Non-event command effects use the configured external destination. In development/test only, an absent effect URL may select a fake destination; other environments must fail startup if the URL is absent. LeaseManager currently targets NUM_SHARDS/3 per worker without membership/rebalancing, implicitly assuming three workers; do not change replica count without validating shard coverage.
 
 ### CLI processes
 
@@ -165,7 +171,7 @@ Rules:
 - Use-case services depend on domain and ports, not concrete adapters.
 - Adapters implement interfaces and keep infrastructure concerns at the edge.
 - Keep only one preferred composition route. internal/factory and internal/storage currently overlap; verify references before deleting the legacy factory.
-- The transaction port still exposes transaction context/fencing details and TxRepos groups many repositories. These are recognized debt, not a pattern to expand.
+- EventTxRepos and RuleTxRepos are narrow transaction-scoped views; SQL/Mongo adapters own concrete transaction assertions and repository construction. The transaction port still exposes context/fencing details, which remain review debt.
 - SDK generated code must not import unexported/internal server packages.
 
 ## Confirmed gaps and next steps
@@ -173,15 +179,23 @@ Rules:
 | Priority | Gap | Next step |
 |---|---|---|
 | P0 | No authentication/authorization or trusted tenant identity | Add verified identity, tenant/resource authorization and cross-tenant denial tests before public exposure |
-| P1 | Outbox ScheduleRetry/Quarantine not claimant-fenced; settlement errors sometimes logged and swallowed | Fence all state transitions; return durable-state failures and test expired claims/competing publishers |
-| P1 | Sequential effect dispatch and fixed claim TTL | Add bounded concurrency and per-effect timeouts after claimant semantics are safe |
-| P1 | Transaction context/fencing leaks into the ports; TxRepos too broad | Introduce use-case-owned unit-of-work contracts with atomicity regression tests |
+| P1 | Outbox delivery/retry/quarantine transitions now require unique claimant tokens and unexpired claims; settlement errors propagate | Keep failure-injection tests and consider transactional quarantine/outbox settlement |
+| P1 | Sequential effect dispatch and fixed claim TTL | Add per-effect timeouts and bounded concurrency only after idempotency/claim recovery is verified |
+| P1 | LeaseManager assumes NUM_SHARDS/3 per worker with no dynamic membership | Define and validate replica-count/rebalance behavior; test that all shards remain assigned |
+| P1 | Batch execution passes a zero fencing token and bypasses the key queue | BATCH_MODE is rejected unless none; integrate batch work with lease fencing and key ordering before enabling |
+| P1 | Mongo adapters previously treated JSON bytes as bson.Raw | JSON payloads/source/context now use BSON binary bytes; keep BSON round-trip tests for each JSON-backed field |
+| P1 | Scheduled SQL claim fields did not exist in migration 011 | Migration 015 adds claim fields; expired claims can be reclaimed and settlement is claimant/expiry fenced |
+| P2 | Scheduled event publishing failure is recorded as terminal failed | Define bounded retries/backoff for retryable broker failures |
+| P2 | Some tenant-scoped reads/writes remain unscoped and no trusted identity exists | AuthN/AuthZ and resource-level scoping remain release blockers |
+| P1 | Transaction context/fencing leaks into the ports; adapter parity is not fully proven | Validate transaction port methods and add SQL/Mongo atomicity and repository conformance tests |
 | P1 | Contract tests are in-memory-only | Reuse suites against actual SQL and Mongo adapters and test transaction/unique-key semantics |
-| P1 | HTTP request body decoding lacks size and strict trailing-content guard | Bound reads, reject trailing documents, and use authenticated tenant context |
+| P1 | HTTP decoding is bounded and rejects trailing JSON/multiple YAML docs, but tenant identity is still caller-controlled and resource scoping is incomplete | Implement auth-derived tenant identity and authorize every resource operation |
 | P2 | Workflow service contains not-implemented definition methods | Implement intentionally or remove placeholders and use a clear repository/service boundary |
 | P2 | internal/factory duplicates storage composition | Verify consumers and consolidate composition |
 | P2 | health is liveness only and no gRPC listener exists | Separate readiness/liveness or document that only liveness is available |
 | P2 | No live crash/recovery suite or benchmark evidence | Add live PostgreSQL/NATS failure injection and reproducible benchmarks |
 | P2 | SQL outbox insertion is one insert per effect | Measure throughput then introduce batch insert if warranted |
+| P2 | Scheduler marks every publish error terminally failed | Add retry classification, attempts and backoff, then test crash/restart recovery |
+| P2 | Batch API reads are now tenant-scoped, but batch processing is not integrated with leases/key queue | Keep non-none worker batch modes rejected until a safe processing path exists |
 
 Do not turn this table into claims of completion without changes and tests. A follow-up audit should identify the reviewed main SHA and workflow runs, and label each old finding fixed/partial/open against current source.

@@ -114,7 +114,7 @@ func Load() (*Config, error) {
 			DB:       getIntEnv("REDIS_DB", 0),
 		},
 		Worker: WorkerConfig{
-			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", 4096))),
+			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", int(DefaultNumShards)))),
 			WorkerID:                getEnv("WORKER_ID", ""),
 			MaxGlobalInFlight:       toInt(getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100)),
 			FetchBatchSize:          toInt(getIntEnv("FETCH_BATCH_SIZE", 100)),
@@ -222,6 +222,10 @@ func (c *Config) Validate() error {
 	if c.Worker.KeyQueueWorkers <= 0 {
 		return fmt.Errorf("KEY_QUEUE_WORKERS must be > 0")
 	}
+	batchMode := strings.ToLower(strings.TrimSpace(c.Worker.BatchMode))
+	if batchMode != "" && batchMode != "none" {
+		return fmt.Errorf("BATCH_MODE=%q is not supported by the worker runtime yet; batch execution must be integrated with shard leases and the key queue first", batchMode)
+	}
 	if c.Worker.BatchMax <= 0 {
 		return fmt.Errorf("BATCH_MAX must be > 0")
 	}
@@ -293,6 +297,11 @@ func validateRawEnv() error {
 	if value, ok := os.LookupEnv("SHUTDOWN_TIMEOUT"); ok {
 		if _, err := time.ParseDuration(strings.TrimSpace(value)); err != nil {
 			return fmt.Errorf("SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
+		}
+	}
+	if value, ok := os.LookupEnv("REQUIRE_AUTH"); ok {
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("REQUIRE_AUTH must be a boolean: %w", err)
 		}
 	}
 	if value, ok := os.LookupEnv("NUM_SHARDS"); ok {

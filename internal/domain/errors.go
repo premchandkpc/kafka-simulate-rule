@@ -31,6 +31,7 @@ var (
 	ErrInvalidEffectType   = errors.New("invalid effect type")
 	ErrEffectNotFound      = errors.New("effect not found")
 	ErrMaxAttemptsExceeded = errors.New("max attempts exceeded")
+	ErrOutboxClaimLost     = errors.New("outbox claim lost")
 
 	ErrExecutionNotFound      = errors.New("execution not found")
 	ErrInvalidExecutionStatus = errors.New("invalid execution status")
@@ -51,9 +52,10 @@ var (
 	ErrActivationNotFound = errors.New("activation not found")
 	ErrActivationConflict = errors.New("activation conflict")
 
-	ErrWorkflowNotFound          = errors.New("workflow not found")
-	ErrWorkflowConflict          = errors.New("workflow version conflict")
-	ErrWorkflowInvalidTransition = errors.New("invalid workflow state transition")
+	ErrWorkflowNotFound           = errors.New("workflow not found")
+	ErrWorkflowConflict           = errors.New("workflow version conflict")
+	ErrWorkflowInvalidTransition  = errors.New("invalid workflow state transition")
+	ErrBatchProcessingUnavailable = errors.New("batch processing is not configured")
 
 	ErrBrokerFetchFailed = errors.New("broker fetch failed")
 	ErrBrokerAckFailed   = errors.New("broker ack failed")
@@ -132,7 +134,8 @@ func ClassifyError(err error) ErrorClass {
 		errors.Is(err, ErrExecutionIDRequired),
 		errors.Is(err, ErrInvalidEffectType),
 		errors.Is(err, ErrEffectNotFound),
-		errors.Is(err, ErrMaxAttemptsExceeded):
+		errors.Is(err, ErrMaxAttemptsExceeded),
+		errors.Is(err, ErrOutboxClaimLost):
 		return ErrorClassEffect
 	case errors.Is(err, ErrBrokerFetchFailed),
 		errors.Is(err, ErrBrokerAckFailed),

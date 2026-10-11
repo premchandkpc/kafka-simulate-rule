@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -14,28 +13,37 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
-type Repository struct {
+// RuleRepository stores and retrieves versioned rule revisions.
+type RuleRepository struct {
 	querier Querier
 }
 
-func NewRepository(q Querier) *Repository {
-	return &Repository{querier: q}
+// Repository is retained as a compatibility alias for legacy internal callers.
+type Repository = RuleRepository
+
+func NewRuleRepository(q Querier) *RuleRepository {
+	return &RuleRepository{querier: q}
 }
 
-func (r *Repository) collection(name string) *mongo.Collection {
+// NewRepository is retained for compatibility; new code should use NewRuleRepository.
+func NewRepository(q Querier) *RuleRepository {
+	return NewRuleRepository(q)
+}
+
+func (r *RuleRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
 func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error) {
-	coll := r.collection("rule_revisions")
+	coll := r.collection(collectionRuleRevisions)
 
 	var activation ActivationDoc
-	err := r.collection("rule_activations").FindOne(ctx, bson.M{
+	err := r.collection(collectionRuleActivations).FindOne(ctx, bson.M{
 		"tenant_scope": tenantScope,
 		"rule_set":     ruleSet,
 	}).Decode(&activation)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)
@@ -48,7 +56,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 		"revision":     activation.Revision,
 	}).Decode(&revision)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -58,7 +66,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 }
 
 func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string, revisionNum int64) (*domain.RuleRevision, error) {
-	coll := r.collection("rule_revisions")
+	coll := r.collection(collectionRuleRevisions)
 
 	var revision RevisionDoc
 	err := coll.FindOne(ctx, bson.M{
@@ -67,7 +75,7 @@ func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string
 		"revision":     revisionNum,
 	}).Decode(&revision)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -77,7 +85,7 @@ func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string
 }
 
 func (r *Repository) Save(ctx context.Context, revision *domain.RuleRevision) error {
-	coll := r.collection("rule_revisions")
+	coll := r.collection(collectionRuleRevisions)
 
 	doc := RevisionDocFromDomain(revision.TenantScope, revision)
 	_, err := coll.InsertOne(ctx, doc)
@@ -88,7 +96,7 @@ func (r *Repository) Save(ctx context.Context, revision *domain.RuleRevision) er
 }
 
 func (r *Repository) List(ctx context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
-	coll := r.collection("rule_revisions")
+	coll := r.collection(collectionRuleRevisions)
 	cursor, err := coll.Find(ctx, bson.M{"tenant_scope": tenantScope})
 	if err != nil {
 		return nil, fmt.Errorf("list revisions: %w", err)
@@ -107,7 +115,7 @@ func (r *Repository) List(ctx context.Context, tenantScope string) ([]*domain.Ru
 }
 
 func (r *Repository) Delete(ctx context.Context, tenantScope string, ruleSet string, revision int64) error {
-	coll := r.collection("rule_revisions")
+	coll := r.collection(collectionRuleRevisions)
 	_, err := coll.DeleteOne(ctx, bson.M{
 		"tenant_scope": tenantScope,
 		"rule_id":      ruleSet,
@@ -132,8 +140,8 @@ type RevisionDoc struct {
 	TenantScope     string              `bson:"tenant_scope"`
 	RuleID          string              `bson:"rule_id"`
 	Revision        int64               `bson:"revision"`
-	Source          bson.Raw            `bson:"source"`
-	Compiled        bson.Raw            `bson:"compiled"`
+	Source          []byte              `bson:"source"`
+	Compiled        []byte              `bson:"compiled"`
 	ContentHash     string              `bson:"content_hash"`
 	CompilerVersion string              `bson:"compiler_version"`
 	MatchMode       string              `bson:"match_mode"`
@@ -143,13 +151,13 @@ type RevisionDoc struct {
 
 func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 	var compiled []domain.CompiledRule
-	_ = bson.Unmarshal(d.Compiled, &compiled)
+	_ = json.Unmarshal(d.Compiled, &compiled)
 
 	return &domain.RuleRevision{
 		TenantScope:     d.TenantScope,
 		RuleID:          d.RuleID,
 		Revision:        d.Revision,
-		Source:          json.RawMessage(d.Source),
+		Source:          json.RawMessage(append([]byte(nil), d.Source...)),
 		Compiled:        compiled,
 		ContentHash:     d.ContentHash,
 		CompilerVersion: d.CompilerVersion,
@@ -160,14 +168,13 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 }
 
 func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *RevisionDoc {
-	compiled, _ := bson.Marshal(revision.Compiled)
-	source, _ := bson.Marshal(revision.Source)
+	compiled, _ := json.Marshal(revision.Compiled)
 
 	return &RevisionDoc{
 		TenantScope:     tenantScope,
 		RuleID:          revision.RuleID,
 		Revision:        revision.Revision,
-		Source:          source,
+		Source:          append([]byte(nil), revision.Source...),
 		Compiled:        compiled,
 		ContentHash:     revision.ContentHash,
 		CompilerVersion: revision.CompilerVersion,
@@ -191,12 +198,12 @@ func (r *ActivationRepository) collection(name string) *mongo.Collection {
 
 func (r *ActivationRepository) Get(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleActivation, error) {
 	var doc ActivationDoc
-	err := r.collection("rule_activations").FindOne(ctx, bson.M{
+	err := r.collection(collectionRuleActivations).FindOne(ctx, bson.M{
 		"tenant_scope": tenantScope,
 		"rule_set":     ruleSet,
 	}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)
@@ -205,7 +212,7 @@ func (r *ActivationRepository) Get(ctx context.Context, tenantScope string, rule
 }
 
 func (r *ActivationRepository) Set(ctx context.Context, activation *domain.RuleActivation) error {
-	coll := r.collection("rule_activations")
+	coll := r.collection(collectionRuleActivations)
 	filter := bson.M{"tenant_scope": activation.TenantScope, "rule_set": activation.RuleSet}
 	update := bson.M{
 		"$set": bson.M{
@@ -228,7 +235,7 @@ func (r *ActivationRepository) Set(ctx context.Context, activation *domain.RuleA
 // SetWithVersion atomically sets the activation only if the current version matches expectedVersion.
 // Returns error if version mismatch (optimistic concurrency conflict).
 func (r *ActivationRepository) SetWithVersion(ctx context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
-	coll := r.collection("rule_activations")
+	coll := r.collection(collectionRuleActivations)
 	filter := bson.M{
 		"tenant_scope": activation.TenantScope,
 		"rule_set":     activation.RuleSet,
@@ -246,7 +253,7 @@ func (r *ActivationRepository) SetWithVersion(ctx context.Context, activation *d
 	var result ActivationDoc
 	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return domain.ErrActivationConflict
 		}
 		return fmt.Errorf("set activation with version: %w", err)
@@ -269,7 +276,7 @@ func (d *ActivationDoc) ToDomain() *domain.RuleActivation {
 }
 
 func (r *ActivationRepository) Delete(ctx context.Context, tenantScope string, ruleSet string) error {
-	coll := r.collection("rule_activations")
+	coll := r.collection(collectionRuleActivations)
 	_, err := coll.DeleteOne(ctx, bson.M{
 		"tenant_scope": tenantScope,
 		"rule_set":     ruleSet,
@@ -281,7 +288,7 @@ func (r *ActivationRepository) Delete(ctx context.Context, tenantScope string, r
 }
 
 func (r *ActivationRepository) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
-	coll := r.collection("rule_activations")
+	coll := r.collection(collectionRuleActivations)
 	cursor, err := coll.Find(ctx, bson.M{"tenant_scope": tenantScope})
 	if err != nil {
 		return nil, fmt.Errorf("list activations: %w", err)

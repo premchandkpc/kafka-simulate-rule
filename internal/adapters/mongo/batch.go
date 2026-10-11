@@ -2,7 +2,6 @@ package mongo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -26,7 +25,7 @@ func (r *BatchRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 
 	if limit <= 0 {
 		limit = 400
@@ -58,7 +57,7 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 }
 
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
@@ -79,18 +78,12 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 }
 
 func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
-	coll := r.collection("batch_runs")
+	coll := r.collection(collectionBatchRuns)
 	doc := BatchRunDocFromDomain(run)
 
 	_, err := coll.UpdateOne(ctx,
 		bson.M{"batch_id": run.BatchID},
-		bson.M{
-			"$set": doc,
-			"$setOnInsert": bson.M{
-				"batch_id":   run.BatchID,
-				"created_at": run.CreatedAt,
-			},
-		},
+		bson.M{"$set": doc},
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
@@ -100,16 +93,67 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 }
 
 func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
-	coll := r.collection("batch_runs")
+	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
 	err := coll.FindOne(ctx, bson.M{"batch_id": batchID}).Decode(&doc)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
+		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get batch run: %w", err)
 	}
 	return doc.ToDomain(), nil
+}
+
+func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+	coll := r.collection(collectionBatchRuns)
+	var doc BatchRunDoc
+	err := coll.FindOne(ctx, bson.M{"tenant_id": tenantID, "batch_id": batchID}).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get batch run for tenant: %w", err)
+	}
+	return doc.ToDomain(), nil
+}
+
+func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	filter := bson.M{"tenant_id": tenantID}
+	if ruleSet != "" {
+		filter["rule_set"] = ruleSet
+	}
+
+	// lgtm[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
+	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
+		SetSkip(int64(offset)).
+		SetLimit(int64(limit)))
+	if err != nil {
+		return nil, fmt.Errorf("list batch runs: %w", err)
+	}
+	defer cursor.Close(ctx)
+	var runs []*domain.BatchRun
+	for cursor.Next(ctx) {
+		var doc BatchRunDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode batch run: %w", err)
+		}
+		runs = append(runs, doc.ToDomain())
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate batch runs: %w", err)
+	}
+	return runs, nil
 }
 
 type BatchRunDoc struct {

@@ -1,0 +1,101 @@
+package handlers
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestSafeGenerationOutputDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), generatedOutputRootName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	valid := filepath.Join(root, "orders", "v1")
+	got, err := safeGenerationOutputDir(valid, root)
+	if err != nil {
+		t.Fatalf("safeGenerationOutputDir(valid) error = %v", err)
+	}
+	want, err := filepath.Abs(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("output dir = %q, want %q", got, want)
+	}
+}
+
+func TestSafeGenerationOutputDirSupportsRelativeOutputPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), generatedOutputRootName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := safeGenerationOutputDir(filepath.Join("orders", "v1"), root)
+	if err != nil {
+		t.Fatalf("safeGenerationOutputDir(relative) error = %v", err)
+	}
+	want := filepath.Join(root, "orders", "v1")
+	if got != want {
+		t.Fatalf("output dir = %q, want %q", got, want)
+	}
+}
+
+func TestSafeGenerationOutputDirRejectsSiblingPrefix(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, generatedOutputRootName)
+	sibling := filepath.Join(parent, generatedOutputRootName+"-evil")
+
+	if _, err := safeGenerationOutputDir(sibling, root); err == nil {
+		t.Fatal("expected sibling path to be rejected")
+	}
+}
+
+func TestSafeGenerationOutputDirRejectsParentTraversal(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, generatedOutputRootName)
+	escape := filepath.Join(root, "..", "outside")
+
+	if _, err := safeGenerationOutputDir(escape, root); err == nil {
+		t.Fatal("expected parent traversal to be rejected")
+	}
+	if _, err := safeGenerationOutputDir(filepath.Join("..", "outside"), root); err == nil {
+		t.Fatal("expected relative parent traversal to be rejected")
+	}
+}
+
+func TestSafeGenerationOutputDirRejectsSymlinkEscape(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, generatedOutputRootName)
+	outside := filepath.Join(parent, "outside")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	escape := filepath.Join(root, "link", "generated")
+	if _, err := safeGenerationOutputDir(escape, root); err == nil {
+		t.Fatal("expected symlink escape to be rejected")
+	}
+}
+
+func TestSafeGenerationOutputDirRejectsSymlinkRoot(t *testing.T) {
+	parent := t.TempDir()
+	outside := filepath.Join(parent, "outside")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, generatedOutputRootName)
+	if err := os.Symlink(outside, root); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if _, err := safeGenerationOutputDir(filepath.Join(root, "generated"), root); err == nil {
+		t.Fatal("expected symlink output root to be rejected")
+	}
+}

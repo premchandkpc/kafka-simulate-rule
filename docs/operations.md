@@ -4,7 +4,7 @@ This guide describes the current implementation. It does not certify the service
 
 ## Security and exposure warning
 
-The HTTP API currently has **no authentication or authorization middleware**. Tenant extraction trusts the caller-supplied `X-Tenant-ID` header or `tenant_id` query parameter and falls back to `default`. A caller can therefore choose a tenant identifier. Do not expose the API to untrusted users or rely on tenant isolation until identity is derived from a trusted authentication layer and each resource operation checks authorization.
+JWT authentication and scope checks are available through `internal/auth`; enable them with `REQUIRE_AUTH=true`, a high-entropy `JWT_SECRET` (at least 32 characters), and the expected issuer/audience. In production, tenant extraction also supports a fail-closed trusted-proxy contract via `FLOWRULE_TRUSTED_PROXY_TOKEN`, `X-Proxy-Auth`, and `X-Authenticated-Tenant-ID`. A validated JWT tenant claim is authoritative; conflicting caller-supplied tenant values are rejected. Do not expose the API to untrusted multi-tenant traffic until authentication is required in the deployed configuration, every resource path has been audited, and cross-tenant negative tests plus proxy/header-stripping behavior are verified.
 
 Native configuration defaults the HTTP server to `127.0.0.1:8080`. The local Compose file publishes API, PostgreSQL, NATS, NATS monitoring and Redis ports on host loopback only. Compose still uses demo credentials. Do not reuse those credentials or treat the development stack as a production deployment.
 
@@ -51,7 +51,8 @@ The authoritative variable names and local examples are in `.env.example`; parsi
 | `MONGODB_URI`, `MONGODB_DATABASE` | Required when `STORAGE_BACKEND=mongodb`; transactions require replica-set/sharded MongoDB |
 | `NATS_URL` | Local client URL `nats://localhost:4222`; containers use the Compose service name |
 | `NATS_STREAM`, `NATS_CONSUMER` | Stream and optional durable consumer identifiers |
-| `NUM_SHARDS` | 4096 virtual shards by default |
+| `NUM_SHARDS` | 4096 virtual shards by default; must match producer/SDK/scheduler settings |
+| `BATCH_MODE` | Must remain `none` until batch execution uses a valid shard fencing token and the per-key queue; other values fail startup validation |
 | `FETCH_BATCH_SIZE`, `MAX_GLOBAL_IN_FLIGHT`, `MAX_PER_KEY_QUEUE`, `KEY_QUEUE_WORKERS` | Bound fetching and queued/in-flight work |
 | `NATS_ACK_WAIT_MS`, `NATS_MAX_DELIVER` | NATS delivery acknowledgement timeout and maximum delivery count |
 | `EFFECT_PUBLISH_INTERVAL_MS`, `EFFECT_PUBLISH_BATCH_SIZE`, `EVENT_RETRY_DELAY_MS` | Outbox publishing cadence/batch and event retry delay |
@@ -136,11 +137,25 @@ The message may be redelivered. The inbox and execution lookup are intended to a
 
 ### External destination is unavailable
 
-Effects are retried/backed off and may be quarantined after the configured attempt limit. Monitor pending/claimed/retry/quarantined outbox records and worker logs. **Open correctness issue:** retry/quarantine state transitions are not all claimant-fenced, and some durable-state failures are currently logged rather than returned. Do not assume a stale publisher cannot change state after a claim expires.
+Effects are retried/backed off and may be quarantined after the configured attempt limit. Outbox delivery/retry/quarantine settlement now checks a unique claim token and unexpired claim in SQL and Mongo, and durable settlement errors are returned by the publisher. Quarantine records are persisted separately from outbox settlement, so a failure during cleanup can still leave an orphan record; monitor quarantine/outbox state and validate failure recovery against a live database.
 
 ### Long-running destination call / expired outbox claim
 
-The current publisher sends effects sequentially and uses a fixed claim TTL. A slow destination may consume much of that TTL and increase duplicate-delivery risk. Bound external timeouts and implement claimant-fenced transitions before adding concurrency.
+The current publisher sends effects sequentially and uses a fixed two-minute claim TTL. A slow destination may outlive the claim; stale settlement is rejected, but the remote side effect may already have occurred. Keep receiver-side idempotency enabled and add per-effect timeouts before adding concurrency.
+
+### Scheduled-event claims and recovery
+
+The SQL adapter uses columns introduced by migration `015_scheduled_event_claims.sql`. SQL and Mongo can reclaim expired claims and require the claimant token plus a non-expired claim when marking an event released or failed. A stale claimant cannot settle an event after its lease expires. However, the scheduler currently marks publish errors terminally failed instead of retrying transient broker failures; treat that as an open reliability limitation.
+
+The scheduled-event list and get endpoints are tenant-filtered. Cancellation only changes events that are still `pending`; an event that is claimed or already released returns a conflict. A validated JWT claim or trusted proxy identity establishes the tenant; caller-supplied tenant headers are not identity and cannot override a JWT claim.
+
+### Batch processing
+
+The API can list/create/query batch records using tenant-scoped repository reads, but the worker's batch execution path is not integrated with owned-shard fencing and per-key queue ordering. The service currently cannot safely pass the fencing token required by the event processor. Configuration validation therefore rejects non-`none` `BATCH_MODE` values. Do not bypass this guard to enable batch execution.
+
+### Mongo payload representation
+
+Raw JSON event data, inbox/outbox payloads, scheduled payloads, workflow context and rule source/compiled rules are stored as BSON binary bytes, not as `bson.Raw`. BSON round-trip tests cover those documents. MongoDB transactions still require an appropriate replica-set or sharded deployment, and live adapter conformance testing remains outstanding.
 
 ### Shard lease lost or worker pauses
 
@@ -148,7 +163,7 @@ The event transaction validates the fencing token before writes, and the queue s
 
 ### API tenant isolation
 
-This is a release blocker for untrusted environments. The current tenant header/query value is caller-controlled and the API has no authN/authZ. Add trusted identity, per-resource authorization and cross-tenant denial tests before exposing the service.
+This remains a release blocker until deployment authentication is mandatory and correctly configured. JWT validation and trusted-proxy tenant resolution are implemented, but configuration alone does not prove production wiring or complete resource-level authorization. Verify every read/write path and cross-tenant denial tests before exposing the service.
 
 ## Operational readiness
 
@@ -156,4 +171,5 @@ This is a release blocker for untrusted environments. The current tenant header/
 - No gRPC server is implemented.
 - Observability packages exist, but instrumentation/metric coverage should be checked against operational objectives rather than assumed complete.
 - Retention policies, index/query-plan reviews, throughput/latency benchmarks and live crash/failure-injection coverage remain work items.
-- Keep the HTTP API and local backing services on private interfaces until auth and tenant authorization are complete.
+- LeaseManager currently targets `NUM_SHARDS/3` per worker without a worker-membership/rebalancing protocol. This assumes a three-worker topology; changing replica count can leave shards unowned. Validate shard ownership coverage before scaling or changing replicas.
+- Keep the HTTP API and local backing services on private interfaces until required JWT/proxy authentication, header stripping, and tenant authorization are verified in the deployment.

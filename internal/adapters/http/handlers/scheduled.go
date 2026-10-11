@@ -28,35 +28,34 @@ func (h *ScheduledHandler) RegisterRoutes(mux *http.ServeMux) {
 func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request) {
 	var evt domain.ScheduledEvent
 	if err := decodeRequestBody(r, &evt); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		responses.WriteError(w, http.StatusBadRequest, messageInvalidBodyPrefix+err.Error(), responses.CodeInvalidJSON)
 		return
 	}
 
-	if evt.EventID == "" {
-		evt.EventID = domain.NewID()
+	tenantID := middleware.GetTenantID(r.Context())
+	if evt.TenantID != "" && evt.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, messageTenantMismatch, responses.CodeForbidden)
+		return
 	}
-	// Use tenant from middleware if not provided
-	if evt.TenantID == "" {
-		evt.TenantID = middleware.GetTenantID(r.Context())
-	}
-	if evt.TenantID == "" || evt.EventType == "" || evt.PartitionKey == "" {
-		responses.WriteError(w, http.StatusBadRequest, "tenant_id, event_type, and partition_key are required", responses.CodeValidationFailed)
+	evt.TenantID = tenantID
+	if evt.EventType == "" || evt.PartitionKey == "" {
+		responses.WriteError(w, http.StatusBadRequest, "event_type and partition_key are required", responses.CodeValidationFailed)
 		return
 	}
 	if evt.ScheduledAt.IsZero() {
 		responses.WriteError(w, http.StatusBadRequest, "scheduled_at is required", responses.CodeValidationFailed)
 		return
 	}
+	if evt.EventID == "" {
+		evt.EventID = domain.NewID()
+	}
 
 	evt.Status = domain.ScheduledEventStatusPending
 	evt.CreatedAt = time.Now().UTC()
-
-	ctx := r.Context()
-	if err := h.repo.Save(ctx, &evt); err != nil {
+	if err := h.repo.Save(r.Context(), &evt); err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-
 	responses.WriteCreated(w, evt)
 }
 
@@ -67,26 +66,36 @@ func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctx := r.Context()
-	evt, err := h.repo.Get(ctx, eventID)
+	evt, err := h.repo.Get(r.Context(), middleware.GetTenantID(r.Context()), eventID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
 	if evt == nil {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		responses.WriteError(w, http.StatusNotFound, messageNotFound, responses.CodeNotFound)
 		return
 	}
-
 	responses.WriteOK(w, evt)
 }
 
-func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, _ *http.Request) {
-	// This requires a List method in the repository interface
-	// For now, return empty with proper response format
+func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Request) {
+	pagination, err := parsePagination(r, defaultPageLimit, maxPageLimit, maxPageOffset)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
+	}
+	limit, offset := pagination.Limit, pagination.Offset
+
+	events, err := h.repo.List(r.Context(), middleware.GetTenantID(r.Context()), limit, offset)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
 	responses.WriteOK(w, map[string]interface{}{
-		"events": []interface{}{},
-		"total":  0,
+		"events": events,
+		"total":  len(events),
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 
@@ -96,13 +105,9 @@ func (h *ScheduledHandler) CancelScheduledEvent(w http.ResponseWriter, r *http.R
 		responses.WriteError(w, http.StatusBadRequest, "eventID is required", responses.CodeBadRequest)
 		return
 	}
-
-	// Mark as failed/cancelled
-	ctx := r.Context()
-	if err := h.repo.MarkFailed(ctx, eventID, "cancelled by user"); err != nil {
-		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+	if err := h.repo.Cancel(r.Context(), middleware.GetTenantID(r.Context()), eventID); err != nil {
+		responses.WriteError(w, http.StatusConflict, "event was not found for this tenant or is no longer pending", responses.CodeConflict)
 		return
 	}
-
 	responses.WriteNoContent(w)
 }

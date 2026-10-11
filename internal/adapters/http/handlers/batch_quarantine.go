@@ -1,12 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
+	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
@@ -36,10 +37,12 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use tenant from middleware if not provided
-	if req.TenantID == "" {
-		req.TenantID = middleware.GetTenantID(r.Context())
+	tenantID := middleware.GetTenantID(r.Context())
+	if req.TenantID != "" && req.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, messageTenantMismatch, responses.CodeForbidden)
+		return
 	}
+	req.TenantID = tenantID
 	if req.TenantID == "" || req.PartitionKey == "" || req.RuleSet == "" {
 		responses.WriteError(w, http.StatusBadRequest, "tenant_id, partition_key, and rule_set are required", responses.CodeValidationFailed)
 		return
@@ -52,6 +55,10 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	batch, err := h.batchSvc.CreateBatch(ctx, req.TenantID, req.PartitionKey, req.RuleSet, req.EventIDs)
 	if err != nil {
+		if errors.Is(err, domain.ErrBatchProcessingUnavailable) {
+			responses.WriteError(w, http.StatusServiceUnavailable, "batch processing is not configured for this API process", responses.CodeInternalError)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
@@ -67,13 +74,13 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	batch, err := h.batchSvc.GetBatch(ctx, batchID)
+	batch, err := h.batchSvc.GetBatch(ctx, middleware.GetTenantID(ctx), batchID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
 	if batch == nil {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		responses.WriteError(w, http.StatusNotFound, messageNotFound, responses.CodeNotFound)
 		return
 	}
 
@@ -82,22 +89,13 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 
 func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
-	ruleSet := r.URL.Query().Get("rule_set")
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 100
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
-		}
+	ruleSet := r.URL.Query().Get(queryParamRuleSet)
+	pagination, err := parsePagination(r, defaultPageLimit, maxPageLimit, maxPageOffset)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	offset := 0
-	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			offset = o
-		}
-	}
+	limit, offset := pagination.Limit, pagination.Offset
 
 	ctx := r.Context()
 	batches, err := h.batchSvc.ListBatches(ctx, tenantID, ruleSet, limit, offset)
@@ -130,48 +128,50 @@ func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.GetTenantID(r.Context())
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, messageTenantRequired, responses.CodeTenantRequired)
+		return
+	}
+
 	filter := ports.QuarantineFilter{
-		TenantID:   middleware.GetTenantID(r.Context()),
-		SourceType: r.URL.Query().Get("source_type"),
-		ErrorClass: r.URL.Query().Get("error_class"),
+		TenantID:   tenantID,
+		SourceType: r.URL.Query().Get(queryParamSourceType),
+		ErrorClass: r.URL.Query().Get(queryParamErrorClass),
+		Limit:      100,
 	}
-
-	// Parse time filters if provided
-	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
-		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
-			filter.From = t
+	if value := r.URL.Query().Get(queryParamFrom); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			responses.WriteError(w, http.StatusBadRequest, "invalid from timestamp; expected RFC3339", responses.CodeValidationFailed)
+			return
 		}
+		filter.From = parsed
 	}
-	if toStr := r.URL.Query().Get("to"); toStr != "" {
-		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
-			filter.To = t
+	if value := r.URL.Query().Get(queryParamTo); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			responses.WriteError(w, http.StatusBadRequest, "invalid to timestamp; expected RFC3339", responses.CodeValidationFailed)
+			return
 		}
+		filter.To = parsed
 	}
+	if !filter.From.IsZero() && !filter.To.IsZero() && filter.From.After(filter.To) {
+		responses.WriteError(w, http.StatusBadRequest, "from must not be after to", responses.CodeValidationFailed)
+		return
+	}
+	pagination, err := parsePagination(r, 100, 500, 10000)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
+	}
+	filter.Limit, filter.Offset = pagination.Limit, pagination.Offset
 
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			filter.Limit = l
-		}
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 100
-	}
-	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			filter.Offset = o
-		}
-	}
-
-	ctx := r.Context()
-	entries, err := h.quarantineSvc.List(ctx, filter)
+	entries, err := h.quarantineSvc.List(r.Context(), filter)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-
 	responses.WriteOK(w, map[string]interface{}{
 		"entries": entries,
 		"total":   len(entries),
@@ -179,7 +179,6 @@ func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Reques
 		"offset":  filter.Offset,
 	})
 }
-
 func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -188,7 +187,12 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	entry, err := h.quarantineSvc.Get(ctx, tenantID, id)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -197,7 +201,6 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
-
 	responses.WriteOK(w, entry)
 }
 
@@ -209,11 +212,19 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	if err := h.quarantineSvc.Replay(ctx, id); err != nil {
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if err := h.quarantineSvc.Replay(ctx, tenantID, id); err != nil {
+		if errors.Is(err, domain.ErrQuarantineNotFound) {
+			responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-
 	responses.WriteOK(w, map[string]string{"status": "replayed"})
 }
 
@@ -225,10 +236,18 @@ func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	if err := h.quarantineSvc.Delete(ctx, id); err != nil {
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if err := h.quarantineSvc.Delete(ctx, tenantID, id); err != nil {
+		if errors.Is(err, domain.ErrQuarantineNotFound) {
+			responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-
 	responses.WriteNoContent(w)
 }
