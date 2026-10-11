@@ -24,6 +24,7 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO quarantine (quarantine_id, source_type, source_id, error_class, payload_ref, event_id, tenant_id, error_message, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		ON CONFLICT (quarantine_id) DO NOTHING
 	`, entry.ID, entry.SourceType, entry.SourceID, entry.ErrorClass, entry.PayloadRef, entry.EventID, entry.TenantID, entry.Error, entry.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save quarantine entry: %w", err)
