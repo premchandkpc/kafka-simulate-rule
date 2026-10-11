@@ -92,7 +92,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	query := fmt.Sprintf(`
 		UPDATE outbox_effects
 		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
-		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $2
+		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
 	`, strings.Join(placeholders, ","))
 
 	tag, err := r.db.Exec(ctx, query, args...)
@@ -112,7 +112,7 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 		UPDATE outbox_effects
 		SET status = 'pending', attempts = $3, available_at = $4, last_error = $5,
 			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $6
-		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2
+		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
 	`, effectID, claimant, attempts, availableAt, errMsg, now)
 	if err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
@@ -129,7 +129,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 		UPDATE outbox_effects
 		SET status = 'quarantined', last_error = $3,
 			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $4
-		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2
+		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
 	`, effectID, claimant, errMsg, now)
 	if err != nil {
 		return fmt.Errorf("quarantine effect: %w", err)
