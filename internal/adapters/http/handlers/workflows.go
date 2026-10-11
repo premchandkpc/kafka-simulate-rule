@@ -42,10 +42,12 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Use tenant from middleware context if not provided
-	if wf.TenantID == "" {
-		wf.TenantID = middleware.GetTenantID(r.Context())
+	tenantID := middleware.GetTenantID(r.Context())
+	if wf.TenantID != "" && wf.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, "tenant_id must match the request tenant", responses.CodeForbidden)
+		return
 	}
+	wf.TenantID = tenantID
 	if wf.TenantID == "" {
 		responses.WriteError(w, http.StatusBadRequest, "tenant_id is required", responses.CodeTenantRequired)
 		return
