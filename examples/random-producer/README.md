@@ -4,11 +4,14 @@ This example generates domain-shaped FlowRule events using the existing e-commer
 
 ## Run against the local stack
 
-From the repository root:
+From the repository root, start the stack and register the existing domain definitions first:
 
 ```sh
 cp .env.example .env
 docker compose up -d postgres nats redis api worker
+(cd examples/ecommerce && ./deploy.sh)
+(cd examples/banking && ./deploy.sh)
+(cd examples/food-delivery && ./deploy.sh)
 docker compose --profile examples run --rm random-producer
 ```
 
