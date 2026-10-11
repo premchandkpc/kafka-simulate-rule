@@ -54,13 +54,13 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 ### HTTP API
 
 - Entry point: cmd/api/main.go.
-- Loads internal/config, opens and initializes internal/storage, constructs compiler and use-case services, registers HTTP handlers, and starts the HTTP server.
+- Loads internal/config, opens and initializes internal/storage, constructs compiler and use-case services, registers HTTP handlers, and starts the HTTP server. The default HTTP bind is loopback; Compose publishes service ports on host loopback only.
 - Route registration: internal/adapters/http/router.go.
 - Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go.
 - Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
 - Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
 - /health is liveness only; it does not check storage or broker readiness.
-- GRPC_ADDR is configuration only: cmd/api does not start a gRPC listener.
+- The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
 SECURITY BLOCKER: no authentication/authorization is implemented. TenantExtractor accepts X-Tenant-ID, then tenant_id query parameter, then the fallback value default. All of these are caller-controlled, not authenticated identity. Do not expose this API to untrusted networks or treat tenant data access as isolated until identity and resource authorization are implemented.
 
@@ -261,7 +261,7 @@ Storage/messaging:
 6. P1 request boundaries: tenant extraction is untrusted and JSON/YAML decoding does not impose a body-size limit or explicitly reject trailing content. Add auth-derived tenant context, request limits and strict decoding.
 7. P2 workflow API clarity: workflow.Service definition methods currently return not-implemented errors; handlers use a separate definition repository. Remove or implement the placeholders intentionally.
 8. P2 composition: internal/factory overlaps internal/storage and is not used by main entrypoints. Verify callers before deleting or migrating it.
-9. P2 operational surface: /health is liveness only; GRPC_ADDR is not backed by a listener; migration down/status are unsupported.
+9. P2 operational surface: /health is liveness only; the API has no gRPC listener; migration down/status are unsupported.
 10. P2 proof/performance: tests do not prove crash recovery against live PostgreSQL/NATS, lease fencing during long pauses, network failure recovery, real destination idempotency, or throughput/p99 targets. Add failure-injection tests and benchmarks before making those claims.
 11. P2 hot path: SQL outbox Insert currently sends one INSERT per effect. Measure and batch inserts/settlement where beneficial.
 12. P2 mixed helpers: internal/adapters/effects/fake.go combines production HTTP code with test clock/ID/fake destination; separate by responsibility when changing that area.
