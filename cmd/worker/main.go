@@ -119,7 +119,7 @@ func run() (runErr error) {
 		repositories.Quarantine,
 		clock,
 		repositories.Transactions,
-		repositories.NewTxRepositories,
+		repositories.NewEventTxRepositories,
 	)
 	effectsSvc := svceffects.NewService(
 		repositories.Outbox,

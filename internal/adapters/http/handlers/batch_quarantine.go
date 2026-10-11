@@ -3,7 +3,6 @@ package handlers
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
@@ -91,27 +90,12 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	ruleSet := r.URL.Query().Get("rule_set")
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 100
-	if limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err != nil || l < 1 || l > 500 {
-			responses.WriteError(w, http.StatusBadRequest, "limit must be an integer between 1 and 500", responses.CodeValidationFailed)
-			return
-		}
-		limit = l
+	pagination, err := parsePagination(r, 100, 500, 10000)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	offset := 0
-	if offsetStr != "" {
-		o, err := strconv.Atoi(offsetStr)
-		if err != nil || o < 0 {
-			responses.WriteError(w, http.StatusBadRequest, "offset must be a non-negative integer", responses.CodeValidationFailed)
-			return
-		}
-		offset = o
-	}
+	limit, offset := pagination.Limit, pagination.Offset
 
 	ctx := r.Context()
 	batches, err := h.batchSvc.ListBatches(ctx, tenantID, ruleSet, limit, offset)
@@ -176,22 +160,12 @@ func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Reques
 		responses.WriteError(w, http.StatusBadRequest, "from must not be after to", responses.CodeValidationFailed)
 		return
 	}
-	if value := r.URL.Query().Get("limit"); value != "" {
-		limit, err := strconv.Atoi(value)
-		if err != nil || limit < 1 || limit > 500 {
-			responses.WriteError(w, http.StatusBadRequest, "limit must be an integer between 1 and 500", responses.CodeValidationFailed)
-			return
-		}
-		filter.Limit = limit
+	pagination, err := parsePagination(r, 100, 500, 10000)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	if value := r.URL.Query().Get("offset"); value != "" {
-		offset, err := strconv.Atoi(value)
-		if err != nil || offset < 0 {
-			responses.WriteError(w, http.StatusBadRequest, "offset must be a non-negative integer", responses.CodeValidationFailed)
-			return
-		}
-		filter.Offset = offset
-	}
+	filter.Limit, filter.Offset = pagination.Limit, pagination.Offset
 
 	entries, err := h.quarantineSvc.List(r.Context(), filter)
 	if err != nil {
@@ -213,16 +187,20 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	entry, err := h.quarantineSvc.Get(ctx, tenantID, id)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil || entry.TenantID != middleware.GetTenantID(r.Context()) {
+	if entry == nil {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
-
 	responses.WriteOK(w, entry)
 }
 
@@ -234,20 +212,19 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
-	if err != nil {
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if err := h.quarantineSvc.Replay(ctx, tenantID, id); err != nil {
+		if errors.Is(err, domain.ErrQuarantineNotFound) {
+			responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil || entry.TenantID != middleware.GetTenantID(ctx) {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
-		return
-	}
-	if err := h.quarantineSvc.Replay(ctx, id); err != nil {
-		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
-		return
-	}
-
 	responses.WriteOK(w, map[string]string{"status": "replayed"})
 }
 
@@ -259,19 +236,18 @@ func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
-	if err != nil {
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if err := h.quarantineSvc.Delete(ctx, tenantID, id); err != nil {
+		if errors.Is(err, domain.ErrQuarantineNotFound) {
+			responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil || entry.TenantID != middleware.GetTenantID(ctx) {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
-		return
-	}
-	if err := h.quarantineSvc.Delete(ctx, id); err != nil {
-		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
-		return
-	}
-
 	responses.WriteNoContent(w)
 }

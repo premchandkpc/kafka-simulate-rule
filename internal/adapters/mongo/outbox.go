@@ -33,6 +33,9 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 
 	docs := make([]interface{}, len(effects))
 	for i, ef := range effects {
+		if ef.TenantID == "" {
+			return fmt.Errorf("insert outbox: tenant_id is required")
+		}
 		docs[i] = OutboxDocFromDomain(&ef)
 	}
 
@@ -88,12 +91,43 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 			}
 			return nil, fmt.Errorf("claim pending: %w", err)
 		}
-		effects = append(effects, *doc.ToDomain())
+		effect := doc.ToDomain()
+		if effect.TenantID == "" {
+			if err := r.resolveLegacyTenant(ctx, effect); err != nil {
+				return nil, fmt.Errorf("resolve tenant for legacy outbox effect %s: %w", effect.ID, err)
+			}
+		}
+		effects = append(effects, *effect)
 	}
 
 	return effects, nil
 }
 
+// resolveLegacyTenant backfills tenant identity for effects written before the
+// outbox schema carried tenant_id. The execution record is the authoritative source.
+func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *domain.OutboxEffect) error {
+	var execution struct {
+		TenantID string `bson:"tenant_id"`
+	}
+	if err := r.collection("executions").FindOne(ctx, bson.M{
+		"execution_id": effect.ExecutionID,
+	}).Decode(&execution); err != nil {
+		return fmt.Errorf("load source execution: %w", err)
+	}
+	if execution.TenantID == "" {
+		return fmt.Errorf("source execution has no tenant identity")
+	}
+
+	_, err := r.collection("outbox_effects").UpdateOne(ctx,
+		bson.M{"effect_id": effect.ID, "tenant_id": bson.M{"$exists": false}},
+		bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
+	)
+	if err != nil {
+		return fmt.Errorf("persist tenant identity: %w", err)
+	}
+	effect.TenantID = execution.TenantID
+	return nil
+}
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
 		return nil
@@ -195,6 +229,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 type OutboxDoc struct {
 	EffectID       string     `bson:"effect_id"`
 	ExecutionID    string     `bson:"execution_id"`
+	TenantID       string     `bson:"tenant_id"`
 	Destination    string     `bson:"destination"`
 	Name           string     `bson:"name"`
 	Payload        []byte     `bson:"payload"`
@@ -215,6 +250,7 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	return &OutboxDoc{
 		EffectID:       ef.ID,
 		ExecutionID:    ef.ExecutionID,
+		TenantID:       ef.TenantID,
 		Destination:    ef.Destination,
 		Name:           ef.Name,
 		Payload:        append([]byte(nil), ef.Payload...),
@@ -236,6 +272,7 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	return &domain.OutboxEffect{
 		ID:             d.EffectID,
 		ExecutionID:    d.ExecutionID,
+		TenantID:       d.TenantID,
 		Destination:    d.Destination,
 		Name:           d.Name,
 		Payload:        json.RawMessage(append([]byte(nil), d.Payload...)),

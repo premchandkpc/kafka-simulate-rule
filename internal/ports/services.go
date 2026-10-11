@@ -33,12 +33,12 @@ type EffectService interface {
 
 // WorkflowService manages long-running workflows
 type WorkflowService interface {
-	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error)
 	Create(ctx context.Context, workflow *domain.WorkflowInstance) error
-	UpdateState(ctx context.Context, workflowID, newState string, revision int64) error
-	Transition(ctx context.Context, workflowID, fromState, toState string) error
+	UpdateState(ctx context.Context, tenantID, workflowID, newState string, revision int64) error
+	Transition(ctx context.Context, tenantID, workflowID, fromState, toState string) error
 	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
-	GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error)
+	GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error)
 }
 
 // BatchService manages batch processing
@@ -65,9 +65,9 @@ type ShardService interface {
 // QuarantineService manages failed items
 type QuarantineService interface {
 	Save(ctx context.Context, entry *domain.QuarantineEntry) error
-	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
+	Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error)
 	List(ctx context.Context, filter QuarantineFilter) ([]*domain.QuarantineEntry, error)
-	Replay(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
-	ReplayAndDelete(ctx context.Context, id string) error
+	Replay(ctx context.Context, tenantID, id string) error
+	Delete(ctx context.Context, tenantID, id string) error
+	ReplayAndDelete(ctx context.Context, tenantID, id string) error
 }

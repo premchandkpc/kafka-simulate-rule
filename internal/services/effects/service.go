@@ -91,6 +91,7 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 				quarantineID := fmt.Sprintf("effect-%s-%s", ef.ID, domain.NewID())
 				qEntry := &domain.QuarantineEntry{
 					ID:         quarantineID,
+					TenantID:   ef.TenantID,
 					SourceType: "effect",
 					SourceID:   ef.ID,
 					ErrorClass: string(domain.ClassifyError(sendErr)),
@@ -103,7 +104,7 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 				}
 				if qErr := s.outbox.Quarantine(ctx, ef.ID, claimToken, sendErr.Error()); qErr != nil {
 					failures = append(failures, fmt.Errorf("mark effect %s quarantined: %w", ef.ID, qErr))
-					if deleteErr := s.quarantine.Delete(ctx, quarantineID); deleteErr != nil {
+					if deleteErr := s.quarantine.Delete(ctx, ef.TenantID, quarantineID); deleteErr != nil {
 						failures = append(failures, fmt.Errorf("remove orphan quarantine for effect %s: %w", ef.ID, deleteErr))
 					}
 				}

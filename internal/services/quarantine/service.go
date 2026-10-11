@@ -26,12 +26,18 @@ func (s *Service) Save(ctx context.Context, entry *domain.QuarantineEntry) error
 }
 
 // Get retrieves a quarantine entry by ID
-func (s *Service) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
-	return s.repo.Get(ctx, id)
+func (s *Service) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
+	if tenantID == "" {
+		return nil, domain.ErrQuarantineNotFound
+	}
+	return s.repo.Get(ctx, tenantID, id)
 }
 
 // List returns quarantine entries matching the filter
 func (s *Service) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	if filter.TenantID == "" {
+		return nil, fmt.Errorf("tenant_id is required")
+	}
 	if filter.Limit <= 0 {
 		filter.Limit = 100
 	}
@@ -39,19 +45,25 @@ func (s *Service) List(ctx context.Context, filter ports.QuarantineFilter) ([]*d
 }
 
 // Replay marks a quarantine entry as replayed (for audit trail)
-func (s *Service) Replay(ctx context.Context, id string) error {
-	return s.repo.Replay(ctx, id)
+func (s *Service) Replay(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
+	return s.repo.Replay(ctx, tenantID, id)
 }
 
 // Delete removes a quarantine entry
-func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.repo.Delete(ctx, id)
+func (s *Service) Delete(ctx context.Context, tenantID, id string) error {
+	if tenantID == "" {
+		return domain.ErrQuarantineNotFound
+	}
+	return s.repo.Delete(ctx, tenantID, id)
 }
 
 // ReplayAndDelete replays and then deletes (for cleanup after successful replay)
-func (s *Service) ReplayAndDelete(ctx context.Context, id string) error {
-	if err := s.Replay(ctx, id); err != nil {
+func (s *Service) ReplayAndDelete(ctx context.Context, tenantID, id string) error {
+	if err := s.Replay(ctx, tenantID, id); err != nil {
 		return fmt.Errorf("replay: %w", err)
 	}
-	return s.Delete(ctx, id)
+	return s.Delete(ctx, tenantID, id)
 }

@@ -66,17 +66,17 @@ type ActivationRepository interface {
 // WorkflowRepository handles workflow instances
 type WorkflowRepository interface {
 	Save(ctx context.Context, workflow *domain.WorkflowInstance) error
-	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error)
 	Update(ctx context.Context, workflow *domain.WorkflowInstance) error
 	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
-	GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error)
+	GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error)
 }
 
 // WorkflowDefinitionRepository handles workflow definitions (templates)
 type WorkflowDefinitionRepository interface {
 	Save(ctx context.Context, def *domain.WorkflowDefinition) error
 	Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error)
-	List(ctx context.Context, tenantID string) ([]*domain.WorkflowDefinition, error)
+	List(ctx context.Context) ([]*domain.WorkflowDefinition, error)
 	Delete(ctx context.Context, workflowType string, version int64) error
 }
 
@@ -119,10 +119,10 @@ type ShardLeaseRepository interface {
 // QuarantineRepository handles failed items
 type QuarantineRepository interface {
 	Save(ctx context.Context, entry *domain.QuarantineEntry) error
-	Get(ctx context.Context, id string) (*domain.QuarantineEntry, error)
+	Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error)
 	List(ctx context.Context, filter QuarantineFilter) ([]*domain.QuarantineEntry, error)
-	Replay(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
+	Replay(ctx context.Context, tenantID, id string) error
+	Delete(ctx context.Context, tenantID, id string) error
 }
 
 // QuarantineFilter for filtering quarantine entries

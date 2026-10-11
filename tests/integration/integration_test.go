@@ -252,7 +252,7 @@ func (m *mockQuarantine) Save(ctx context.Context, entry *domain.QuarantineEntry
 	return nil
 }
 
-func (m *mockQuarantine) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
+func (m *mockQuarantine) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	return m.entries[id], nil
 }
 
@@ -267,11 +267,11 @@ func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter
 	return result, nil
 }
 
-func (m *mockQuarantine) Replay(ctx context.Context, id string) error {
+func (m *mockQuarantine) Replay(ctx context.Context, tenantID, id string) error {
 	return nil
 }
 
-func (m *mockQuarantine) Delete(ctx context.Context, id string) error {
+func (m *mockQuarantine) Delete(ctx context.Context, tenantID, id string) error {
 	delete(m.entries, id)
 	return nil
 }
@@ -298,8 +298,8 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	}
 	txManager := newMockTxManager(mockTx)
 
-	newRepos := func(tx ports.Transaction) (svcevents.TxRepos, error) {
-		return svcevents.TxRepos{
+	newRepos := func(tx ports.Transaction) (ports.EventTxRepos, error) {
+		return ports.EventTxRepos{
 			Inbox:       inbox,
 			Activations: activations,
 			RuleRepo:    ruleRepo,
@@ -511,13 +511,10 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 		activations: activations,
 	})
 	// Mock RepositoryFactory that returns tx-scoped repos
-	newTxRepos := func(tx ports.Transaction) (ports.TxRepos, error) {
-		return ports.TxRepos{
-			Inbox:       nil,
+	newTxRepos := func(tx ports.Transaction) (ports.RuleTxRepos, error) {
+		return ports.RuleTxRepos{
 			Activations: activations,
 			RuleRepo:    ruleRepo,
-			Executions:  executions,
-			Outbox:      nil,
 		}, nil
 	}
 	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{}, txManager, newTxRepos)

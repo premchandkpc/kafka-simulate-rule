@@ -30,9 +30,7 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workflows/{workflowID}/transition", h.TransitionWorkflow)
 	mux.HandleFunc("GET /v1/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /v1/workflows/definitions", h.ListWorkflowDefinitions)
-	mux.HandleFunc("POST /v1/workflows/definitions", h.CreateWorkflowDefinition)
 	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}", h.GetWorkflowDefinition)
-	mux.HandleFunc("DELETE /v1/workflows/definitions/{workflowType}/{version}", h.DeleteWorkflowDefinition)
 }
 
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +75,7 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -112,7 +110,7 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -126,9 +124,9 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if body.FromState != "" {
-		err = h.workflowSvc.Transition(ctx, workflowID, body.FromState, body.ToState)
+		err = h.workflowSvc.Transition(ctx, middleware.GetTenantID(ctx), workflowID, body.FromState, body.ToState)
 	} else {
-		err = h.workflowSvc.UpdateState(ctx, workflowID, body.ToState, 0)
+		err = h.workflowSvc.UpdateState(ctx, middleware.GetTenantID(ctx), workflowID, body.ToState, 0)
 	}
 
 	if err != nil {
@@ -142,31 +140,15 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	state := r.URL.Query().Get("state")
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 100
-	if limitStr != "" {
-		parsed, err := strconv.Atoi(limitStr)
-		if err != nil || parsed < 1 || parsed > 1000 {
-			responses.WriteError(w, http.StatusBadRequest, "limit must be between 1 and 1000", responses.CodeValidationFailed)
-			return
-		}
-		limit = parsed
+	pagination, err := parsePagination(r, 100, 1000, 10000)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	offset := 0
-	if offsetStr != "" {
-		parsed, err := strconv.Atoi(offsetStr)
-		if err != nil || parsed < 0 || parsed > 10000 {
-			responses.WriteError(w, http.StatusBadRequest, "offset must be between 0 and 10000", responses.CodeValidationFailed)
-			return
-		}
-		offset = parsed
-	}
+	limit, offset := pagination.Limit, pagination.Offset
 
 	ctx := r.Context()
 	var workflows []*domain.WorkflowInstance
-	var err error
 
 	fetchLimit := limit + offset
 	if state != "" {
@@ -194,10 +176,8 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
-	tenantID := middleware.GetTenantID(r.Context())
-
 	ctx := r.Context()
-	defs, err := h.workflowDefRepo.List(ctx, tenantID)
+	defs, err := h.workflowDefRepo.List(ctx)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -209,6 +189,9 @@ func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http
 	})
 }
 
+// CreateWorkflowDefinition is intentionally not registered on the tenant-facing router.
+// Definitions are global platform configuration until a separately authorized admin API
+// and an explicit ownership model are introduced.
 func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	var def domain.WorkflowDefinition
 	if err := decodeRequestBody(r, &def); err != nil {
@@ -260,9 +243,15 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	if version > 0 {
 		def, err = h.workflowDefRepo.Get(ctx, workflowType, version)
 	} else {
-		defs, err := h.workflowDefRepo.List(ctx, "")
-		if err == nil && len(defs) > 0 {
-			def = defs[0]
+		defs, listErr := h.workflowDefRepo.List(ctx)
+		if listErr != nil {
+			err = listErr
+		} else {
+			for _, candidate := range defs {
+				if candidate.WorkflowType == workflowType && (def == nil || candidate.Version > def.Version) {
+					def = candidate
+				}
+			}
 		}
 	}
 	if err != nil {
@@ -277,6 +266,7 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	responses.WriteOK(w, def)
 }
 
+// DeleteWorkflowDefinition is intentionally not registered on the tenant-facing router.
 func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")

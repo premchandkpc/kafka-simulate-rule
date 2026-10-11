@@ -203,8 +203,8 @@ func (f *Factory) OutboxRepository(db *mongo.DB) *mongo.OutboxRepository {
 	return mongo.NewOutboxRepository(mongo.NewQuerier(db.Database()))
 }
 
-func (f *Factory) RuleRepository(db *mongo.DB) *mongo.Repository {
-	return mongo.NewRepository(mongo.NewQuerier(db.Database()))
+func (f *Factory) RuleRepository(db *mongo.DB) *mongo.RuleRepository {
+	return mongo.NewRuleRepository(mongo.NewQuerier(db.Database()))
 }
 
 func (f *Factory) ActivationRepository(db *mongo.DB) *mongo.ActivationRepository {
@@ -275,7 +275,7 @@ func (f *Factory) EventService(
 	quarantine *mongo.QuarantineRepository,
 	clock ports.Clock,
 	beginTx ports.TransactionManager,
-	newRepos ports.RepositoryFactory,
+	newRepos ports.EventTxRepositoryFactory,
 ) *events.Service {
 	return events.NewService(compiler, evaluator, quarantine, clock, beginTx, newRepos)
 }
@@ -287,7 +287,7 @@ func (f *Factory) RuleService(
 	executions *mongo.ExecutionRepository,
 	clock ports.Clock,
 	txManager ports.TransactionManager,
-	newTxRepos ports.RepositoryFactory,
+	newTxRepos ports.RuleTxRepositoryFactory,
 ) *rules.Service {
 	return rules.NewService(compiler, ruleRepo, activation, executions, clock, txManager, newTxRepos)
 }

@@ -80,7 +80,7 @@ func run() (runErr error) {
 		repositories.Executions,
 		domain.SystemClock{},
 		repositories.Transactions,
-		repositories.NewTxRepositories,
+		repositories.NewRuleTxRepositories,
 	)
 
 	workflowSvc := svcworkflow.NewService(

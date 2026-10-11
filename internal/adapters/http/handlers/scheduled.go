@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
@@ -80,24 +79,12 @@ func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Request) {
-	limit := 100
-	offset := 0
-	if value := r.URL.Query().Get("limit"); value != "" {
-		parsed, err := strconv.Atoi(value)
-		if err != nil || parsed < 1 || parsed > 500 {
-			responses.WriteError(w, http.StatusBadRequest, "limit must be an integer between 1 and 500", responses.CodeValidationFailed)
-			return
-		}
-		limit = parsed
+	pagination, err := parsePagination(r, 100, 500, 10000)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
+		return
 	}
-	if value := r.URL.Query().Get("offset"); value != "" {
-		parsed, err := strconv.Atoi(value)
-		if err != nil || parsed < 0 {
-			responses.WriteError(w, http.StatusBadRequest, "offset must be a non-negative integer", responses.CodeValidationFailed)
-			return
-		}
-		offset = parsed
-	}
+	limit, offset := pagination.Limit, pagination.Offset
 
 	events, err := h.repo.List(r.Context(), middleware.GetTenantID(r.Context()), limit, offset)
 	if err != nil {

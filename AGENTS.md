@@ -56,19 +56,20 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Entry point: cmd/api/main.go.
 - Loads internal/config, opens and initializes internal/storage, constructs compiler and use-case services, registers HTTP handlers, and starts the HTTP server. The default HTTP bind is loopback; Compose publishes service ports on host loopback only.
 - Route registration: internal/adapters/http/router.go.
-- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go.
+- Handlers: internal/adapters/http/handlers/rules.go, workflows.go, contracts.go, batch_quarantine.go and scheduled.go. Shared HTTP request helpers live in handlers/utils.go and query_params.go.
 - Middleware and request body decoding: internal/adapters/http/middleware/middleware.go and internal/adapters/http/handlers/utils.go.
-- Workflow definition routes are under /v1/workflows/definitions, not /v1/workflow-definitions.
+- Workflow definitions are global platform configuration in the current schema. The tenant-facing API exposes read-only GET routes under /v1/workflows/definitions; create/delete routes are deliberately not registered until an authenticated admin API and explicit ownership model exist.
 - /health is liveness only; it does not check storage or broker readiness.
 - The HTTP SDK transport targets POST /v1/events/{type}; verify that route is implemented and contract-tested before selecting HTTP transport. Do not assume the management API accepts producer events.
 - Scheduled-event list/get/cancel operations use tenant-scoped repository queries. Cancellation is allowed only while the event is pending; repository conflicts return an HTTP conflict rather than reporting success.
 - The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
 SECURITY / DEPLOYMENT REQUIREMENT:
-- Development and test may use X-Tenant-ID or tenant_id for local isolation only. These are caller-controlled and are not authentication.
-- No trusted-proxy token, JWT, mTLS, or user authentication is implemented by TenantExtractor. Do not configure FLOWRULE_TRUSTED_PROXY_TOKEN expecting enforcement; current middleware trusts X-Tenant-ID, then tenant_id query, then default. These values are caller-controlled.
-- Loopback defaults and local Compose port binding reduce accidental exposure only; they do not create an identity boundary. Keep the API private until authentication and authorization are actually implemented.
-- Resource-level tenant checks are required in handlers and persistence queries. This is not yet complete for all resources; production multi-tenant exposure remains blocked until every read/write path is tenant-scoped and tested.
+- Development and test may use caller-provided X-Tenant-ID or tenant_id values for local isolation only.
+- In non-development environments, TenantExtractor requires FLOWRULE_TRUSTED_PROXY_TOKEN and validates X-Proxy-Auth with a constant-time comparison. It takes tenant identity only from X-Authenticated-Tenant-ID; it does not fall back to caller-controlled tenant headers/query values.
+- This is a trusted-proxy integration contract, not first-party authentication. The proxy must authenticate and authorize the caller, strip any inbound X-Proxy-Auth and X-Authenticated-Tenant-ID headers, then set fresh trusted values. Protect the token as a secret and keep API ingress private to the proxy.
+- Health is intentionally exempt from tenant identity extraction. It is liveness only, not a readiness/security check.
+- Workflow definitions are treated as global, read-only platform configuration at the tenant-facing HTTP boundary; do not re-enable mutations without an authenticated admin API and an explicit ownership model. Quarantine GET/replay/delete operations now carry tenant identity into repository queries, and unscoped list queries fail closed. New effect quarantines carry tenant identity from the event through the outbox; SQL migrations and Mongo startup backfill repair legacy records when their source chain is available. Orphan records without an authoritative source remain unscoped and must not be assigned a tenant from a request. Production multi-tenant exposure remains blocked until proxy deployment, every resource path, and cross-tenant negative tests are verified.
 
 ### Worker
 
@@ -97,7 +98,7 @@ Keep dependencies moving inward:
 - internal/rules compiles and evaluates rules. Evaluation must remain deterministic, side-effect-free, and clock-injected; do not add I/O or randomness.
 - internal/services/* contains use-case orchestration. It should depend on domain and consumer-owned ports, not concrete SQL, Mongo, NATS or HTTP packages.
 - internal/application coordinates worker runtime. internal/runtime/* owns bounded queues, shard leases and scheduler loops.
-- internal/ports declares broker, repository, transaction, runtime and service contracts. Prefer small interfaces owned by the consumer. Current transaction abstractions still expose adapter lifecycle details and TxRepos is broad; treat those as technical debt, not a pattern to expand.
+- internal/ports declares broker, repository, transaction, runtime and service contracts. Prefer small interfaces owned by the consumer. EventTxRepos and RuleTxRepos are deliberately narrow transaction-scoped views; adapter-owned factories perform concrete transaction assertions and driver-specific repository wiring. The Transaction port still exposes context/fencing details and should not grow without a use-case need.
 - internal/adapters/* implements I/O and translates between ports/domain and transport or persistence details.
 - internal/storage selects the configured backend and composes repositories. Current API/worker entrypoints use it.
 - internal/factory/factory.go is an older broad Mongo-oriented assembly factory that overlaps current storage/wiring. Do not add new wiring paths there without migrating callers and consolidating composition.
@@ -182,7 +183,7 @@ HTTP:
 - internal/adapters/http/handlers/scheduled.go — scheduled-event endpoints.
 - internal/adapters/http/handlers/utils.go — JSON/YAML decoder, 1 MiB request-body limit, strict single-document handling.
 - internal/adapters/http/handlers/safe_output_path.go and safe_output_path_test.go — code-generation output containment, symlink resolution, and path traversal regression tests.
-- internal/adapters/http/handlers/scheduled_test.go, workflows_test.go, batch_quarantine_test.go — API behavior and tenant-body mismatch regression tests.
+- internal/adapters/http/handlers/scheduled_test.go, workflows_test.go, batch_quarantine_test.go, quarantine_tenant_test.go — API behavior, tenant-body mismatch, read-only global workflow definitions, and tenant-scoped quarantine regression tests.
 - internal/adapters/http/middleware/middleware.go — current tenant extraction and panic recovery; not authentication.
 - internal/adapters/http/responses/responses.go — response and error helpers.
 
@@ -269,9 +270,9 @@ Storage/messaging:
 1. P0 security: API has no authN/authZ or trusted tenant resolver. Tenant values from request headers/query/body are not identity. Implement authenticated claims, per-resource tenant authorization and cross-tenant negative tests before untrusted production exposure.
 2. P1 outbox lease duration: delivery/retry/quarantine settlement now checks a unique claim token and claim expiry in SQL and Mongo, and the service returns durable settlement errors. Publishing remains sequential with a fixed two-minute claim TTL and no per-effect timeout, so slow destinations can still outlive the claim.
 3. P1 quarantine atomicity: quarantine records and outbox status are stored separately. If cleanup after losing a claim also fails, an orphan quarantine record can remain; live failure-injection tests and a transactional/repairable protocol are still needed.
-4. P1 transaction abstraction: ports.Transaction exposes context and fencing mutators; TxRepos combines many repositories; SQL wiring type-asserts concrete transaction types. Redesign around use-case-owned unit-of-work contracts with atomicity tests.
+4. P1 transaction abstraction: event and rule transaction repository bundles are now narrow and adapter-owned factories isolate concrete SQL/Mongo transaction assertions. Remaining debt: ports.Transaction exposes context/fencing mutators; validate their necessity and add transaction atomicity/conformance tests.
 5. P1 adapter conformance: current contract suites use in-memory repositories. Run identical contracts against live PostgreSQL and Mongo transaction-capable configurations; document unsupported semantics.
-6. P1 tenant authorization: JSON/YAML request bodies are bounded to 1 MiB and extra JSON values/multiple YAML documents are rejected, but authentication is absent and some workflow/quarantine/resource reads remain unscoped. Derive tenant identity from a verified identity provider and enforce tenant ownership on every resource operation.
+6. P1 tenant authorization: JSON/YAML request bodies are bounded to 1 MiB and extra JSON values/multiple YAML documents are rejected. Workflow definitions are global and read-only on the tenant-facing API; quarantine item reads and mutations now include tenant predicates in repository operations, and unscoped quarantine lists fail closed. Authentication still depends on the trusted-proxy deployment contract. Legacy effect quarantine records are backfilled from the outbox/execution source chain where available; orphan records without that source remain unscoped. Verify every resource path and cross-tenant negative tests before production exposure.
 7. P2 workflow API clarity: workflow.Service definition methods currently return not-implemented errors; handlers use a separate definition repository. Remove or implement the placeholders intentionally.
 8. P2 composition: internal/factory overlaps internal/storage and is not used by main entrypoints. Verify callers before deleting or migrating it.
 9. P2 operational surface: /health is liveness only; the API has no gRPC listener; migration down/status are unsupported.

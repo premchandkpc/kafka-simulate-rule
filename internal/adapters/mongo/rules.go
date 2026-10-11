@@ -13,15 +13,24 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
-type Repository struct {
+// RuleRepository stores and retrieves versioned rule revisions.
+type RuleRepository struct {
 	querier Querier
 }
 
-func NewRepository(q Querier) *Repository {
-	return &Repository{querier: q}
+// Repository is retained as a compatibility alias for legacy internal callers.
+type Repository = RuleRepository
+
+func NewRuleRepository(q Querier) *RuleRepository {
+	return &RuleRepository{querier: q}
 }
 
-func (r *Repository) collection(name string) *mongo.Collection {
+// NewRepository is retained for compatibility; new code should use NewRuleRepository.
+func NewRepository(q Querier) *RuleRepository {
+	return NewRuleRepository(q)
+}
+
+func (r *RuleRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 

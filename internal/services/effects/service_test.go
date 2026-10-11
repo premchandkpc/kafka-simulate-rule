@@ -70,14 +70,14 @@ func (r *testQuarantineRepository) Save(_ context.Context, entry *domain.Quarant
 	r.saved = append(r.saved, &copy)
 	return r.saveErr
 }
-func (r *testQuarantineRepository) Get(context.Context, string) (*domain.QuarantineEntry, error) {
+func (r *testQuarantineRepository) Get(context.Context, string, string) (*domain.QuarantineEntry, error) {
 	return nil, nil
 }
 func (r *testQuarantineRepository) List(context.Context, ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	return nil, nil
 }
-func (r *testQuarantineRepository) Replay(context.Context, string) error { return nil }
-func (r *testQuarantineRepository) Delete(_ context.Context, id string) error {
+func (r *testQuarantineRepository) Replay(context.Context, string, string) error { return nil }
+func (r *testQuarantineRepository) Delete(_ context.Context, _, id string) error {
 	r.deleted = append(r.deleted, id)
 	return r.deleteErr
 }
