@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: Build and unit tests
+    name: Build, test, and vet
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,11 +23,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build service binaries
-        run: go build ./cmd/api ./cmd/worker ./cmd/codegen
+      - name: Build root-module commands
+        run: go build ./cmd/...
 
-      - name: Run unit tests with race detector
-        run: go test -race -count=1 ./internal/...
+      - name: Run root-module tests with race detector
+        run: go test -race -count=1 ./...
 
-      - name: Vet internal packages
-        run: go vet ./internal/...
+      - name: Vet root-module packages
+        run: go vet ./...
+
+      - name: Test standalone Go SDK
+        working-directory: sdk/go
+        run: go test -race -count=1 ./...
+
+      - name: Test banking example module
+        working-directory: examples/banking
+        run: go test -race -count=1 ./...
+
+      - name: Test ecommerce example module
+        working-directory: examples/ecommerce
+        run: go test -race -count=1 ./...
+
+      - name: Test food-delivery example module
+        working-directory: examples/food-delivery
+        run: go test -race -count=1 ./...
