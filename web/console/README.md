@@ -37,7 +37,7 @@ npm run preview
 - The UI adds `X-Tenant-ID` to API requests and uses an optional bearer token. The server remains responsible for authentication, authorization, and tenant isolation.
 - Contract mutation and generation require the relevant admin scope outside local development.
 - Code generation writes to a server-managed temporary directory. The current API returns generated paths, not a downloadable artifact.
-- Prometheus worker endpoints and Loki must remain on private networks and have explicit CORS/reverse-proxy rules. Do not use wildcard CORS or expose raw metrics publicly.
+- Prometheus worker endpoints are unauthenticated and must remain on private networks or behind an authenticated reverse proxy; the API bearer token is not sent to worker metrics. Configure exact-origin CORS/reverse-proxy rules. Do not use wildcard CORS or expose raw metrics publicly.
 - Worker counts and per-rule execution numbers are sourced from each configured worker's metrics endpoint. If a metric is absent, the UI shows an unavailable value rather than guessing.
 
 ## Current limitations
