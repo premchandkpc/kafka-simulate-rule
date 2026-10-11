@@ -6,7 +6,7 @@ This guide describes the current implementation. It does not certify the service
 
 JWT authentication and scope checks are available through `internal/auth`; enable them with `REQUIRE_AUTH=true`, a high-entropy `JWT_SECRET` (at least 32 characters), and the expected issuer/audience. In production, tenant extraction also supports a fail-closed trusted-proxy contract via `FLOWRULE_TRUSTED_PROXY_TOKEN`, `X-Proxy-Auth`, and `X-Authenticated-Tenant-ID`. A validated JWT tenant claim is authoritative; conflicting caller-supplied tenant values are rejected. Do not expose the API to untrusted multi-tenant traffic until authentication is required in the deployed configuration, every resource path has been audited, and cross-tenant negative tests plus proxy/header-stripping behavior are verified.
 
-Native configuration defaults the HTTP server to `127.0.0.1:8080`. The local Compose file publishes API, PostgreSQL, NATS, NATS monitoring and Redis ports on host loopback only. Compose still uses demo credentials. Do not reuse those credentials or treat the development stack as a production deployment.
+Native configuration defaults the HTTP server to `127.0.0.1:8080`. The local Compose file publishes API, PostgreSQL, NATS, NATS monitoring and Redis ports on host loopback only. Compose starts three worker replicas by default (`WORKER_REPLICAS=3`) using the fixed-replica shard lease allocation. It still uses demo credentials. Do not reuse those credentials or treat the development stack as a production deployment.
 
 ## Runtime topology
 
@@ -63,6 +63,7 @@ The authoritative Compose variable template is `.env.example`; copy it to `.env`
 | `NATS_URL` | Local client URL `nats://localhost:4222`; containers use the Compose service name |
 | `NATS_STREAM`, `NATS_CONSUMER` | Stream and optional durable consumer identifiers |
 | `NUM_SHARDS` | 4096 virtual shards by default; must match producer/SDK/scheduler settings |
+| `WORKER_REPLICAS` | `3` in Compose; must match the configured worker replica count on every worker. This is fixed membership, not automatic rebalance after replica loss. |
 | `BATCH_MODE` | Must remain `none` until batch execution uses a valid shard fencing token and the per-key queue; other values fail startup validation |
 | `FETCH_BATCH_SIZE`, `MAX_GLOBAL_IN_FLIGHT`, `MAX_PER_KEY_QUEUE`, `KEY_QUEUE_WORKERS` | Bound fetching and queued/in-flight work |
 | `NATS_ACK_WAIT_MS`, `NATS_MAX_DELIVER` | NATS delivery acknowledgement timeout and maximum delivery count |
