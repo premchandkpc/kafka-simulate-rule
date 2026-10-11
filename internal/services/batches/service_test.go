@@ -61,6 +61,36 @@ func (m *memBatches) GetRun(ctx context.Context, batchID string) (*domain.BatchR
 	return m.runs[batchID], nil
 }
 
+func (m *memBatches) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run := m.runs[batchID]
+	if run == nil || run.TenantID != tenantID {
+		return nil, nil
+	}
+	return run, nil
+}
+
+func (m *memBatches) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*domain.BatchRun
+	for _, run := range m.runs {
+		if run.TenantID != tenantID || (ruleSet != "" && run.RuleSet != ruleSet) {
+			continue
+		}
+		result = append(result, run)
+	}
+	if offset >= len(result) {
+		return []*domain.BatchRun{}, nil
+	}
+	result = result[offset:]
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
 type memEventProcessor struct {
 	mu         sync.Mutex
 	envelopes  []*domain.EventEnvelope
