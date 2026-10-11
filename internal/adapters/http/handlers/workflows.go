@@ -30,9 +30,7 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workflows/{workflowID}/transition", h.TransitionWorkflow)
 	mux.HandleFunc("GET /v1/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /v1/workflows/definitions", h.ListWorkflowDefinitions)
-	mux.HandleFunc("POST /v1/workflows/definitions", h.CreateWorkflowDefinition)
 	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}", h.GetWorkflowDefinition)
-	mux.HandleFunc("DELETE /v1/workflows/definitions/{workflowType}/{version}", h.DeleteWorkflowDefinition)
 }
 
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +192,9 @@ func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http
 	})
 }
 
+// CreateWorkflowDefinition is intentionally not registered on the tenant-facing router.
+// Definitions are global platform configuration until a separately authorized admin API
+// and an explicit ownership model are introduced.
 func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	var def domain.WorkflowDefinition
 	if err := decodeRequestBody(r, &def); err != nil {
@@ -245,9 +246,15 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	if version > 0 {
 		def, err = h.workflowDefRepo.Get(ctx, workflowType, version)
 	} else {
-		defs, err := h.workflowDefRepo.List(ctx, "")
-		if err == nil && len(defs) > 0 {
-			def = defs[0]
+		defs, listErr := h.workflowDefRepo.List(ctx, "")
+		if listErr != nil {
+			err = listErr
+		} else {
+			for _, candidate := range defs {
+				if candidate.WorkflowType == workflowType && (def == nil || candidate.Version > def.Version) {
+					def = candidate
+				}
+			}
 		}
 	}
 	if err != nil {
@@ -262,6 +269,7 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 	responses.WriteOK(w, def)
 }
 
+// DeleteWorkflowDefinition is intentionally not registered on the tenant-facing router.
 func (h *WorkflowHandler) DeleteWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")
