@@ -125,7 +125,6 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 		responses.WriteError(w, http.StatusConflict, "from_state does not match current workflow state", responses.CodeConflict)
 		return
 	}
-	var err error
 	if body.FromState != "" {
 		err = h.workflowSvc.Transition(ctx, workflowID, body.FromState, body.ToState)
 	} else {
