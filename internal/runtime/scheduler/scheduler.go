@@ -174,8 +174,8 @@ func scheduledRetryDelay(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
-	if attempt > 6 {
-		attempt = 6
+	if attempt > 7 {
+		attempt = 7
 	}
 	delay := time.Duration(1<<uint(attempt-1)) * time.Second
 	if delay > time.Minute {
