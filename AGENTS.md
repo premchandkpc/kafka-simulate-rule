@@ -293,3 +293,151 @@ Every PR should state:
 - Known limitations that remain.
 
 Never report a pending CI check as passed. Never infer live infrastructure coverage from an in-memory test name. Never claim a capability is implemented just because a roadmap, example, diagram or interface mentions it.
+
+## 9. Mandatory change-design workflow
+
+Every non-trivial change MUST follow this workflow before implementation. Do not treat a request as permission to append code wherever it is easiest.
+
+### 9.1 Establish evidence and scope
+
+1. Inspect the current implementation, callers, tests, configuration, schemas, migrations, build targets, and relevant documentation before proposing a design.
+2. Identify the current branch and base commit. Keep changes on the requested working branch; never commit directly to the default branch unless explicitly instructed.
+3. Write down the observable problem, affected use case, invariants, compatibility constraints, failure modes, and measurable acceptance criteria.
+4. Separate verified facts from assumptions. A filename, interface, diagram, or old audit is not proof that a capability works.
+5. Trace the full call path and data lifecycle, including startup, normal execution, retries, cancellation, shutdown, and recovery where applicable.
+
+### 9.2 Design before coding
+
+For every change that affects architecture or more than one package, record:
+
+- Current flow and its concrete shortcomings.
+- Proposed flow and why it is better.
+- Package ownership and the responsibility of each changed/new file.
+- Dependency direction before and after the change.
+- Interfaces required by consumers, and why each interface belongs to that consumer.
+- Data/schema/API compatibility, transaction boundaries, idempotency, tenant isolation, and failure behavior.
+- Alternatives considered and the reason for rejecting them.
+- Test strategy, rollout/migration steps, operational impact, and rollback limits.
+
+Do not introduce a new layer, interface, factory, registry, generic framework, or package merely for theoretical extensibility. Introduce it when it isolates a real volatile dependency, prevents a real dependency violation, or removes meaningful duplication. Prefer the smallest design that preserves clear ownership and testability.
+
+### 9.3 File and package placement rules
+
+Before adding or moving a file, answer: what single responsibility does it own, which layer owns that responsibility, and which packages should be allowed to depend on it?
+
+- `cmd/*`: process entrypoints and composition roots only. Parse process-level configuration, wire implementations, manage lifecycle, and delegate work. No business rules, repositories, or HTTP handlers implemented in command packages.
+- `internal/domain`: business concepts, invariants, state transitions, deterministic business validation, and domain errors. No I/O, serialization-framework dependencies, transport types, or database-driver types.
+- `internal/rules`: pure rule parsing/compilation/evaluation and rule limits. No persistence, broker calls, clocks obtained globally, or hidden side effects.
+- `internal/ports`: contracts required by inward-facing consumers. Keep interfaces narrow, cohesive, and owned by the package that needs the capability. Avoid speculative interfaces and broad catch-all repository interfaces.
+- `internal/services/*`: use-case orchestration and application-level transaction coordination. Depend on domain and ports, not concrete adapters.
+- `internal/application`: coordinate worker lifecycle and runtime collaborators; do not duplicate business use cases already owned by services.
+- `internal/runtime/*`: reusable runtime mechanics such as bounded key queues, leases, and scheduling. Keep business decisions in the appropriate use case.
+- `internal/adapters/*`: protocol, storage, broker, cache, and external-system details; translate at the boundary and implement ports.
+- `internal/storage`: backend selection and repository composition. Avoid creating a second competing composition root.
+- `internal/observability`: logging, metrics, tracing, and their lifecycle; business packages should not depend on concrete observability vendors.
+- `internal/codegen`: code generation logic and templates. HTTP handlers and CLI commands should validate inputs and delegate to it.
+- `api/`, `migrations/`, SDKs, examples, and docs: treat schemas, persistence evolution, public client contracts, examples, and architecture documentation as separate owned artifacts with explicit compatibility checks.
+
+These are ownership rules, not a reason to force every file into a prescribed folder. If a responsibility does not fit, explain the boundary and propose the smallest coherent package change. Do not move files just to make the tree look symmetrical.
+
+### 9.4 Dependency and SOLID review gate
+
+For every changed dependency edge, verify:
+
+- Dependency direction points inward; domain and rule evaluation remain independent of infrastructure.
+- A package imports only what it uses. No import cycles, adapter-to-adapter shortcuts, or service imports of concrete storage/broker packages.
+- Interfaces are small, consumer-driven, and implemented by the boundary adapter. Avoid interfaces with one implementation unless they provide a real boundary or testing seam.
+- Single Responsibility: each package/type has one cohesive reason to change.
+- Open/Closed and Liskov Substitution: implementations honor the same documented contract and error semantics; do not add abstractions that make behavior implicit.
+- Interface Segregation: consumers do not depend on unrelated repository methods.
+- Dependency Inversion: use cases own policy; adapters own technical details.
+- Composition is explicit and testable. Do not add another factory/wiring route when an existing composition root can be improved.
+- Shared helpers have stable semantics and a clear owner. Avoid both copy-pasted policy and a miscellaneous `common`/ `utils` package that becomes a dependency dumping ground.
+
+When logic is duplicated, compare behavior and invariants before extracting it. Share genuinely identical mechanics; keep domain-specific policies separate. Add tests for shared behavior and regression tests for each affected caller.
+
+### 9.5 Structural refactoring requirements
+
+When a change reveals misplaced or tangled code:
+
+1. Map callers and side effects before moving code.
+2. Move code to the package that owns the responsibility; update imports and composition wiring.
+3. Separate policy from mechanism and pure logic from I/O.
+4. Remove obsolete implementations, dead code, stale comments, duplicate factories, and superseded helpers only after confirming there are no callers or public compatibility requirements.
+5. Keep changes cohesive. Avoid unrelated mass renames or formatting noise that obscures behavioral changes.
+6. Update tests, diagrams, file maps, and README/operational instructions affected by the new structure.
+7. Explain intentional exceptions rather than silently violating a boundary.
+
+Do not preserve a bad design solely to minimize the diff. Equally, do not rewrite stable code without a demonstrated correctness, maintainability, security, or performance benefit.
+
+### 9.6 Data contracts, schemas, and migrations
+
+Any change to an event envelope, rule model, API payload, persisted record, SDK contract, generated artifact, or configuration format must assess:
+
+- Source-of-truth schema and actual runtime validation.
+- Required/optional fields, defaults, unknown-field handling, size limits, and malformed-input behavior.
+- Backward/forward compatibility with deployed producers, consumers, and stored records.
+- SQL and Mongo parity, indexes, uniqueness, transaction semantics, and tenant-scoped query predicates.
+- Migration ordering, repeatability, existing-data backfill, lock/downtime implications, and rollback feasibility.
+- Generated code and SDK examples, plus contract tests.
+- Security implications such as tenant spoofing, injection, path traversal, secret leakage, and over-broad queries.
+
+Never rewrite an already-applied migration to change historical behavior. Add a new migration. Do not claim schema enforcement merely because a schema file exists; prove that the request or message path invokes validation.
+
+### 9.7 Runtime and distributed-systems invariants
+
+Changes to worker, broker, outbox, scheduler, lease, queue, or transaction behavior must explicitly review:
+
+- At-least-once delivery, duplicate delivery, stable idempotency keys, and inbox/outbox atomicity.
+- ACK timing, unknown commit outcomes, retry classification, backoff, quarantine, and poison-message handling.
+- Lease expiry, fencing-token validation, stale workers, claim expiry, and claimant-fenced settlement.
+- Per-key ordering, bounded queues, backpressure, goroutine lifecycle, cancellation, and graceful shutdown.
+- Tenant propagation and authorization at repository query boundaries.
+- Timeout/deadline behavior, error propagation, observability, and recovery after process or broker failure.
+
+Do not weaken an invariant to make a test pass. Add failure-injection tests for meaningful crash windows. Do not claim exactly-once behavior without a precise, bounded definition and evidence.
+
+### 9.8 Go engineering standards
+
+- Follow `gofmt`, project lint rules, idiomatic naming, and effective Go error handling.
+- Pass `context.Context` explicitly for request/operation-scoped work; do not hide it in structs or replace it with `context.Background()` inside a request path.
+- Wrap errors with useful operation context and preserve classification via `errors.Is`/`errors.As` where needed. Never swallow persistence or cleanup errors silently.
+- Make goroutine ownership, cancellation, termination, and synchronization explicit. Avoid unbounded fan-out, detached goroutines, and shared mutable state without synchronization.
+- Validate untrusted inputs at boundaries; use parameterized SQL, safe BSON construction, bounded request bodies, and explicit outbound destination/time limits.
+- Keep configuration parsing and validation centralized. Fail fast for invalid or unsafe production configuration.
+- Add table-driven tests where useful, deterministic clocks/IDs for time-dependent logic, race tests for concurrency, and benchmarks before claiming performance improvements.
+- Keep exported APIs documented and stable. Do not expose internal server packages through generated SDK code.
+
+### 9.9 Verification and evidence
+
+Run the narrowest relevant tests during development, then run all applicable checks before declaring completion:
+
+```sh
+gofmt -w <changed-go-files>
+go build ./cmd/...
+go test -race -count=1 ./...
+go vet ./...
+```
+
+Also run the separate SDK/example module checks listed in Section 2 when their code or shared contracts are affected, plus relevant lint, schema, migration, security, and integration checks. Use live infrastructure tests when claiming SQL/Mongo/NATS behavior; mocks and in-memory repositories alone do not establish adapter conformance.
+
+Report exact commands and outcomes. If a check cannot run, say why and identify the remaining risk. Never report an unobserved CI result as passed.
+
+### 9.10 Definition of done for every non-trivial PR
+
+A change is not complete until the PR description or review record includes:
+
+- [ ] Root cause and observable behavior addressed.
+- [ ] Before/after execution or dependency flow.
+- [ ] File placement and ownership justified for every new/moved file.
+- [ ] SOLID, coupling, interface segregation, duplication, and abstraction trade-offs reviewed.
+- [ ] API/schema/migration/SDK compatibility assessed where relevant.
+- [ ] Failure modes, security, tenancy, retries, and operational behavior assessed where relevant.
+- [ ] Unit/regression tests added; contract, race, and live integration tests selected appropriately.
+- [ ] Formatting, build, tests, vet, and relevant lint/security checks reported with actual results.
+- [ ] Architecture map, file map, schema docs, README, and operational docs updated when affected.
+- [ ] Dead code and obsolete paths removed where safe; no unrelated changes or secrets introduced.
+- [ ] Remaining limitations and rollout/rollback constraints stated honestly.
+
+For a documentation-only change, do not pretend runtime tests validate the document. Check links, commands, path names, consistency with current source, and whether requirements are actionable and non-contradictory.
+
