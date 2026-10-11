@@ -26,7 +26,7 @@ func (r *ShardLeaseRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
-	coll := r.collection("shard_leases")
+	coll := r.collection(collectionShardLeases)
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
 
@@ -69,7 +69,7 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 }
 
 func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
-	coll := r.collection("shard_leases")
+	coll := r.collection(collectionShardLeases)
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
 
@@ -98,7 +98,7 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 }
 
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
-	coll := r.collection("shard_leases")
+	coll := r.collection(collectionShardLeases)
 	_, err := coll.UpdateOne(ctx, bson.M{
 		"virtual_shard": shard,
 		"owner":         owner,
@@ -113,7 +113,7 @@ func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner 
 }
 
 func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
-	coll := r.collection("shard_leases")
+	coll := r.collection(collectionShardLeases)
 	var doc LeaseDoc
 	err := coll.FindOne(ctx, bson.M{
 		"virtual_shard": shard,
@@ -128,7 +128,7 @@ func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*dom
 }
 
 func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
-	coll := r.collection("shard_leases")
+	coll := r.collection(collectionShardLeases)
 	var doc LeaseDoc
 	err := coll.FindOne(ctx, bson.M{
 		"virtual_shard": shard,
@@ -148,7 +148,7 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 // AssertHeld validates the lease is held by the owner with the given fencing token.
 // Uses find with filter to ensure lease is valid. Fails closed.
 func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
-	coll := r.collection("shard_leases")
+	coll := r.collection(collectionShardLeases)
 	var doc LeaseDoc
 	err := coll.FindOne(ctx, bson.M{
 		"virtual_shard": shard,

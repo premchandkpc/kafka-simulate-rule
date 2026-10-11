@@ -26,7 +26,7 @@ func (r *WorkflowRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.WorkflowInstance) error {
-	coll := r.collection("workflow_instances")
+	coll := r.collection(collectionWorkflowInstances)
 	doc := WorkflowDocFromDomain(workflow)
 	_, err := coll.InsertOne(ctx, doc)
 	if err != nil {
@@ -39,7 +39,7 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.Workflow
 }
 
 func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
-	coll := r.collection("workflow_instances")
+	coll := r.collection(collectionWorkflowInstances)
 	var doc WorkflowDoc
 	err := coll.FindOne(ctx, bson.M{
 		"workflow_id": workflowID,
@@ -55,7 +55,7 @@ func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID strin
 }
 
 func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.WorkflowInstance) error {
-	coll := r.collection("workflow_instances")
+	coll := r.collection(collectionWorkflowInstances)
 	updatedAt := workflow.UpdatedAt
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
@@ -93,7 +93,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 }
 
 func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error) {
-	coll := r.collection("workflow_instances")
+	coll := r.collection(collectionWorkflowInstances)
 
 	filter := bson.M{
 		"tenant_id": tenantID,
@@ -123,7 +123,7 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 }
 
 func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
-	coll := r.collection("workflow_instances")
+	coll := r.collection(collectionWorkflowInstances)
 
 	filter := bson.M{
 		"tenant_id":      tenantID,
@@ -217,7 +217,7 @@ func (r *WorkflowDefinitionRepository) collection(name string) *mongo.Collection
 }
 
 func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.WorkflowDefinition) error {
-	coll := r.collection("workflow_definitions")
+	coll := r.collection(collectionWorkflowDefinitions)
 	doc := WorkflowDefinitionDocFromDomain(def)
 	_, err := coll.UpdateOne(ctx,
 		bson.M{"workflow_type": def.WorkflowType, "version": def.Version},
@@ -231,7 +231,7 @@ func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.Wor
 }
 
 func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
-	coll := r.collection("workflow_definitions")
+	coll := r.collection(collectionWorkflowDefinitions)
 	var doc WorkflowDefinitionDoc
 	err := coll.FindOne(ctx, bson.M{
 		"workflow_type": workflowType,
@@ -247,7 +247,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 }
 
 func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.WorkflowDefinition, error) {
-	coll := r.collection("workflow_definitions")
+	coll := r.collection(collectionWorkflowDefinitions)
 	cursor, err := coll.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "workflow_type", Value: 1}, {Key: "version", Value: -1}}))
 	if err != nil {
 		return nil, fmt.Errorf("list workflow definitions: %w", err)
@@ -266,7 +266,7 @@ func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.Work
 }
 
 func (r *WorkflowDefinitionRepository) Delete(ctx context.Context, workflowType string, version int64) error {
-	coll := r.collection("workflow_definitions")
+	coll := r.collection(collectionWorkflowDefinitions)
 	_, err := coll.DeleteOne(ctx, bson.M{"workflow_type": workflowType, "version": version})
 	if err != nil {
 		return fmt.Errorf("delete workflow definition: %w", err)
