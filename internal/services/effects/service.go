@@ -91,6 +91,7 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 				quarantineID := fmt.Sprintf("effect-%s-%s", ef.ID, domain.NewID())
 				qEntry := &domain.QuarantineEntry{
 					ID:         quarantineID,
+					TenantID:   ef.TenantID,
 					SourceType: "effect",
 					SourceID:   ef.ID,
 					ErrorClass: string(domain.ClassifyError(sendErr)),
