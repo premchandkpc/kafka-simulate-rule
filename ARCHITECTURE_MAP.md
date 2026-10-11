@@ -41,7 +41,7 @@ flowchart LR
 4. Create the HTTP router and register rule, workflow, contract, batch, quarantine, scheduled-event and health handlers.
 5. Serve HTTP and shut down when the process context is cancelled.
 
-The API currently starts HTTP only. GRPC_ADDR is not an active listener. The /health route is liveness only and does not check storage or NATS readiness. There is no authentication/authorization; tenant extraction reads caller-supplied header/query data and falls back to default, so this process must not be exposed to untrusted users.
+The API starts HTTP only. No gRPC listener/configuration exists. The default HTTP bind is loopback; Compose publishes host ports on 127.0.0.1. The /health route is liveness only and does not check storage or NATS readiness. There is no authentication/authorization; tenant extraction reads caller-supplied header/query data and falls back to default, so this process must not be exposed to untrusted users.
 
 ### Worker — cmd/worker/main.go
 
@@ -180,7 +180,7 @@ Rules:
 | P1 | HTTP request body decoding lacks size and strict trailing-content guard | Bound reads, reject trailing documents, and use authenticated tenant context |
 | P2 | Workflow service contains not-implemented definition methods | Implement intentionally or remove placeholders and use a clear repository/service boundary |
 | P2 | internal/factory duplicates storage composition | Verify consumers and consolidate composition |
-| P2 | health is liveness only and no gRPC listener exists | Separate readiness/liveness; wire/remove misleading configuration |
+| P2 | health is liveness only and no gRPC listener exists | Separate readiness/liveness or document that only liveness is available |
 | P2 | No live crash/recovery suite or benchmark evidence | Add live PostgreSQL/NATS failure injection and reproducible benchmarks |
 | P2 | SQL outbox insertion is one insert per effect | Measure throughput then introduce batch insert if warranted |
 
