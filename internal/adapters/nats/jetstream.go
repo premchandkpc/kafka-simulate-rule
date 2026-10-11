@@ -17,14 +17,14 @@ import (
 )
 
 type Config struct {
-	NatsURL    string
+	NatsURL        string
 	ConnectTimeout time.Duration
-	Stream     string
-	Consumer   string
-	Subjects   []string
-	AckWait    time.Duration
-	MaxDeliver int
-	NumShards  uint32
+	Stream         string
+	Consumer       string
+	Subjects       []string
+	AckWait        time.Duration
+	MaxDeliver     int
+	NumShards      uint32
 }
 
 // Consumer implements both ports.ShardedConsumer and ports.BrokerPublisher
