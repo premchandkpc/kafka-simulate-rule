@@ -167,7 +167,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 
 	result, err := coll.UpdateOne(ctx,
 		bson.M{
-			"effect_id":  effectID,
+			"effect_id":        effectID,
 			"status":           domain.OutboxStatusClaimed,
 			"claimed_by":       claimant,
 			"claim_expires_at": bson.M{"$gt": now},
