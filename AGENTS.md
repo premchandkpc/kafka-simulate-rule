@@ -119,7 +119,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - IMPLEMENTATION_PLAN.md — historical/forward-looking plan; not an authoritative status board unless checkboxes are maintained.
 - go.mod / go.sum — root Go module and dependency checksums.
 - Makefile — developer build, tests, checks, Docker, migration and codegen targets. Keep target recipes consistent with implemented CLI flags.
-- .env.example — configuration names and local-only placeholder defaults, including opt-in RANDOM_PRODUCER_CLIENTS, RANDOM_PRODUCER_MESSAGES_MAX and RANDOM_PRODUCER_CONCURRENCY settings. Never place secrets here.
+- .env.example — configuration names and local-only placeholder defaults, including opt-in RANDOM_PRODUCER_CLIENTS, RANDOM_PRODUCER_MESSAGES_MAX, RANDOM_PRODUCER_CONCURRENCY, RANDOM_PRODUCER_SCENARIO and RANDOM_PRODUCER_TENANT_ID settings. Never place secrets here.
 - .gitignore / .dockerignore — build artifacts, generated output, local data, secrets and Docker context exclusions. Do not commit executable binaries.
 - .golangci.yml — lint and package-boundary checks.
 - SECURITY.md — vulnerability-reporting process and security status.
@@ -171,7 +171,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - internal/observability/tracing.go — tracing setup.
 - internal/observability/handler.go — HTTP observability handler.
 - internal/codegen/generator.go — templates/generation for Go, Java, Protobuf, JSON Schema and runtime artifacts.
-- examples/random-producer/producer.go, producer_test.go — bounded random event generation, shared domain envelope/shard routing, narrow publisher port, concurrency, cancellation and result accounting for the opt-in random-producer example.
+- examples/random-producer/producer.go, scenarios.go, producer_test.go and scenarios_test.go — bounded concurrent load generation using the existing e-commerce, banking and food-delivery event contracts, shared domain envelope/shard routing, a narrow publisher port, cancellation and broker-ack accounting. Scenario tests read the existing YAML contracts and check generated payload fields/types.
 - internal/storage/storage.go — backend selection, repository wiring, initialization and closure.
 - internal/factory/factory.go — legacy broad factory; current process entrypoints use internal/storage instead.
 
