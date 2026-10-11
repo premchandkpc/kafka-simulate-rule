@@ -168,6 +168,6 @@ func handleOrderCreated(event *OrderCreated) {
 1. **No microservices needed** - Business logic expressed as rules
 2. **Type-safe contracts** - Generated types prevent schema drift
 3. **Audit trail** - Every decision recorded with decision hash
-4. **Exactly-once processing** - Inbox pattern prevents duplicates
+4. **Duplicate-resistant processing** - Inbox deduplication reduces duplicate rule execution
 5. **Scalable** - Sharding by customer_id ensures ordering per customer
 6. **Observable** - Full lineage from event → execution → effects → child events
