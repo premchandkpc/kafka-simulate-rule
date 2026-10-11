@@ -17,8 +17,10 @@ Reviewed the main-branch snapshot at commit ce533ad522a5616a9c5e0118d7d37aba00da
 - Refactored codegen and migrate CLIs to return errors through deferred cleanup. Migration CLI now gives an explicit error for unsupported down/status commands.
 - Corrected example deployment scripts that called the nonexistent bin/codegen-yaml command, fixed the workflow-definition route, and made curl fail on HTTP errors. Rule files and generated artifacts remain checked-in source/output; codegen CLI operates on registered contracts.
 - Aligned the local Compose environment so the worker may use its fake destination in development mode instead of exiting because production mode requires EFFECT_DESTINATION_URL.
+- Removed the unused GRPC_ADDR configuration field and default gRPC port mapping because the API does not start a gRPC listener. Changed the native HTTP default to 127.0.0.1:8080 and bound local Compose host ports to loopback, reducing accidental exposure while tenant auth remains unfinished.
+- Rewrote docs/operations.md to remove stale claims about hard-coded worker settings, missing shard enforcement, gRPC, and event subjects; documented the actual runtime flow and open outbox/security risks.
 - Removed checked-in compiled root/sample executables and added ignore entries for those build outputs.
-- Expanded Go CI to cover root commands/packages plus the standalone SDK and three example modules.
+- Expanded Go CI to cover root commands/packages, both independent SDK modules, and all three example modules, plus formatting, JSON schema syntax, and shell syntax checks.
 - Replaced AGENTS.md with current source-backed instructions and a file-by-file map. Replaced ARCHITECTURE_MAP.md and docs/README.md with current flow/route/guarantee statements, added the root README, and replaced the generic SECURITY.md template.
 - Aligned Makefile targets to the implemented codegen/migration CLI, added non-mutating format verification, removed nonexistent E2E/protobuf/rollback recipes, and stopped the clean task from clearing the user's entire Go module cache.
 
@@ -84,7 +86,7 @@ Next step: benchmark realistic event/effect sizes and contention, inspect actual
 
 ## Verification record
 
-This review was authored against main commit ce533ad522a5616a9c5e0118d7d37aba00da97cc; the change branch adds the source changes above. Remote file edits were committed through the GitHub API. No local test run is claimed. An early widened-CI run passed root build/tests/vet but exposed the standalone SDK's duplicate Effect declaration; that defect and its module checksums were fixed on the current branch. The final widened Go CI and default CodeQL runs must be checked at the current PR head before merging. A green build does not close the open security/storage findings above.
+This review was authored against main commit ce533ad522a5616a9c5e0118d7d37aba00da97cc; the change branch adds the source changes above. Remote file edits were committed through the GitHub API. No local test run is claimed. An early widened-CI run passed root build/tests/vet but exposed the original SDK's duplicate Effect declaration; that defect and its module checksums were fixed. The current branch also includes the separate sdk/go/flowrule module added to main while review was in progress. The final widened Go CI and default CodeQL runs must be checked at the current PR head before merging. A green build does not close the open security/storage findings above.
 
 ## Recommended order
 
