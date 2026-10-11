@@ -288,13 +288,13 @@ CREATE INDEX idx_quarantine_created ON quarantine (created_at);
 
 ### Effect ID (Destination Idempotency Key)
 
-Effect IDs are deterministic and serve as natural idempotency keys for destinations:
+Effect IDs are deterministic and are sent as idempotency keys to destinations:
 
 ```
 effect_id = sha256(tenant_id + "|" + event_id + "|" + rule_set + "|" + revision + "|" + rule_id + "|" + action_index)
 ```
 
-This formula is intended to make effect IDs stable for the same tenant, event, rule revision, rule, and action position. The destination must persistently deduplicate the key for at least the supported retry/replay horizon. Execution IDs are currently generated separately; do not infer that replay creates the same execution ID until deterministic execution identity and replay semantics are implemented and tested.
+This formula is intended to make effect IDs stable for the same tenant, event, rule revision, rule, and action position. The destination must persistently deduplicate the key for at least the supported retry/replay horizon. Execution IDs are derived from the tenant, event ID, rule set, and selected revision. This makes identity stable for the same event/revision tuple, but does not itself implement a replay API or define whether replay should use the original or a newer revision.
 
 ### Decision Hash
 
@@ -315,17 +315,21 @@ Stable across identical inputs. Used for:
 shard = fnv32a(tenant_id + ":" + partition_key) % 4096
 ```
 
-**Ordering guarantees:**
-- Events with same `partition_key` → same shard → processed by same worker sequentially
-- Ordering guaranteed *within a key*, never across keys
-- Shard ownership via `shard_leases` with fencing tokens prevents split-brain
+**Ordering scope and limits:**
+- Tenant and partition key determine the virtual shard.
+- A worker's key queue serializes processing for the same key within that process.
+- This is not a global or end-to-end per-key ordering guarantee across redelivery, lease handoff, or concurrent outbox publishers.
+- The event transaction validates shard ownership and the fencing token before mutating inbox/execution/outbox state; live-infrastructure contention and stale-worker tests remain required.
+- `FOR UPDATE SKIP LOCKED` coordinates outbox claims but does not, by itself, preserve per-key effect order.
 
-**Rebalancing:**
+**Rebalancing target:**
 1. Mark instance draining
-2. Stop new fetches
-3. Finish bounded in-flight executions
-4. Release/expire leases
+2. Stop new fetches for affected shards
+3. Finish or safely cancel bounded in-flight executions
+4. Release/expire leases and allow the next owner to acquire a higher fencing token
 5. Terminate
+
+Dynamic membership and automated rebalancing are not implemented; current assignment assumes three worker replicas.
 
 ### Failure Handling
 
@@ -333,22 +337,22 @@ shard = fnv32a(tenant_id + ":" + partition_key) % 4096
 |----------|----------|
 | Crash before commit | Rollback, broker redelivers, inbox dedup catches it |
 | Crash after commit, before ACK | Inbox committed, redelivery returns existing execution, no duplicate |
-| Destination down | Exponential backoff (1s, 2s, 4s, 8s, 16s capped at 60s), max 5 attempts → quarantine |
-| Poison message | Permanent errors (invalid envelope, rule not found) acked immediately; transient retried |
+| Destination down | Outbox retry policy applies; verify actual backoff configuration and terminal quarantine behavior against the configured adapter |
+| Poison message | Permanent processing errors are persisted to quarantine before ACK; quarantine persistence failures are retried. JetStream MaxDeliver exhaustion/advisory-to-DLQ handling still requires explicit verification |
 | Two workers same event | Inbox unique constraint prevents duplicate execution |
 | Outbox publisher crash | Claimed effects have TTL (claim_expires_at), become claimable again after expiry |
 | Worker loses lease | Fencing token prevents stale commits; new owner takes over |
 
-### Explanation of Exactly-Once
+### Delivery Guarantees and Crash Windows
 
-The exactly-once guarantee is achieved at the **business level** (not transport level):
+FlowRule does not provide end-to-end exactly-once delivery.
 
-1. **Transport**: NATS delivers at-least-once
-2. **Dedup**: Inbox unique constraint ensures at-most-one execution per (tenant_id, event_id)
-3. **Idempotent effects**: Deterministic effect IDs allow destinations to deduplicate
-4. **Commit ordering**: Broker ACK only after DB commit → no lost events, no duplicates
+1. **Before database commit:** the transaction rolls back; broker redelivery can retry the event.
+2. **After commit, before broker ACK:** redelivery finds the retained inbox record and must not create a second execution.
+3. **After destination send, before marking the outbox effect delivered:** the request may be sent again after claim expiry or a publisher crash. The destination must durably deduplicate the `Idempotency-Key` for the supported retry/replay horizon.
+4. **Inbox retention:** deduplication only holds while the inbox identity is retained. Retention must exceed the broker redelivery horizon and any supported replay horizon.
 
-This is "effectively exactly-once" — the business outcome occurs exactly once.
+The accurate claim is **at-least-once transport with transactional inbox deduplication and effectively-once external effects only when the destination honors the idempotency contract**.
 
 ### What the Evaluator Does NOT Do
 
