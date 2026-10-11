@@ -35,6 +35,9 @@ func (s *Service) Get(ctx context.Context, tenantID, id string) (*domain.Quarant
 
 // List returns quarantine entries matching the filter
 func (s *Service) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+	if filter.TenantID == "" {
+		return nil, fmt.Errorf("tenant_id is required")
+	}
 	if filter.Limit <= 0 {
 		filter.Limit = 100
 	}
