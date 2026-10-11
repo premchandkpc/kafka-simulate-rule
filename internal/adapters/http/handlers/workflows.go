@@ -31,18 +31,19 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /v1/workflows/definitions", h.ListWorkflowDefinitions)
 	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}", h.GetWorkflowDefinition)
+	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}/{version}", h.GetWorkflowDefinition)
 }
 
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var wf domain.WorkflowInstance
 	if err := decodeRequestBody(r, &wf); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		responses.WriteError(w, http.StatusBadRequest, messageInvalidBodyPrefix+err.Error(), responses.CodeInvalidJSON)
 		return
 	}
 
 	tenantID := middleware.GetTenantID(r.Context())
 	if wf.TenantID != "" && wf.TenantID != tenantID {
-		responses.WriteError(w, http.StatusForbidden, "tenant_id must match the request tenant", responses.CodeForbidden)
+		responses.WriteError(w, http.StatusForbidden, messageTenantMismatch, responses.CodeForbidden)
 		return
 	}
 	wf.TenantID = tenantID
@@ -81,7 +82,7 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if wf == nil || wf.TenantID != middleware.GetTenantID(r.Context()) {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		responses.WriteError(w, http.StatusNotFound, messageNotFound, responses.CodeNotFound)
 		return
 	}
 
@@ -139,8 +140,8 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
-	state := r.URL.Query().Get("state")
-	pagination, err := parsePagination(r, 100, 1000, 10000)
+	state := r.URL.Query().Get(queryParamState)
+	pagination, err := parsePagination(r, defaultPageLimit, maxWorkflowPageLimit, maxPageOffset)
 	if err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
 		return
@@ -220,6 +221,9 @@ func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *htt
 func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")
+	if versionStr == "" {
+		versionStr = r.URL.Query().Get(queryParamVersion)
+	}
 
 	if workflowType == "" {
 		responses.WriteError(w, http.StatusBadRequest, "workflowType is required", responses.CodeBadRequest)

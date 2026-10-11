@@ -9,6 +9,7 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/auth"
+	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
@@ -34,7 +35,7 @@ func NewRouter(
 	quarantineSvc ports.QuarantineService,
 	scheduledRepo ports.ScheduledEventRepository,
 ) *Router {
-	return NewRouterWithPublisher(ruleSvc, workflowSvc, workflowDefRepo, contractRegistry, batchSvc, quarantineSvc, scheduledRepo, nil, 4096, RouterConfig{})
+	return NewRouterWithPublisher(ruleSvc, workflowSvc, workflowDefRepo, contractRegistry, batchSvc, quarantineSvc, scheduledRepo, nil, config.DefaultNumShards, RouterConfig{})
 }
 
 // NewRouterWithPublisher also registers the SDK-compatible event ingestion endpoint.

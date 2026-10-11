@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
+	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
@@ -19,7 +20,7 @@ type EventIngestionHandler struct {
 
 func NewEventIngestionHandler(publisher ports.BrokerPublisher, numShards uint32) *EventIngestionHandler {
 	if numShards == 0 {
-		numShards = 4096
+		numShards = config.DefaultNumShards
 	}
 	return &EventIngestionHandler{publisher: publisher, numShards: numShards}
 }
@@ -59,7 +60,7 @@ func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Requ
 	}
 	tenantID := middleware.GetTenantID(r.Context())
 	if tenantID == "" {
-		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		responses.WriteError(w, http.StatusUnauthorized, messageTenantRequired, responses.CodeTenantRequired)
 		return
 	}
 	if req.TenantID != "" && req.TenantID != tenantID {
