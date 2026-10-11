@@ -320,7 +320,7 @@ func (f *Factory) Worker(
 	workerID string,
 	numShards uint32,
 	cfg application.WorkerConfig,
-) *application.Worker {
+) (*application.Worker, error) {
 	return application.NewWorker(
 		consumer, events, effects, batches, batchInterval, clock,
 		leaseManager, workerID, numShards, cfg,
