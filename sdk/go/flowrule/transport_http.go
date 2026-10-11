@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 )
 
@@ -19,14 +21,19 @@ type httpTransport struct {
 }
 
 func newHTTPTransport(cfg *TransportConfig) (Transport, error) {
-	client := &http.Client{
-		Timeout: cfg.Config.HTTPTimeout,
+	if cfg == nil || cfg.Config == nil {
+		return nil, ErrConfig("HTTP transport config is required")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.Config.HTTPAddr), "/")
+	parsed, err := url.Parse(baseURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, ErrConfig("HTTP_ADDR must be an absolute http or https URL")
 	}
 
 	return &httpTransport{
 		cfg:     cfg,
-		client:  client,
-		baseURL: cfg.Config.HTTPAddr,
+		client:  &http.Client{Timeout: cfg.Config.HTTPTimeout},
+		baseURL: baseURL,
 	}, nil
 }
 
@@ -37,25 +44,37 @@ func (t *httpTransport) Send(ctx context.Context, env *Envelope) error {
 	if t.closed {
 		return ErrTransportClosed
 	}
+	return t.sendLocked(ctx, env)
+}
+
+// sendLocked performs one request while the caller holds t.mu.RLock. Keeping
+// request execution separate prevents SendBatch from recursively acquiring the
+// same RWMutex, which can deadlock when Close is waiting for the write lock.
+func (t *httpTransport) sendLocked(ctx context.Context, env *Envelope) error {
+	if env == nil {
+		return ErrInvalidArgument("event envelope is required")
+	}
+	if strings.TrimSpace(env.Type) == "" {
+		return ErrInvalidArgument("event type is required")
+	}
 
 	data, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("marshal envelope: %w", err)
 	}
 
-	// POST /v1/events/{type}
-	url := fmt.Sprintf("%s/v1/events/%s", t.baseURL, env.Type)
-
 	sendCtx, cancel := context.WithTimeout(ctx, t.cfg.Config.SendTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(sendCtx, http.MethodPost, url, bytes.NewReader(data))
+	endpoint := t.baseURL + "/v1/events/" + url.PathEscape(env.Type)
+	req, err := http.NewRequestWithContext(sendCtx, http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Tenant-ID", env.TenantID)
+	if env.TenantID != "" {
+		req.Header.Set("X-Tenant-ID", env.TenantID)
+	}
 	if env.CorrelationID != "" {
 		req.Header.Set("X-Correlation-ID", env.CorrelationID)
 	}
@@ -69,11 +88,13 @@ func (t *httpTransport) Send(ctx context.Context, env *Envelope) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return fmt.Errorf("HTTP %d; failed to read response body: %w", resp.StatusCode, readErr)
+		}
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-
 	return nil
 }
 
@@ -84,19 +105,11 @@ func (t *httpTransport) SendBatch(ctx context.Context, envs []*Envelope) error {
 	if t.closed {
 		return ErrTransportClosed
 	}
-
-	if len(envs) == 0 {
-		return nil
-	}
-
-	// For batch, send to a batch endpoint
-	// For now, send sequentially
-	for _, env := range envs {
-		if err := t.Send(ctx, env); err != nil {
-			return err
+	for i, env := range envs {
+		if err := t.sendLocked(ctx, env); err != nil {
+			return fmt.Errorf("send batch item %d: %w", i, err)
 		}
 	}
-
 	return nil
 }
 
@@ -108,7 +121,6 @@ func (t *httpTransport) Close() error {
 		return nil
 	}
 	t.closed = true
-
 	if t.client != nil {
 		t.client.CloseIdleConnections()
 	}
