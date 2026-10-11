@@ -98,7 +98,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 
-	_, err := coll.UpdateMany(ctx,
+	result, err := coll.UpdateMany(ctx,
 		bson.M{
 			"effect_id":  bson.M{"$in": effectIDs},
 			"status":     domain.OutboxStatusClaimed,
@@ -117,18 +117,22 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	if err != nil {
 		return fmt.Errorf("mark delivered: %w", err)
 	}
+	if int(result.MatchedCount) != len(effectIDs) {
+		return domain.ErrOutboxClaimLost
+	}
 	return nil
 }
 
-func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error {
+func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 	availableAt := now.Add(delay)
 
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
-			"effect_id": effectID,
-			"status":    domain.OutboxStatusClaimed,
+			"effect_id":  effectID,
+			"status":     domain.OutboxStatusClaimed,
+			"claimed_by": claimant,
 		},
 		bson.M{
 			"$set": bson.M{
@@ -146,17 +150,21 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID string, d
 	if err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
 	}
+	if result.MatchedCount != 1 {
+		return domain.ErrOutboxClaimLost
+	}
 	return nil
 }
 
-func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errMsg string) error {
+func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 
-	_, err := coll.UpdateOne(ctx,
+	result, err := coll.UpdateOne(ctx,
 		bson.M{
-			"effect_id": effectID,
-			"status":    domain.OutboxStatusClaimed,
+			"effect_id":  effectID,
+			"status":     domain.OutboxStatusClaimed,
+			"claimed_by": claimant,
 		},
 		bson.M{
 			"$set": bson.M{
@@ -171,6 +179,9 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID string, errM
 	)
 	if err != nil {
 		return fmt.Errorf("quarantine effect: %w", err)
+	}
+	if result.MatchedCount != 1 {
+		return domain.ErrOutboxClaimLost
 	}
 	return nil
 }
