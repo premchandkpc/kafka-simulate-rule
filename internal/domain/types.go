@@ -455,7 +455,7 @@ type ScheduledEvent struct {
 	Payload      json.RawMessage   `json:"payload"`
 	Headers      map[string]string `json:"headers,omitempty"`
 	ScheduledAt  time.Time         `json:"scheduled_at"`
-	Status       string            `json:"status"`
+	Status       ScheduledEventStatus `json:"status"`
 	CreatedAt    time.Time         `json:"created_at"`
 	ReleasedAt   *time.Time        `json:"released_at,omitempty"`
 }
