@@ -14,6 +14,7 @@ func validConfigForTest() *Config {
 		NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		Worker: WorkerConfig{
 			NumShards:               1,
+			WorkerReplicas:          1,
 			MaxGlobalInFlight:       1,
 			FetchBatchSize:          1,
 			EffectPublishIntervalMS: 1,
@@ -41,6 +42,7 @@ func TestValidateRejectsInvalidWorkerRuntimeSettings(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{name: "fetch batch exceeds in-flight limit", mutate: func(c *Config) { c.Worker.FetchBatchSize = 2 }},
+		{name: "worker replicas must be positive", mutate: func(c *Config) { c.Worker.WorkerReplicas = 0 }},
 		{name: "lease renewal exceeds safe interval", mutate: func(c *Config) { c.Worker.LeaseRenewalIntervalMS = 2 }},
 		{name: "NATS ack wait", mutate: func(c *Config) { c.Worker.NATSAckWaitMS = 0 }},
 		{name: "NATS max deliver", mutate: func(c *Config) { c.Worker.NATSMaxDeliver = 0 }},
@@ -74,6 +76,13 @@ func TestLoadRejectsMalformedWorkerRuntimeSetting(t *testing.T) {
 	t.Setenv("NATS_ACK_WAIT_MS", "not-a-duration")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want malformed integer error")
+	}
+}
+
+func TestLoadRejectsMalformedWorkerReplicas(t *testing.T) {
+	t.Setenv("WORKER_REPLICAS", "many")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "WORKER_REPLICAS") {
+		t.Fatalf("Load() error = %v, want malformed WORKER_REPLICAS error", err)
 	}
 }
 
