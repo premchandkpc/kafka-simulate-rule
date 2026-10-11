@@ -207,7 +207,7 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil {
+	if entry == nil || entry.TenantID != middleware.GetTenantID(r.Context()) {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
@@ -223,6 +223,15 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
+	entry, err := h.quarantineSvc.Get(ctx, id)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if entry == nil || entry.TenantID != middleware.GetTenantID(ctx) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		return
+	}
 	if err := h.quarantineSvc.Replay(ctx, id); err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -239,6 +248,15 @@ func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
+	entry, err := h.quarantineSvc.Get(ctx, id)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if entry == nil || entry.TenantID != middleware.GetTenantID(ctx) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		return
+	}
 	if err := h.quarantineSvc.Delete(ctx, id); err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
