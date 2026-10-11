@@ -75,7 +75,7 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
@@ -124,9 +124,9 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if body.FromState != "" {
-		err = h.workflowSvc.Transition(ctx, workflowID, body.FromState, body.ToState)
+		err = h.workflowSvc.Transition(ctx, middleware.GetTenantID(ctx), workflowID, body.FromState, body.ToState)
 	} else {
-		err = h.workflowSvc.UpdateState(ctx, workflowID, body.ToState, 0)
+		err = h.workflowSvc.UpdateState(ctx, middleware.GetTenantID(ctx), workflowID, body.ToState, 0)
 	}
 
 	if err != nil {
