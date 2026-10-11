@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite (normally http://127.0.0.1:5173). The development proxy is available under `/api`; for example, set API base URL to `http://localhost:8080` when running the API directly or use `/api` when using the Vite proxy.
+Open the URL printed by Vite (normally http://127.0.0.1:5173). The console defaults to the same-origin `/api` proxy to avoid browser CORS failures; Vite forwards it to the API at http://127.0.0.1:8080. For another deployment, configure the API base URL to a same-origin reverse-proxy path or to an API origin with explicit CORS.
 
 Production build:
 
