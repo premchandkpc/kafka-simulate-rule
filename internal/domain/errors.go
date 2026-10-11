@@ -54,6 +54,7 @@ var (
 	ErrWorkflowNotFound          = errors.New("workflow not found")
 	ErrWorkflowConflict          = errors.New("workflow version conflict")
 	ErrWorkflowInvalidTransition = errors.New("invalid workflow state transition")
+	ErrBatchProcessingUnavailable = errors.New("batch processing is not configured")
 
 	ErrBrokerFetchFailed = errors.New("broker fetch failed")
 	ErrBrokerAckFailed   = errors.New("broker ack failed")
