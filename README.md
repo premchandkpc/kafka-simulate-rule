@@ -13,7 +13,7 @@ FlowRule is a Go-based, event-driven rules runtime. Rules are compiled into immu
 | Code generator | cmd/codegen | Generate Go, Java, Protobuf, and JSON Schema artifacts from a contract already registered in storage |
 | Migration CLI | cmd/migrate | Apply pending migrations; only the up command is implemented |
 
-The root module uses Go 1.26.0. The SDK in sdk/go and each example application are independent Go modules and are tested separately.
+The root module uses Go 1.26.0. Both sdk/go and the newer sdk/go/flowrule client are separate Go modules; each example application also has its own module. CI tests every module separately because nested go.mod files are not included in a parent-module ./... command.
 
 ## Event lifecycle
 
@@ -48,7 +48,8 @@ Test the nested modules separately:
 
 ~~~sh
 cd sdk/go && go test -race -count=1 ./...
-cd ../../examples/banking && go test -race -count=1 ./...
+cd ../flowrule && go test -race -count=1 ./...
+cd ../../../examples/banking && go test -race -count=1 ./...
 cd ../ecommerce && go test -race -count=1 ./...
 cd ../food-delivery && go test -race -count=1 ./...
 ~~~
@@ -65,7 +66,8 @@ Environment variable names and local defaults are documented in .env.example. AP
 - internal/application and internal/runtime contain worker orchestration, the per-key queue, shard leases, and the scheduler.
 - internal/adapters contains HTTP, PostgreSQL, MongoDB, NATS, Redis, fake destination, and HTTP destination implementations.
 - internal/storage selects and wires the configured persistence backend.
-- sdk/go is the standalone producer/consumer SDK.
+- sdk/go/runtime is the original standalone producer/consumer SDK module.
+- sdk/go/flowrule is a separate client SDK module with local/HTTP/gRPC/NATS transports and a basic client example.
 - examples contains banking, e-commerce, and food-delivery contracts, rules, workflows, generated Go types, and sample applications.
 - migrations contains numbered PostgreSQL migrations.
 - docs contains architecture diagrams, rules, operations, roadmap, and dated audit notes.
