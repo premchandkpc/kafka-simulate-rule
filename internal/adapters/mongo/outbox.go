@@ -26,7 +26,7 @@ func (r *OutboxRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 	if len(effects) == 0 {
 		return nil
 	}
@@ -51,7 +51,7 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 }
 
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 
 	filter := bson.M{
@@ -109,7 +109,7 @@ func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *doma
 	var execution struct {
 		TenantID string `bson:"tenant_id"`
 	}
-	if err := r.collection("executions").FindOne(ctx, bson.M{
+	if err := r.collection(collectionExecutions).FindOne(ctx, bson.M{
 		"execution_id": effect.ExecutionID,
 	}).Decode(&execution); err != nil {
 		return fmt.Errorf("load source execution: %w", err)
@@ -118,7 +118,7 @@ func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *doma
 		return fmt.Errorf("source execution has no tenant identity")
 	}
 
-	_, err := r.collection("outbox_effects").UpdateOne(ctx,
+	_, err := r.collection(collectionOutboxEffects).UpdateOne(ctx,
 		bson.M{"effect_id": effect.ID, "tenant_id": bson.M{"$exists": false}},
 		bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
 	)
@@ -132,7 +132,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	if len(effectIDs) == 0 {
 		return nil
 	}
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 
 	result, err := coll.UpdateMany(ctx,
@@ -162,7 +162,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 }
 
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 	availableAt := now.Add(delay)
 
@@ -196,7 +196,7 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 }
 
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 
 	result, err := coll.UpdateOne(ctx,
@@ -291,7 +291,7 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 }
 
 func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 
 	filter := bson.M{"execution_id": executionID}
 
@@ -314,7 +314,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 }
 
 func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
-	coll := r.collection("outbox_effects")
+	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 
 	filter := bson.M{

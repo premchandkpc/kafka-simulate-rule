@@ -25,7 +25,7 @@ func (r *InboxRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 	doc := InboxDocFromDomain(entry)
 	_, err := coll.InsertOne(ctx, doc)
 	if err != nil {
@@ -38,7 +38,7 @@ func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) 
 }
 
 func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 	var doc InboxDoc
 	err := coll.FindOne(ctx, bson.M{
 		"tenant_id": tenantID,
@@ -54,7 +54,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 }
 
 func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 	now := time.Now().UTC()
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
