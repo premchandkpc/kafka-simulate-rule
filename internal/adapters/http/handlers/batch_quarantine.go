@@ -36,10 +36,12 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use tenant from middleware if not provided
-	if req.TenantID == "" {
-		req.TenantID = middleware.GetTenantID(r.Context())
+	tenantID := middleware.GetTenantID(r.Context())
+	if req.TenantID != "" && req.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, "tenant_id must match the request tenant", responses.CodeForbidden)
+		return
 	}
+	req.TenantID = tenantID
 	if req.TenantID == "" || req.PartitionKey == "" || req.RuleSet == "" {
 		responses.WriteError(w, http.StatusBadRequest, "tenant_id, partition_key, and rule_set are required", responses.CodeValidationFailed)
 		return
