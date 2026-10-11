@@ -132,8 +132,8 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if ruleSet != "" {
 		filter["rule_set"] = ruleSet
 	}
-	// codeql[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
 
+	// codeql[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
 	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
 		SetSkip(int64(offset)).
