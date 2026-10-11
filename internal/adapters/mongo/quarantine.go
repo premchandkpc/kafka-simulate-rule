@@ -166,6 +166,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	}
 
 	// codeql[go/sql-injection] Filter keys are fixed and all request values are BSON scalars.
+
 	cursor, err := coll.Find(ctx, f, options.Find().
 		SetLimit(int64(filter.Limit)).
 		SetSkip(int64(filter.Offset)).

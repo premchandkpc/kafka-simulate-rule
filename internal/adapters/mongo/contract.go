@@ -44,6 +44,7 @@ func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*doma
 	coll := r.collection(collectionContractSchemas)
 	var doc ContractSchemaDoc
 	// codeql[go/sql-injection] Name and version are scalar BSON values under fixed keys.
+
 	err := coll.FindOne(ctx, bson.M{
 		"name":    name,
 		"version": version,

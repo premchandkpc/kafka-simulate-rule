@@ -103,6 +103,7 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	}
 
 	// codeql[go/sql-injection] Tenant and state are BSON scalars under fixed keys.
+
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetLimit(int64(limit)).
 		SetSort(bson.D{{Key: "updated_at", Value: 1}}))
