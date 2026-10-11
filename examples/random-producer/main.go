@@ -45,10 +45,12 @@ func run() error {
 		return err
 	}
 
-	clients := flag.Int("clients", clientsDefault, "number of simulated tenant/client identities")
+	clients := flag.Int("clients", clientsDefault, "number of simulated business clients/accounts")
 	maxMessages := flag.Int("max-messages", messagesDefault, "maximum random messages per client (1-100)")
 	shards := flag.Uint64("shards", uint64(shardsDefault), "virtual shard count; must match the workers")
 	natsURL := flag.String("nats", env("NATS_URL", defaultNATSURL), "NATS URL; use the Compose service name inside the network")
+	tenantID := flag.String("tenant", env("FLOWRULE_TENANT_ID", DefaultTenantID), "FlowRule tenant used by the deployed example rules")
+	scenario := flag.String("scenario", env("RANDOM_PRODUCER_SCENARIO", string(ScenarioAll)), "business scenario: all, ecommerce, banking, or food-delivery")
 	timeout := flag.Duration("timeout", 30*time.Second, "overall simulation timeout")
 	concurrency := flag.Int("concurrency", concurrencyDefault, "maximum concurrent publishers")
 	flag.Parse()
@@ -65,6 +67,8 @@ func run() error {
 		NumShards:            uint32(*shards),
 		Concurrency:          *concurrency,
 		BaseSubject:          DefaultBaseSubject,
+		TenantID:             *tenantID,
+		Scenario:             Scenario(*scenario),
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -87,8 +91,8 @@ func run() error {
 	defer cancel()
 
 	summary, runErr := Run(ctx, cfg, publisher)
-	log.Printf("random-producer example complete: clients=%d attempted=%d broker_acked=%d failed=%d shards=%d",
-		summary.Clients, summary.Attempted, summary.BrokerAcked, summary.Failed, summary.NumShards)
+	log.Printf("random-producer example complete: tenant=%s scenario=%s clients=%d attempted=%d broker_acked=%d failed=%d shards=%d",
+		cfg.TenantID, cfg.Scenario, summary.Clients, summary.Attempted, summary.BrokerAcked, summary.Failed, summary.NumShards)
 	if runErr != nil {
 		return fmt.Errorf("simulation stopped: %w", runErr)
 	}
