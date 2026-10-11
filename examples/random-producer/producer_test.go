@@ -12,6 +12,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+var supportedEventTypes = map[string]struct{}{
+	"order.created": {},
+	"transaction.initiated": {},
+	"order.placed": {},
+}
+
 type fakePublisher struct {
 	mu       sync.Mutex
 	subjects []string
