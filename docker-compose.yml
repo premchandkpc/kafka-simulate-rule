@@ -175,6 +175,8 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+      worker:
+        condition: service_started
     profiles: [examples]
     networks: [flowrule]
 
