@@ -52,9 +52,9 @@ var (
 	ErrActivationNotFound = errors.New("activation not found")
 	ErrActivationConflict = errors.New("activation conflict")
 
-	ErrWorkflowNotFound          = errors.New("workflow not found")
-	ErrWorkflowConflict          = errors.New("workflow version conflict")
-	ErrWorkflowInvalidTransition = errors.New("invalid workflow state transition")
+	ErrWorkflowNotFound           = errors.New("workflow not found")
+	ErrWorkflowConflict           = errors.New("workflow version conflict")
+	ErrWorkflowInvalidTransition  = errors.New("invalid workflow state transition")
 	ErrBatchProcessingUnavailable = errors.New("batch processing is not configured")
 
 	ErrBrokerFetchFailed = errors.New("broker fetch failed")
