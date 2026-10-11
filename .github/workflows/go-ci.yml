@@ -100,3 +100,6 @@ jobs:
 
       - name: Build code generation utility
         run: docker compose --profile tools build codegen
+
+      - name: Build random-producer example image
+        run: docker compose --profile examples build random-producer
