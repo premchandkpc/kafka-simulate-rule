@@ -97,7 +97,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
-		SET status = $4, released_at = $3,
+		SET status = $4, released_at = $3, retry_at = NULL,
 		    claimant = NULL, claimed_at = NULL, claim_expires_at = NULL
 		WHERE event_id = $1 AND status = $5 AND claimant = $2 AND claim_expires_at > NOW()
 	`, eventID, claimant, releasedAt, domain.ScheduledEventStatusReleased, domain.ScheduledEventStatusClaimed)
