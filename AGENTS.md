@@ -88,6 +88,7 @@ SECURITY / DEPLOYMENT REQUIREMENT:
 
 - cmd/codegen/main.go is a database-backed CLI. It reads a registered contract and generates Go, Java, Protobuf, or JSON Schema artifacts. Flags are -contract, -version, -target, -output, -list, -dsn and -migrations. It does not accept a YAML file path or implement a generate --all subcommand.
 - cmd/migrate/main.go currently supports only the up command. Down/status are not implemented because there are no paired reversible migration scripts. Do not advertise rollback as supported.
+- cmd/simulator/main.go is an opt-in development load-generator composition root. It parses flags/environment, bounds the run, handles SIGINT/SIGTERM, wires the NATS adapter, and delegates event generation/publication to internal/simulator. It is not part of API or worker startup.
 - CLI entrypoints must return errors from run functions so deferred resources close before main exits. Avoid log.Fatal/log.Fatalf/os.Exit inside resource-owning run functions.
 
 ## 4. Dependency direction and package boundaries
@@ -122,7 +123,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - .gitignore / .dockerignore — build artifacts, generated output, local data, secrets and Docker context exclusions. Do not commit executable binaries.
 - .golangci.yml — lint and package-boundary checks.
 - SECURITY.md — vulnerability-reporting process and security status.
-- Dockerfile.api, Dockerfile.worker, Dockerfile.codegen — multi-stage service/tool images.
+- Dockerfile.api, Dockerfile.worker, Dockerfile.codegen, Dockerfile.simulator — multi-stage service/tool images; the simulator image is only used by the opt-in Compose simulation profile.
 - docker-compose.yml — local development dependencies and processes; its example credentials must not be reused for production.
 - docker-compose.override.yml — developer override settings.
 - .github/workflows/go-ci.yml — build, race-enabled tests and vet for root/nested Go modules.
@@ -170,6 +171,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - internal/observability/tracing.go — tracing setup.
 - internal/observability/handler.go — HTTP observability handler.
 - internal/codegen/generator.go — templates/generation for Go, Java, Protobuf, JSON Schema and runtime artifacts.
+- internal/simulator/producer.go, producer_test.go — bounded random event generation, shared domain envelope/shard routing, narrow publisher port, concurrency, cancellation and result accounting for the opt-in load simulator.
 - internal/storage/storage.go — backend selection, repository wiring, initialization and closure.
 - internal/factory/factory.go — legacy broad factory; current process entrypoints use internal/storage instead.
 
