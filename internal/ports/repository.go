@@ -80,14 +80,18 @@ type WorkflowDefinitionRepository interface {
 	Delete(ctx context.Context, workflowType string, version int64) error
 }
 
-// ScheduledEventRepository handles scheduled/delayed events
+// ScheduledEventRepository handles scheduled/delayed events. Public read and
+// cancel operations are tenant-scoped; scheduler settlement is fenced by the
+// unique claim token returned to the claimant's call path.
 type ScheduledEventRepository interface {
 	Save(ctx context.Context, event *domain.ScheduledEvent) error
 	GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error)
 	Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error)
-	MarkReleased(ctx context.Context, eventID string, releasedAt time.Time) error
-	MarkFailed(ctx context.Context, eventID, errMsg string) error
-	Get(ctx context.Context, eventID string) (*domain.ScheduledEvent, error)
+	MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error
+	MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error
+	Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error)
+	List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error)
+	Cancel(ctx context.Context, tenantID, eventID string) error
 }
 
 // BatchRepository handles batch processing
