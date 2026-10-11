@@ -198,6 +198,10 @@ func (c *Config) Validate() error {
 	if c.Worker.KeyQueueWorkers <= 0 {
 		return fmt.Errorf("KEY_QUEUE_WORKERS must be > 0")
 	}
+	batchMode := strings.ToLower(strings.TrimSpace(c.Worker.BatchMode))
+	if batchMode != "" && batchMode != "none" {
+		return fmt.Errorf("BATCH_MODE=%q is not supported by the worker runtime yet; batch execution must be integrated with shard leases and the key queue first", batchMode)
+	}
 	if c.Worker.BatchMax <= 0 {
 		return fmt.Errorf("BATCH_MAX must be > 0")
 	}
