@@ -34,7 +34,7 @@ Start the local development stack:
 docker compose up --build -d
 ~~~
 
-Local endpoints: API at localhost:8080, NATS client at localhost:4222, NATS monitoring at localhost:8222, PostgreSQL at localhost:5432, and Redis at localhost:6379. The Compose file uses development settings and demo credentials. Keep it local; do not reuse those credentials in production.
+Local endpoints: API at localhost:8080, NATS client at localhost:4222, NATS monitoring at localhost:8222, PostgreSQL at localhost:5432, and Redis at localhost:6379. Compose publishes these ports on 127.0.0.1 only. The stack uses development settings and demo credentials; do not reuse those credentials in production.
 
 For root-module development:
 
@@ -80,7 +80,7 @@ Start with docs/README.md for the documentation index.
 
 - The API has no authentication/authorization or trusted tenant resolver. Caller-supplied X-Tenant-ID and tenant_id query values are not identity.
 - /health is a liveness endpoint only; it does not prove the database or NATS is healthy.
-- GRPC_ADDR is configured but cmd/api does not start a gRPC listener.
+- The API starts HTTP only. No gRPC server is implemented; the SDK's gRPC transport requires a compatible server deployed separately.
 - Migration rollback/status commands and live infrastructure-backed chaos tests are not implemented.
 - Tests under tests/integration use mocks/in-memory repositories, not live PostgreSQL and NATS. Validate storage atomicity, redelivery, lease expiry, and crash recovery against real infrastructure before making production guarantees.
 - MongoDB transaction behavior and parity must be verified for the exact deployment configuration before relying on it for the same guarantees as PostgreSQL.
