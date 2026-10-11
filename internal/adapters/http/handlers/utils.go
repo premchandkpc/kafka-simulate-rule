@@ -12,8 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const maxRequestBodyBytes = 1 << 20
-
 func readRequestBody(r *http.Request) ([]byte, error) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes+1))
 	if err != nil {
@@ -27,7 +25,7 @@ func readRequestBody(r *http.Request) ([]byte, error) {
 
 func isYAMLContentType(contentType string) bool {
 	contentType = strings.ToLower(contentType)
-	return strings.Contains(contentType, "yaml") || strings.Contains(contentType, "yml")
+	return strings.Contains(contentType, mediaTypeYAML) || strings.Contains(contentType, mediaTypeYML)
 }
 
 // decodeSingleYAMLDocument decodes exactly one YAML document and rejects trailing
@@ -55,7 +53,7 @@ func decodeRequestBody(r *http.Request, v any) error {
 	if err != nil {
 		return err
 	}
-	if isYAMLContentType(r.Header.Get("Content-Type")) {
+	if isYAMLContentType(r.Header.Get(headerContentType)) {
 		return decodeSingleYAMLDocument(data, v)
 	}
 

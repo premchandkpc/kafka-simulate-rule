@@ -17,14 +17,14 @@ type Pagination struct {
 func parsePagination(r *http.Request, defaultLimit, maxLimit, maxOffset int) (Pagination, error) {
 	p := Pagination{Limit: defaultLimit}
 	query := r.URL.Query()
-	if value := query.Get("limit"); value != "" {
+	if value := query.Get(queryParamLimit); value != "" {
 		limit, err := strconv.Atoi(value)
 		if err != nil || limit < 1 || limit > maxLimit {
 			return Pagination{}, fmt.Errorf("limit must be an integer between 1 and %d", maxLimit)
 		}
 		p.Limit = limit
 	}
-	if value := query.Get("offset"); value != "" {
+	if value := query.Get(queryParamOffset); value != "" {
 		offset, err := strconv.Atoi(value)
 		if err != nil || offset < 0 || (maxOffset > 0 && offset > maxOffset) {
 			if maxOffset > 0 {
