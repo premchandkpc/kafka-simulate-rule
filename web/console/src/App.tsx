@@ -103,7 +103,7 @@ export default function App() {
     const endpoints = settings.workerMetrics.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
     const workerData = await Promise.all(endpoints.map(async (url, index): Promise<WorkerSnapshot> => {
       try {
-        const response = await fetch(url, { headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {} });
+        const response = await fetch(url);
         const text = await response.text(); if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const execs = labeledMetrics(text, "flowrule_executions_total");
         const grouped = new Map<string, number>();
