@@ -114,12 +114,29 @@ func TenantFromContext(ctx context.Context) (string, bool) {
 	return tenantID, ok
 }
 
-// ContextWithTenant returns a new context with tenant ID
+// ContextWithTenant returns a new context with tenant ID.
 func ContextWithTenant(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, tenantKey{}, tenantID)
 }
 
+// ContextWithClaims stores validated claims for downstream authorization checks.
+// Call this only after Validator.Validate succeeds.
+func ContextWithClaims(ctx context.Context, claims *Claims) context.Context {
+	if claims == nil {
+		return ctx
+	}
+	ctx = ContextWithTenant(ctx, claims.TenantID)
+	return context.WithValue(ctx, claimsKey{}, claims)
+}
+
+// HasScope reports whether validated claims in ctx contain the requested scope.
+func HasScope(ctx context.Context, scope string) bool {
+	claims, ok := ctx.Value(claimsKey{}).(*Claims)
+	return ok && claims != nil && claims.HasScope(scope)
+}
+
 type tenantKey struct{}
+type claimsKey struct{}
 
 // HasScope checks if claims have a specific scope
 func (c *Claims) HasScope(scope string) bool {
