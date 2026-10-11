@@ -28,7 +28,7 @@ type Config struct {
 
 // Consumer implements both ports.ShardedConsumer and ports.BrokerPublisher
 type Consumer struct {
-	conn        *nats.Conn
+	conn        *natslib.Conn
 	js          jetstream.JetStream
 	stream      string
 	consumers   map[uint32]string // shard -> consumer name
@@ -337,7 +337,7 @@ func (c *Consumer) PublishToShard(ctx context.Context, baseSubject string, shard
 
 // Publisher provides a dedicated publisher for sending messages without consuming
 type Publisher struct {
-	conn      *nats.Conn
+	conn      *natslib.Conn
 	js        jetstream.JetStream
 	stream    string
 	numShards uint32
