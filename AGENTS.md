@@ -153,7 +153,7 @@ Avoid circular dependencies, driver types in domain/ports, global mutable state,
 - internal/services/events/service.go — transactional fencing, inbox deduplication, activation/revision lookup, evaluation, execution and outbox writes.
 - internal/services/effects/service.go — outbox claiming, delivery, retries/backoff and quarantine coordination.
 - internal/services/effects/router.go — broker routing for child events and delegation for external effects.
-- internal/services/effects/router_test.go, service_test files — effect-routing and service regression tests.
+- internal/services/effects/router_test.go and service_test.go — effect-routing, claim-token, and settlement-error regression tests.
 - internal/services/rules/service.go — revision/activation transactions and rule queries.
 - internal/services/batches/service.go, service_test.go — batch formation/processing and query APIs.
 - internal/services/workflow/service.go — workflow instance creation/state transitions. Definition helper methods currently contain not-implemented placeholders; HTTP handlers use WorkflowDefinitionRepository separately.
@@ -180,7 +180,9 @@ HTTP:
 - internal/adapters/http/handlers/contracts.go — contract registry and generation endpoints.
 - internal/adapters/http/handlers/batch_quarantine.go — batch/quarantine endpoints.
 - internal/adapters/http/handlers/scheduled.go — scheduled-event endpoints.
-- internal/adapters/http/handlers/utils.go — JSON/YAML request decoder.
+- internal/adapters/http/handlers/utils.go — JSON/YAML decoder, 1 MiB request-body limit, strict single-document handling.
+- internal/adapters/http/handlers/safe_output_path.go and safe_output_path_test.go — code-generation output containment, symlink resolution, and path traversal regression tests.
+- internal/adapters/http/handlers/scheduled_test.go, workflows_test.go, batch_quarantine_test.go — API behavior and tenant-body mismatch regression tests.
 - internal/adapters/http/middleware/middleware.go — current tenant extraction and panic recovery; not authentication.
 - internal/adapters/http/responses/responses.go — response and error helpers.
 
@@ -201,6 +203,7 @@ Storage/messaging:
 - internal/adapters/mongo/db.go, transaction.go — Mongo client/session lifecycle and transactions.
 - internal/adapters/mongo/event.go, inbox.go, execution.go, outbox.go, rules.go, shard.go — event processing repository implementations.
 - internal/adapters/mongo/workflow.go, batch.go, scheduled.go, quarantine.go, contract.go — workflow and supporting repositories.
+- internal/adapters/mongo/serialization_test.go — BSON round-trip coverage for JSON payloads/context/rule source and compiled rules.
 - internal/adapters/nats/jetstream.go — JetStream stream configuration, shard consumers, fetch, ACK/NAK/retry, and broker publishing.
 - internal/adapters/redis/client.go, cache.go — Redis lifecycle and cache adapter; not in the primary event path today.
 - internal/adapters/memory/contract_registry.go — in-memory contract registry.
@@ -210,7 +213,7 @@ Storage/messaging:
 
 - api/envelope-schema.json — event envelope JSON Schema.
 - api/rule-schema.json — rule-set JSON Schema for leaf/composite predicates and emit, emit_event, and command actions. The schema is not automatically applied by every handler; keep it aligned with compiler behavior.
-- migrations/001_rule_revisions.sql through migrations/014_workflow_definitions.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; do not renumber/edit applied migrations.
+- migrations/001_rule_revisions.sql through migrations/015_scheduled_event_claims.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; migration 015 adds scheduled-event claim/expiry/error fields. Do not renumber or edit applied migrations.
 - sdk/go/go.mod — original independent SDK module definition.
 - sdk/go/runtime/envelope.go — public envelope, payload and shard hashing.
 - sdk/go/runtime/publisher.go — JetStream publisher.
@@ -256,7 +259,7 @@ Storage/messaging:
 - Bound HTTP request bodies, reject malformed or extra trailing documents, and validate tenant scoping on every resource access.
 - Never log secrets or full sensitive payload bodies.
 - Do not check in binaries, credentials, local DB data, generated build artifacts or temporary files.
-- A bug fix should add a regression test. Concurrency changes require race-enabled tests. Adapter methods need contract coverage for SQL and Mongo before parity is claimed.
+- A bug fix should add a regression test. Concurrency changes require race-enabled tests. Adapter methods need contract coverage for SQL and Mongo before parity is claimed. BSON JSON-backed document fields use binary byte slices and must retain the round-trip regression coverage.
 - Do not edit applied migrations. Add a new numbered migration and test upgrade behavior. Down migrations must be separately designed/tested before promising rollback.
 - Avoid hiding state-changing errors behind logs; an unavailable durable state transition must be observable to the caller/worker.
 - Exported Go symbols require useful comments. Keep source formatted and update docs when an interface, route or runtime behavior changes.
