@@ -84,7 +84,7 @@ func verifyTransactionSupport(ctx context.Context, client *mongo.Client, db *mon
 	}
 
 	probeID := fmt.Sprintf("startup-check-%d", time.Now().UnixNano())
-	collection := db.Collection("_flowrule_transaction_checks")
+	collection := db.Collection(collectionTransactionChecks)
 	if _, err := collection.InsertOne(sessionCtx, bson.M{"_id": probeID}); err != nil { //nolint:contextcheck // sessionCtx derived from parent ctx
 		_ = session.AbortTransaction(sessionCtx) //nolint:contextcheck // sessionCtx derived from parent ctx
 		return fmt.Errorf("insert transaction check record: %w", err)
