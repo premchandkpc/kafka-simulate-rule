@@ -149,7 +149,6 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 
 	ctx := r.Context()
 	var workflows []*domain.WorkflowInstance
-	var err error
 
 	fetchLimit := limit + offset
 	if state != "" {
