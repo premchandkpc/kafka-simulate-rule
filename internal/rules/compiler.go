@@ -208,6 +208,28 @@ func (c *Compiler) validatePredicate(p domain.Predicate, depth int) error {
 		return nil
 	}
 
+	// Evaluation uses one composite operator at a time. Accepting multiple
+	// operators here would silently ignore later branches in the evaluator.
+	compositeCount := 0
+	if p.All != nil {
+		compositeCount++
+		if len(p.All) == 0 {
+			return domain.ErrInvalidPredicate
+		}
+	}
+	if p.Any != nil {
+		compositeCount++
+		if len(p.Any) == 0 {
+			return domain.ErrInvalidPredicate
+		}
+	}
+	if p.Not != nil {
+		compositeCount++
+	}
+	if compositeCount != 1 {
+		return domain.ErrInvalidPredicate
+	}
+
 	if p.All != nil {
 		for _, sub := range p.All {
 			if sub == nil {
