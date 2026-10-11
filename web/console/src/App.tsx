@@ -5,7 +5,7 @@ type Settings = { apiBase: string; tenant: string; token: string; workerMetrics:
 type WorkerSnapshot = { url: string; name: string; online: boolean; checkedAt: number; inFlight: number | null; activeKeys: number | null; shards: number | null; executions: Array<{ ruleSet: string; status: string; count: number }> ; error?: string };
 type NavKey = "overview" | "api" | "codegen" | "workers" | "rules" | "logs";
 
-const DEFAULT_SETTINGS: Settings = { apiBase: "http://localhost:8080", tenant: "development-tenant", token: "", workerMetrics: "http://localhost:9090/metrics", lokiBase: "", lokiQuery: '{service_name="flowrule-worker"}' };
+const DEFAULT_SETTINGS: Settings = { apiBase: "/api", tenant: "development-tenant", token: "", workerMetrics: "", lokiBase: "", lokiQuery: '{service_name="flowrule-worker"}' };
 const NAV: Array<{ id: NavKey; label: string; icon: string }> = [
   { id: "overview", label: "Overview", icon: "◫" }, { id: "api", label: "API explorer", icon: "⌘" },
   { id: "codegen", label: "Code generation", icon: "⟐" }, { id: "workers", label: "Workers & rules", icon: "▦" },
