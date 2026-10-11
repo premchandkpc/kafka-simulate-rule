@@ -23,6 +23,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Check Go formatting
+        run: make check-fmt
+
+      - name: Validate JSON schemas and deployment scripts
+        run: |
+          python -m json.tool api/envelope-schema.json > /dev/null
+          python -m json.tool api/rule-schema.json > /dev/null
+          bash -n examples/*/deploy.sh
+
       - name: Build root-module commands
         run: go build ./cmd/...
 
