@@ -82,7 +82,7 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if wf == nil {
+	if wf == nil || wf.TenantID != middleware.GetTenantID(r.Context()) {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
@@ -112,6 +112,19 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
+	wf, err := h.workflowSvc.Get(ctx, workflowID)
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	if wf == nil || wf.TenantID != middleware.GetTenantID(ctx) {
+		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		return
+	}
+	if body.FromState != "" && body.FromState != wf.State {
+		responses.WriteError(w, http.StatusConflict, "from_state does not match current workflow state", responses.CodeConflict)
+		return
+	}
 	var err error
 	if body.FromState != "" {
 		err = h.workflowSvc.Transition(ctx, workflowID, body.FromState, body.ToState)
@@ -135,25 +148,32 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 
 	limit := 100
 	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+		parsed, err := strconv.Atoi(limitStr)
+		if err != nil || parsed < 1 || parsed > 1000 {
+			responses.WriteError(w, http.StatusBadRequest, "limit must be between 1 and 1000", responses.CodeValidationFailed)
+			return
 		}
+		limit = parsed
 	}
 	offset := 0
 	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			offset = o
+		parsed, err := strconv.Atoi(offsetStr)
+		if err != nil || parsed < 0 || parsed > 10000 {
+			responses.WriteError(w, http.StatusBadRequest, "offset must be between 0 and 10000", responses.CodeValidationFailed)
+			return
 		}
+		offset = parsed
 	}
 
 	ctx := r.Context()
 	var workflows []*domain.WorkflowInstance
 	var err error
 
+	fetchLimit := limit + offset
 	if state != "" {
-		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, state, limit)
+		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, state, fetchLimit)
 	} else {
-		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, "", limit)
+		workflows, err = h.workflowSvc.GetByTenantAndState(ctx, tenantID, "", fetchLimit)
 	}
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
