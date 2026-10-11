@@ -14,23 +14,7 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
-var workflowTypeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}package mongo
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"regexp"
-	"time"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"github.com/flowrule/flowrule/internal/domain"
-)
-
-)
+var workflowTypeNamePattern = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 func validateWorkflowTypeName(value string) error {
 	if !workflowTypeNamePattern.MatchString(value) {
