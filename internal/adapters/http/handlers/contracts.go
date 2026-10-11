@@ -144,23 +144,19 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Security: restrict output directory to a safe location
+	// Generated files must remain inside the dedicated temp root. Validate
+	// path components as well as string containment so sibling-prefix paths and
+	// symlinks cannot redirect writes outside the allowed directory.
+	allowedBase := filepath.Join(os.TempDir(), "flowrule-generated")
 	outputDir := req.Output
 	if outputDir == "" {
-		outputDir = filepath.Join(os.TempDir(), "flowrule-generated", name, version)
-	} else {
-		// Validate path doesn't escape allowed directory
-		absOutput, err := filepath.Abs(outputDir)
-		if err != nil {
-			responses.WriteError(w, http.StatusBadRequest, "invalid output directory", responses.CodeValidationFailed)
-			return
-		}
-		// Only allow under temp or a configured generation directory
-		allowedBase := filepath.Join(os.TempDir(), "flowrule-generated")
-		if !strings.HasPrefix(absOutput, allowedBase) {
-			responses.WriteError(w, http.StatusForbidden, "output directory not allowed", responses.CodeForbidden)
-			return
-		}
+		outputDir = filepath.Join(allowedBase, name, version)
+	}
+	var pathErr error
+	outputDir, pathErr = safeGenerationOutputDir(outputDir, allowedBase)
+	if pathErr != nil {
+		responses.WriteError(w, http.StatusForbidden, "output directory not allowed", responses.CodeForbidden)
+		return
 	}
 
 	generator := codegen.NewGenerator(schema)
