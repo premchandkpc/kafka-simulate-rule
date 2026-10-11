@@ -276,6 +276,7 @@ func (r *ShardLeaseRepository) RenewOwned(ctx context.Context, owner string, lea
 	}
 	return renewed, nil
 }
+
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
 	// Preserve the row so the fencing token remains monotonic across release/reacquire.
 	// Deleting it would let the next INSERT reset the token to 1 and revive a zombie.
