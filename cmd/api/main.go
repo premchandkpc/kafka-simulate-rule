@@ -10,8 +10,8 @@ import (
 	"syscall"
 
 	"github.com/flowrule/flowrule/internal/adapters/http"
-	"github.com/flowrule/flowrule/internal/auth"
 	natsadapter "github.com/flowrule/flowrule/internal/adapters/nats"
+	"github.com/flowrule/flowrule/internal/auth"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
