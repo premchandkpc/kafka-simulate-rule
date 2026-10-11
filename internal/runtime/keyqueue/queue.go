@@ -22,9 +22,9 @@ type KeyQueue struct {
 	maxPerKey   int
 	globalSem   chan struct{}
 	workerCount int
-	stopWorkers   chan struct{}
+	stopWorkers    chan struct{}
 	stopSubmitting chan struct{}
-	wg            sync.WaitGroup
+	wg             sync.WaitGroup
 	processor   func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
 	clock       func() time.Time
 
