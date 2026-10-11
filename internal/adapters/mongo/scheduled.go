@@ -117,7 +117,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
 	coll := r.collection("scheduled_events")
 	result, err := coll.UpdateOne(ctx,
-		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant},
+		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": releasedAt}},
 		bson.M{
 			"$set": bson.M{"status": "released", "released_at": releasedAt},
 			"$unset": bson.M{
@@ -136,8 +136,9 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error {
 	coll := r.collection("scheduled_events")
+	now := time.Now().UTC()
 	result, err := coll.UpdateOne(ctx,
-		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant},
+		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": now}},
 		bson.M{
 			"$set": bson.M{"status": "failed", "last_error": errMsg},
 			"$unset": bson.M{
