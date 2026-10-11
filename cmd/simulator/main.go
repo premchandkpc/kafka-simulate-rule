@@ -18,7 +18,7 @@ import (
 const (
 	defaultNATSURL    = "nats://nats:4222"
 	defaultNATSStream = "flowrule"
-	connectTimeout   = 5 * time.Second
+	connectTimeout    = 5 * time.Second
 )
 
 func main() {
