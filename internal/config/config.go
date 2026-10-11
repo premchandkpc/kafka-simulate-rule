@@ -116,7 +116,7 @@ func Load() (*Config, error) {
 		},
 		Worker: WorkerConfig{
 			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", int(DefaultNumShards)))),
-			WorkerReplicas:          uint32(toUint32(getIntEnv("WORKER_REPLICAS", 3))),
+			WorkerReplicas:          uint32(toUint32(getIntEnv("WORKER_REPLICAS", 1))),
 			WorkerID:                getEnv("WORKER_ID", ""),
 			MaxGlobalInFlight:       toInt(getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100)),
 			FetchBatchSize:          toInt(getIntEnv("FETCH_BATCH_SIZE", 100)),
