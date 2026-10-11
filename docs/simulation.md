@@ -1,6 +1,6 @@
 # Random producer and cluster simulation
 
-The opt-in simulator publishes random event envelopes into the same NATS JetStream subject family consumed by the workers. It is a load generator, not a substitute for end-to-end consumer acknowledgement verification.
+The opt-in simulator publishes random event envelopes into the same NATS JetStream subject family consumed by the workers. It is a developer/test utility, not part of API or worker startup and not a substitute for end-to-end consumer acknowledgement verification. `cmd/simulator` is only the composition root (flags, signal/timeout handling, and NATS wiring); event generation, domain envelope validation, shard selection, concurrency, and result accounting live in `internal/simulator`. The use case depends on a narrow `Publisher` interface, and it uses `internal/domain.EventEnvelope` so the simulator cannot drift from the production event schema or shard hash.
 
 ## Run
 
