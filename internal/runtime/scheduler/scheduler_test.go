@@ -63,7 +63,9 @@ type schedulerTestPublisher struct {
 }
 
 func (p *schedulerTestPublisher) Publish(context.Context, string, []byte) error { return nil }
-func (p *schedulerTestPublisher) PublishBatch(context.Context, []ports.PublishMessage) error { return nil }
+func (p *schedulerTestPublisher) PublishBatch(context.Context, []ports.PublishMessage) error {
+	return nil
+}
 func (p *schedulerTestPublisher) PublishToShard(_ context.Context, base string, shard uint32, payload []byte) error {
 	p.subject = fmt.Sprintf("%s.shard.%d", base, shard)
 	p.payload = append([]byte(nil), payload...)
