@@ -29,6 +29,9 @@ func NewService(
 	if claimant == "" {
 		claimant = "publisher"
 	}
+	if clock == nil {
+		clock = domain.SystemClock{}
+	}
 	return &Service{
 		outbox:       outbox,
 		effectSender: effectSender,
