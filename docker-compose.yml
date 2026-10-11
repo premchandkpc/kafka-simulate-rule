@@ -152,6 +152,28 @@ services:
     restart: unless-stopped
     networks: [flowrule]
 
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+    env_file: .env
+    environment:
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+    command:
+      - --clients
+      - "${SIM_CLIENTS:-10}"
+      - --max-messages
+      - "${SIM_MESSAGES_MAX:-100}"
+      - --shards
+      - "${NUM_SHARDS:-4096}"
+      - --concurrency
+      - "${SIM_CONCURRENCY:-16}"
+    depends_on:
+      nats:
+        condition: service_healthy
+    profiles: [simulation]
+    networks: [flowrule]
+
   codegen:
     build:
       context: .
