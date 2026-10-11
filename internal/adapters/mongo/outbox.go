@@ -95,6 +95,9 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 }
 
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
+	if len(effectIDs) == 0 {
+		return nil
+	}
 	coll := r.collection("outbox_effects")
 	now := time.Now().UTC()
 
@@ -128,7 +131,7 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 	now := time.Now().UTC()
 	availableAt := now.Add(delay)
 
-	_, err := coll.UpdateOne(ctx,
+	result, err := coll.UpdateOne(ctx,
 		bson.M{
 			"effect_id":  effectID,
 			"status":     domain.OutboxStatusClaimed,
