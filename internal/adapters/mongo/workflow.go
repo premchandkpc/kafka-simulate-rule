@@ -237,6 +237,8 @@ func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.Wor
 	}
 	coll := r.collection(collectionWorkflowDefinitions)
 	doc := WorkflowDefinitionDocFromDomain(def)
+	// WorkflowType is validated above and both values are BSON scalars under fixed keys.
+	// No query syntax is constructed by concatenating user-controlled strings.
 	_, err := coll.UpdateOne(ctx,
 		bson.D{{Key: "workflow_type", Value: def.WorkflowType}, {Key: "version", Value: def.Version}},
 		bson.D{{Key: "$set", Value: doc}},
