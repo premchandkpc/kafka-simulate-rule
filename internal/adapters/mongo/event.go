@@ -26,7 +26,7 @@ func (r *EventRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *EventRepository) Save(ctx context.Context, event *domain.EventEnvelope) error {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	doc := EventDocFromDomain(event)
 	_, err := coll.InsertOne(ctx, doc)
 	if err != nil {
@@ -39,7 +39,7 @@ func (r *EventRepository) Save(ctx context.Context, event *domain.EventEnvelope)
 }
 
 func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.EventEnvelope, error) {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	var doc EventDoc
 	err := coll.FindOne(ctx, bson.M{
 		"tenant_id": tenantID,
@@ -55,7 +55,7 @@ func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*d
 }
 
 func (r *EventRepository) Exists(ctx context.Context, tenantID, eventID string) (bool, error) {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	count, err := coll.CountDocuments(ctx, bson.M{
 		"tenant_id": tenantID,
 		"event_id":  eventID,
@@ -67,7 +67,7 @@ func (r *EventRepository) Exists(ctx context.Context, tenantID, eventID string) 
 }
 
 func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, executionID string) error {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 	now := time.Now().UTC()
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
@@ -86,7 +86,7 @@ func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, 
 }
 
 func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, limit int) ([]*domain.EventEnvelope, error) {
-	coll := r.collection("events")
+	coll := r.collection(collectionEvents)
 
 	filter := bson.M{
 		"tenant_id": tenantID,

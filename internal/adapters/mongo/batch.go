@@ -25,7 +25,7 @@ func (r *BatchRepository) collection(name string) *mongo.Collection {
 }
 
 func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 
 	if limit <= 0 {
 		limit = 400
@@ -57,7 +57,7 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 }
 
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
-	coll := r.collection("inbox")
+	coll := r.collection(collectionInbox)
 
 	_, err := coll.UpdateOne(ctx,
 		bson.M{
@@ -78,7 +78,7 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 }
 
 func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
-	coll := r.collection("batch_runs")
+	coll := r.collection(collectionBatchRuns)
 	doc := BatchRunDocFromDomain(run)
 
 	_, err := coll.UpdateOne(ctx,
@@ -93,7 +93,7 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 }
 
 func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
-	coll := r.collection("batch_runs")
+	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
 	err := coll.FindOne(ctx, bson.M{"batch_id": batchID}).Decode(&doc)
 	if err != nil {
@@ -106,7 +106,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 }
 
 func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
-	coll := r.collection("batch_runs")
+	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
 	err := coll.FindOne(ctx, bson.M{"tenant_id": tenantID, "batch_id": batchID}).Decode(&doc)
 	if err != nil {
@@ -132,7 +132,7 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if ruleSet != "" {
 		filter["rule_set"] = ruleSet
 	}
-	cursor, err := r.collection("batch_runs").Find(ctx, filter, options.Find().
+	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
 		SetSkip(int64(offset)).
 		SetLimit(int64(limit)))
