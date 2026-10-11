@@ -88,7 +88,7 @@ SECURITY / DEPLOYMENT REQUIREMENT:
 
 - cmd/codegen/main.go is a database-backed CLI. It reads a registered contract and generates Go, Java, Protobuf, or JSON Schema artifacts. Flags are -contract, -version, -target, -output, -list, -dsn and -migrations. It does not accept a YAML file path or implement a generate --all subcommand.
 - cmd/migrate/main.go currently supports only the up command. Down/status are not implemented because there are no paired reversible migration scripts. Do not advertise rollback as supported.
-- examples/random-producer/main.go is an opt-in random-producer example entrypoint. It parses flags/environment, bounds the run, handles SIGINT/SIGTERM, wires the NATS adapter, and delegates event generation/publication to examples/random-producer. It is not part of API or worker startup.
+- examples/random-producer/main.go is an opt-in random-producer example entrypoint. It parses flags/environment, bounds the run, handles SIGINT/SIGTERM, wires the NATS adapter, and delegates event generation/publication to the example's producer use case. It is not part of API or worker startup.
 - CLI entrypoints must return errors from run functions so deferred resources close before main exits. Avoid log.Fatal/log.Fatalf/os.Exit inside resource-owning run functions.
 
 ## 4. Dependency direction and package boundaries
