@@ -199,7 +199,7 @@ func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string, clai
 	return nil
 }
 
-func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error {
+func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	if ef, ok := m.effects[effectID]; ok {
 		ef.Attempts = attempts
 		ef.LastError = errMsg
@@ -208,7 +208,7 @@ func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID string, delay t
 	return nil
 }
 
-func (m *mockOutbox) Quarantine(ctx context.Context, effectID string, errMsg string) error {
+func (m *mockOutbox) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	if ef, ok := m.effects[effectID]; ok {
 		ef.Status = domain.OutboxStatusQuarantined
 		ef.LastError = errMsg
