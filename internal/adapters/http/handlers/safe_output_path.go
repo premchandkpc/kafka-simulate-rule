@@ -17,6 +17,16 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 	if err := os.MkdirAll(rootAbs, 0o700); err != nil {
 		return "", fmt.Errorf("create output root: %w", err)
 	}
+	rootInfo, err := os.Lstat(rootAbs)
+	if err != nil {
+		return "", fmt.Errorf("inspect output root: %w", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return "", fmt.Errorf("output root %q must be a real directory, not a symlink or file", rootAbs)
+	}
+	if err := os.Chmod(rootAbs, 0o700); err != nil {
+		return "", fmt.Errorf("restrict output root permissions: %w", err)
+	}
 	realRoot, err := filepath.EvalSymlinks(rootAbs)
 	if err != nil {
 		return "", fmt.Errorf("resolve output root symlinks: %w", err)
