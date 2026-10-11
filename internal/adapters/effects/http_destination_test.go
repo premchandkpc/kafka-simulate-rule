@@ -64,7 +64,7 @@ func TestHTTPDestinationBoundsErrorResponseBody(t *testing.T) {
 	if err == nil {
 		t.Fatal("Send() error = nil, want response error")
 	}
-	if got := len(err.Error()); got > (5<<10) {
+	if got := len(err.Error()); got > (5 << 10) {
 		t.Fatalf("error length = %d, expected bounded error response", got)
 	}
 	if !strings.Contains(err.Error(), "destination returned non-success status 502") {
