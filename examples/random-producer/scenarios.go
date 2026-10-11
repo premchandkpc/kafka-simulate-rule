@@ -19,12 +19,6 @@ const (
 	ScenarioFoodDelivery Scenario = "food-delivery"
 )
 
-var supportedEventTypes = map[string]struct{}{
-	"order.created":        {},
-	"transaction.initiated": {},
-	"order.placed":          {},
-}
-
 var supportedScenarios = []Scenario{
 	ScenarioEcommerce,
 	ScenarioBanking,
