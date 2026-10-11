@@ -206,6 +206,10 @@ func (m *LeaseManager) renewOwned(ctx context.Context) {
 			}
 			continue
 		}
+		if newLease == nil {
+			log.Printf("shard %d: renew returned an empty lease; retaining current ownership snapshot", shardID)
+			continue
+		}
 		m.mu.Lock()
 		m.ownedShards[shardID] = newLease
 		m.mu.Unlock()
