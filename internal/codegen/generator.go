@@ -37,10 +37,6 @@ const (
 	runtimeDirectoryName    = "runtime"
 )
 
-func runtimeOutputDir(outputDir string) string {
-	return filepath.Join(outputDir, TargetGo, runtimeDirectoryName)
-}
-
 func sanitizeGeneratedOutputDir(outputDir string) (string, error) {
 	if outputDir == "" {
 		return "", fmt.Errorf("output directory is required")
@@ -54,6 +50,46 @@ func sanitizeGeneratedOutputDir(outputDir string) (string, error) {
 	}
 
 	return cleaned, nil
+}
+
+func createGeneratedFile(outputDir, relativePath string) (*os.File, string, error) {
+	var err error
+	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return nil, "", err
+	}
+	if !filepath.IsLocal(relativePath) {
+		return nil, "", fmt.Errorf("generated file path must be local to the output directory")
+	}
+	relativePath = filepath.Clean(relativePath)
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return nil, "", fmt.Errorf("create output dir: %w", err)
+	}
+	root, err := os.OpenRoot(outputDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("open output dir: %w", err)
+	}
+
+	relativeDir := filepath.Dir(relativePath)
+	if relativeDir != "." {
+		if err := root.MkdirAll(relativeDir, 0755); err != nil {
+			_ = root.Close()
+			return nil, "", fmt.Errorf("create generated file directory: %w", err)
+		}
+	}
+
+	file, err := root.Create(relativePath)
+	closeErr := root.Close()
+	if err != nil {
+		return nil, "", fmt.Errorf("create generated file: %w", err)
+	}
+	if closeErr != nil {
+		_ = file.Close()
+		return nil, "", fmt.Errorf("close output dir: %w", closeErr)
+	}
+
+	return file, filepath.Join(outputDir, relativePath), nil
 }
 
 type RuleSet struct {
@@ -215,13 +251,7 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	}
 
 	pkgName := sanitizePackageName(g.schema.Name)
-	dir := runtimeOutputDir(outputDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "evaluator.go")
-	f, err := os.Create(filePath)
+	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "evaluator.go"))
 	if err != nil {
 		return nil, fmt.Errorf("create evaluator.go: %w", err)
 	}
@@ -436,13 +466,7 @@ func (g *Generator) GenerateService(outputDir string) ([]string, error) {
 	}
 
 	pkgName := sanitizePackageName(g.schema.Name)
-	dir := runtimeOutputDir(outputDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "service.go")
-	f, err := os.Create(filePath)
+	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "service.go"))
 	if err != nil {
 		return nil, fmt.Errorf("create service.go: %w", err)
 	}
@@ -502,19 +526,12 @@ func (g *Generator) generate(outputDir, subdir string, tmpl *template.Template, 
 		return nil, err
 	}
 
-	dir := filepath.Join(outputDir, subdir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create output dir: %w", err)
-	}
-
 	typeName := toPascalCase(g.schema.Name)
 	if err := validateGeneratedTypeName(typeName); err != nil {
 		return nil, err
 	}
 	fileName := strings.ToLower(typeName) + ext
-	filePath := filepath.Join(dir, fileName)
-
-	f, err := os.Create(filePath)
+	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(subdir, fileName))
 	if err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
 	}
@@ -560,17 +577,11 @@ func (g *Generator) generateTypedClient(outputDir string) (string, error) {
 		return "", err
 	}
 
-	dir := filepath.Join(outputDir, TargetGo)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("create Go client output dir: %w", err)
-	}
-
 	typeName := toPascalCase(g.schema.Name)
 	if err := validateGeneratedTypeName(typeName); err != nil {
 		return "", err
 	}
-	filePath := filepath.Join(dir, strings.ToLower(typeName)+"_client.go")
-	file, err := os.Create(filePath)
+	file, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, strings.ToLower(typeName)+"_client.go"))
 	if err != nil {
 		return "", fmt.Errorf("create Go client file: %w", err)
 	}
@@ -1285,13 +1296,7 @@ func isNumeric(v any) bool {
 
 func (g *Generator) generateEnvelope(outputDir string) ([]string, error) {
 	pkgName := sanitizePackageName(g.schema.Name)
-	dir := runtimeOutputDir(outputDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "envelope.go")
-	f, err := os.Create(filePath)
+	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "envelope.go"))
 	if err != nil {
 		return nil, fmt.Errorf("create envelope.go: %w", err)
 	}
@@ -1324,13 +1329,7 @@ func (g *Generator) generateEnvelope(outputDir string) ([]string, error) {
 
 func (g *Generator) generatePublisher(outputDir string) ([]string, error) {
 	pkgName := sanitizePackageName(g.schema.Name)
-	dir := runtimeOutputDir(outputDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "publisher.go")
-	f, err := os.Create(filePath)
+	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "publisher.go"))
 	if err != nil {
 		return nil, fmt.Errorf("create publisher.go: %w", err)
 	}
@@ -1363,13 +1362,7 @@ func (g *Generator) generatePublisher(outputDir string) ([]string, error) {
 
 func (g *Generator) generateConsumer(outputDir string) ([]string, error) {
 	pkgName := sanitizePackageName(g.schema.Name)
-	dir := runtimeOutputDir(outputDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create runtime dir: %w", err)
-	}
-
-	filePath := filepath.Join(dir, "consumer.go")
-	f, err := os.Create(filePath)
+	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "consumer.go"))
 	if err != nil {
 		return nil, fmt.Errorf("create consumer.go: %w", err)
 	}

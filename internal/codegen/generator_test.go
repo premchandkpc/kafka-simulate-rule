@@ -158,6 +158,26 @@ func TestGenerateMethodsRejectParentTraversal(t *testing.T) {
 	}
 }
 
+func TestGenerateGoDoesNotFollowOutputSymlinkOutsideRoot(t *testing.T) {
+	outputDir := t.TempDir()
+	outsideDir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(outputDir, TargetGo)); err != nil {
+		t.Fatalf("create output symlink: %v", err)
+	}
+
+	generator := NewGenerator(&domain.ContractSchema{
+		Name:    "order.created",
+		Version: "1.0",
+		Fields:  map[string]domain.ContractField{},
+	})
+	if _, err := generator.GenerateGo(outputDir); err == nil {
+		t.Fatal("GenerateGo() wrote through a symlink outside the output directory")
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "created.go")); !os.IsNotExist(err) {
+		t.Fatalf("generated file exists outside output directory: stat error = %v", err)
+	}
+}
+
 func TestGenerateGoRejectsUnsafeSchemaDerivedFileNames(t *testing.T) {
 	generator := NewGenerator(&domain.ContractSchema{
 		Name:    "../../escape",
