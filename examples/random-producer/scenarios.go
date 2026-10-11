@@ -51,16 +51,16 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 		eventType = "order.created"
 		partitionKey = clientID
 		data = map[string]any{
-			"order_id": orderID,
-			"customer_id": clientID,
+			"order_id":     orderID,
+			"customer_id":  clientID,
 			"total_amount": float64((rng.Intn(24000) + 1000)),
-			"currency": "USD",
+			"currency":     "USD",
 			"items": []map[string]any{
-				{"product_id": fmt.Sprintf("product-%03d", rng.Intn(50)+1), "quantity": int64(rng.Intn(3)+1), "unit_price": float64(rng.Intn(9000)+1000)},
+				{"product_id": fmt.Sprintf("product-%03d", rng.Intn(50)+1), "quantity": int64(rng.Intn(3) + 1), "unit_price": float64(rng.Intn(9000) + 1000)},
 			},
 			"shipping_address": map[string]string{
 				"street": fmt.Sprintf("%d Market Street", rng.Intn(900)+100),
-				"city": "San Francisco", "state": "CA", "postal_code": "94102", "country": "US",
+				"city":   "San Francisco", "state": "CA", "postal_code": "94102", "country": "US",
 			},
 			"created_at": now.Format(time.RFC3339Nano),
 		}
@@ -74,14 +74,14 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 			counterparty = fmt.Sprintf("intl-account-%04d", rng.Intn(1000)+1)
 		}
 		data = map[string]any{
-			"transaction_id": fmt.Sprintf("txn-%s-%04d", clientID, sequence),
-			"account_id": accountID,
-			"amount": float64(rng.Intn(2_000_000) + 500),
-			"currency": "USD",
-			"transaction_type": []string{"transfer", "payment", "withdrawal"}[rng.Intn(3)],
+			"transaction_id":       fmt.Sprintf("txn-%s-%04d", clientID, sequence),
+			"account_id":           accountID,
+			"amount":               float64(rng.Intn(2_000_000) + 500),
+			"currency":             "USD",
+			"transaction_type":     []string{"transfer", "payment", "withdrawal"}[rng.Intn(3)],
 			"counterparty_account": counterparty,
-			"description": fmt.Sprintf("simulated-transfer-%04d", sequence),
-			"initiated_at": now.Format(time.RFC3339Nano),
+			"description":          fmt.Sprintf("simulated-transfer-%04d", sequence),
+			"initiated_at":         now.Format(time.RFC3339Nano),
 		}
 	case ScenarioFoodDelivery:
 		// Mirrors examples/food-delivery/contracts/order.placed.yaml.
@@ -91,17 +91,17 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 		quantity := int64(rng.Intn(3) + 1)
 		unitPrice := float64(rng.Intn(2500) + 500)
 		data = map[string]any{
-			"order_id": orderID,
-			"customer_id": clientID,
+			"order_id":      orderID,
+			"customer_id":   clientID,
 			"restaurant_id": fmt.Sprintf("restaurant-%03d", rng.Intn(30)+1),
-			"total_amount": unitPrice * float64(quantity),
-			"currency": "USD",
+			"total_amount":  unitPrice * float64(quantity),
+			"currency":      "USD",
 			"items": []map[string]any{
 				{"menu_item_id": fmt.Sprintf("menu-item-%03d", rng.Intn(40)+1), "name": []string{"Margherita Pizza", "Rice Bowl", "Veggie Burger", "Noodles"}[rng.Intn(4)], "quantity": quantity, "unit_price": unitPrice},
 			},
 			"delivery_address": map[string]string{
 				"street": fmt.Sprintf("%d Oak Avenue", rng.Intn(900)+100),
-				"city": "San Francisco", "state": "CA", "postal_code": postalCode,
+				"city":   "San Francisco", "state": "CA", "postal_code": postalCode,
 			},
 			"created_at": now.Format(time.RFC3339Nano),
 		}
@@ -121,8 +121,8 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 		OccurredAt:   now,
 		Data:         payload,
 		Headers: map[string]string{
-			"source":   "flowrule-random-producer",
-			"scenario": string(scenario),
+			"source":    "flowrule-random-producer",
+			"scenario":  string(scenario),
 			"client_id": clientID,
 		},
 	}, nil
