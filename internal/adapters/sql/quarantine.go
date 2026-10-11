@@ -32,13 +32,13 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	return nil
 }
 
-func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.QuarantineEntry, error) {
+func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	entry := &domain.QuarantineEntry{}
 	err := r.db.QueryRow(ctx, `
 		SELECT quarantine_id, source_type, source_id, error_class, COALESCE(payload_ref, ''),
 		       COALESCE(event_id, ''), COALESCE(tenant_id, ''), COALESCE(error_message, ''), created_at
-		FROM quarantine WHERE quarantine_id = $1
-	`, id).Scan(&entry.ID, &entry.SourceType, &entry.SourceID, &entry.ErrorClass, &entry.PayloadRef,
+		FROM quarantine WHERE tenant_id = $1 AND quarantine_id = $2
+	`, tenantID, id).Scan(&entry.ID, &entry.SourceType, &entry.SourceID, &entry.ErrorClass, &entry.PayloadRef,
 		&entry.EventID, &entry.TenantID, &entry.Error, &entry.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -49,8 +49,8 @@ func (r *QuarantineRepository) Get(ctx context.Context, id string) (*domain.Quar
 	return entry, nil
 }
 
-func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {
-	tag, err := r.db.Exec(ctx, `UPDATE quarantine SET updated_at = NOW() WHERE quarantine_id = $1`, id)
+func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
+	tag, err := r.db.Exec(ctx, `UPDATE quarantine SET updated_at = NOW() WHERE tenant_id = $1 AND quarantine_id = $2`, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("record quarantine replay: %w", err)
 	}
@@ -60,10 +60,13 @@ func (r *QuarantineRepository) Replay(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *QuarantineRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM quarantine WHERE quarantine_id = $1`, id)
+func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
+	tag, err := r.db.Exec(ctx, `DELETE FROM quarantine WHERE tenant_id = $1 AND quarantine_id = $2`, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("delete quarantine entry: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrQuarantineNotFound
 	}
 	return nil
 }
