@@ -95,7 +95,7 @@ Environment variable names and local defaults are documented in .env.example. AP
 - migrations contains numbered PostgreSQL migrations.
 - docs contains architecture diagrams, rules, operations, roadmap, and dated audit notes.
 - AGENTS.md is the engineering guide and source-backed file map.
-- ARCHITECTURE_MAP.md describes runtime data flow, package boundaries, and known gaps.
+- [Architecture map](docs/architecture/map.md) describes runtime data flow, package boundaries, and known gaps.
 
 Start with docs/README.md for the documentation index.
 

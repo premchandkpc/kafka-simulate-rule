@@ -145,10 +145,10 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 | examples/{banking,ecommerce,food-delivery} | Independent modules with contract/rule/workflow sources and sample applications |
 | tests/contract | In-memory repository contract suites, not full SQL/Mongo conformance |
 | tests/integration | Service behavior tests using mocks/in-memory repositories, not live infrastructure tests |
-| docs/01-*.mmd to docs/27-*.mmd | Focused flow and design diagrams |
+| docs/diagrams/01-*.mmd to docs/diagrams/27-*.mmd | Focused flow and design diagrams |
 | docs/audit | Timestamped static review findings that must be revalidated |
 
-More detailed file-by-file instructions, build commands and invariants are in AGENTS.md.
+More detailed file-by-file instructions, build commands and invariants are in ../../AGENTS.md.
 
 ## Dependency direction
 

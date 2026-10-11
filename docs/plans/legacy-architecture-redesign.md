@@ -1,4 +1,6 @@
-# FlowRule Architecture Redesign - Implementation Plan
+# Legacy FlowRule Architecture Redesign Plan
+
+> **Status: historical draft.** This plan is preserved for context, not as a current task list. Several paths and checkboxes no longer match the repository. Verify every item against `../../AGENTS.md`, `../architecture/map.md`, source code and CI before acting on it.
 
 ## Phase 1: Critical Blockers (Week 1)
 
