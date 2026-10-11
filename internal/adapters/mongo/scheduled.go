@@ -42,12 +42,13 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 		limit = 100
 	}
 	coll := r.collection(collectionScheduledEvents)
-	filter := bson.M{
-		"$or": []bson.M{
-			{"status": domain.ScheduledEventStatusPending, "scheduled_at": bson.M{"$lte": before}},
-			{"status": domain.ScheduledEventStatusClaimed, "claim_expires_at": bson.M{"$lte": before}},
-		},
-	}
+	filter := bson.D{{Key: "$or", Value: bson.A{
+		bson.D{{Key: "status", Value: domain.ScheduledEventStatusPending}, {Key: "$or", Value: bson.A{
+			bson.D{{Key: "retry_at", Value: bson.D{{Key: "$lte", Value: before}}}},
+			bson.D{{Key: "retry_at", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "scheduled_at", Value: bson.D{{Key: "$lte", Value: before}}}},
+		}}},
+		bson.D{{Key: "status", Value: domain.ScheduledEventStatusClaimed}, {Key: "claim_expires_at", Value: bson.D{{Key: "$lte", Value: before}}}},
+	}}}
 	cursor, err := coll.Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "scheduled_at", Value: 1}}).
 		SetLimit(int64(limit)))
@@ -87,20 +88,23 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 	var events []*domain.ScheduledEvent
 	for _, eventID := range eventIDs {
 		var doc ScheduledDoc
-		filter := bson.M{
-			"event_id": eventID,
-			"$or": []bson.M{
-				{"status": domain.ScheduledEventStatusPending, "scheduled_at": bson.M{"$lte": now}},
-				{"status": domain.ScheduledEventStatusClaimed, "claim_expires_at": bson.M{"$lte": now}},
-			},
+		filter := bson.D{
+			{Key: "event_id", Value: eventID},
+			{Key: "$or", Value: bson.A{
+				bson.D{{Key: "status", Value: domain.ScheduledEventStatusPending}, {Key: "$or", Value: bson.A{
+					bson.D{{Key: "retry_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+					bson.D{{Key: "retry_at", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "scheduled_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+				}}},
+				bson.D{{Key: "status", Value: domain.ScheduledEventStatusClaimed}, {Key: "claim_expires_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+			}},
 		}
 		err := coll.FindOneAndUpdate(ctx, filter,
-			bson.M{"$set": bson.M{
-				"status":           domain.ScheduledEventStatusClaimed,
-				"claimant":         claimant,
-				"claimed_at":       now,
-				"claim_expires_at": expiresAt,
-			}},
+			bson.D{{Key: "$set", Value: bson.D{
+				{Key: "status", Value: domain.ScheduledEventStatusClaimed},
+				{Key: "claimant", Value: claimant},
+				{Key: "claimed_at", Value: now},
+				{Key: "claim_expires_at", Value: expiresAt},
+			}}},
 			options.FindOneAndUpdate().SetReturnDocument(options.After),
 		).Decode(&doc)
 		if err != nil {
@@ -130,6 +134,39 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 	}
 	if result.MatchedCount != 1 {
 		return fmt.Errorf("mark scheduled event released: claim for event %q is no longer owned by %q", eventID, claimant)
+	}
+	return nil
+}
+
+func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, claimant string, retryAt time.Time, errMsg string) error {
+	coll := r.collection(collectionScheduledEvents)
+	now := time.Now().UTC()
+	result, err := coll.UpdateOne(ctx,
+		bson.D{
+			{Key: "event_id", Value: eventID},
+			{Key: "status", Value: domain.ScheduledEventStatusClaimed},
+			{Key: "claimant", Value: claimant},
+			{Key: "claim_expires_at", Value: bson.D{{Key: "$gt", Value: now}}},
+		},
+		bson.D{
+			{Key: "$set", Value: bson.D{
+				{Key: "status", Value: domain.ScheduledEventStatusPending},
+				{Key: "retry_at", Value: retryAt},
+				{Key: "last_error", Value: errMsg},
+			}},
+			{Key: "$inc", Value: bson.D{{Key: "retry_count", Value: 1}}},
+			{Key: "$unset", Value: bson.D{
+				{Key: "claimant", Value: ""},
+				{Key: "claimed_at", Value: ""},
+				{Key: "claim_expires_at", Value: ""},
+			}},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("schedule scheduled event retry: %w", err)
+	}
+	if result.MatchedCount != 1 {
+		return fmt.Errorf("schedule scheduled event retry: claim for event %q is no longer owned by %q", eventID, claimant)
 	}
 	return nil
 }
@@ -236,6 +273,8 @@ type ScheduledDoc struct {
 	ClaimedAt      *time.Time        `bson:"claimed_at,omitempty"`
 	ClaimExpiresAt *time.Time        `bson:"claim_expires_at,omitempty"`
 	LastError      string            `bson:"last_error,omitempty"`
+	RetryAt        *time.Time        `bson:"retry_at,omitempty"`
+	RetryCount     int               `bson:"retry_count,omitempty"`
 }
 
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
@@ -251,6 +290,9 @@ func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 		Status:       string(event.Status),
 		CreatedAt:    event.CreatedAt,
 		ReleasedAt:   event.ReleasedAt,
+		RetryAt:      event.RetryAt,
+		RetryCount:   event.RetryCount,
+		LastError:    event.LastError,
 	}
 }
 
@@ -271,5 +313,8 @@ func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 		Status:       domain.ScheduledEventStatus(d.Status),
 		CreatedAt:    d.CreatedAt,
 		ReleasedAt:   d.ReleasedAt,
+		RetryAt:      d.RetryAt,
+		RetryCount:   d.RetryCount,
+		LastError:    d.LastError,
 	}
 }
