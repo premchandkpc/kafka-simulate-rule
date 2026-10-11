@@ -61,7 +61,7 @@ Do not claim tests/integration is a live infrastructure test: current tests use 
 - Workflow definitions are global platform configuration in the current schema. The tenant-facing API exposes read-only GET routes under /v1/workflows/definitions; create/delete routes are deliberately not registered until an authenticated admin API and explicit ownership model exist.
 - /health is liveness only; it does not check storage or broker readiness.
 - The HTTP SDK transport targets POST /v1/events/{type}; verify that route is implemented and contract-tested before selecting HTTP transport. Do not assume the management API accepts producer events.
-- Scheduled-event list/get/cancel operations use tenant-scoped repository queries. Cancellation is allowed only while the event is pending; repository conflicts return an HTTP conflict rather than reporting success.
+- Scheduled-event list/get/cancel operations use tenant-scoped repository queries. Cancellation is allowed only while the event is pending; repository conflicts return an HTTP conflict rather than reporting success. Scheduler publication failures retry with bounded exponential backoff (1s doubling to a 60s cap, at most 8 total attempts); retry_at preserves the original scheduled_at, and claim settlement uses the current time so an expired claim cannot be settled using a stale tick timestamp.
 - The API starts HTTP only. No gRPC server is implemented; the client SDK's gRPC transport targets a compatible server deployed separately.
 
 SECURITY / DEPLOYMENT REQUIREMENT:
