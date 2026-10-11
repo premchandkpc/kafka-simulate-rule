@@ -55,7 +55,7 @@ func run() error {
 		MaxMessagesPerClient: *maxMessages,
 		NumShards:            uint32(*shards),
 		Concurrency:          *concurrency,
-		BaseSubject:          "events",
+		BaseSubject:          simulator.DefaultBaseSubject,
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
