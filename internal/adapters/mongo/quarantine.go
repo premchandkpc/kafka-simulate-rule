@@ -25,6 +25,73 @@ func (r *QuarantineRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// BackfillEffectTenantIDs repairs legacy effect quarantine records using their
+ // outbox effect and execution as the authoritative tenant source. Records whose
+ // source chain no longer exists are left unscoped and remain invisible to tenants.
+func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) error {
+	coll := r.collection("quarantine")
+	cursor, err := coll.Find(ctx, bson.M{
+		"source_type": "effect",
+		"$or": []bson.M{
+			{"tenant_id": bson.M{"$exists": false}},
+			{"tenant_id": ""},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("find legacy effect quarantine entries: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var entry QuarantineDoc
+		if err := cursor.Decode(&entry); err != nil {
+			return fmt.Errorf("decode legacy effect quarantine entry: %w", err)
+		}
+		var effect struct {
+			ExecutionID string `bson:"execution_id"`
+		}
+		if err := r.collection("outbox_effects").FindOne(ctx, bson.M{
+			"effect_id": entry.SourceID,
+		}).Decode(&effect); err != nil {
+			if err == mongo.ErrNoDocuments {
+				continue
+			}
+			return fmt.Errorf("find outbox effect %s: %w", entry.SourceID, err)
+		}
+		var execution struct {
+			TenantID string `bson:"tenant_id"`
+		}
+		if err := r.collection("executions").FindOne(ctx, bson.M{
+			"execution_id": effect.ExecutionID,
+		}).Decode(&execution); err != nil {
+			if err == mongo.ErrNoDocuments {
+				continue
+			}
+			return fmt.Errorf("find execution %s: %w", effect.ExecutionID, err)
+		}
+		if execution.TenantID == "" {
+			continue
+		}
+		_, err := coll.UpdateOne(ctx,
+			bson.M{
+				"quarantine_id": entry.QuarantineID,
+				"$or": []bson.M{
+					{"tenant_id": bson.M{"$exists": false}},
+					{"tenant_id": ""},
+				},
+			},
+			bson.M{"$set": bson.M{"tenant_id": execution.TenantID}},
+		)
+		if err != nil {
+			return fmt.Errorf("backfill tenant for quarantine entry %s: %w", entry.QuarantineID, err)
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return fmt.Errorf("iterate legacy effect quarantine entries: %w", err)
+	}
+	return nil
+}
+
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	coll := r.collection("quarantine")
 	doc := QuarantineDocFromDomain(entry)
