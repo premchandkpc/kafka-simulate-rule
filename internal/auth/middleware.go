@@ -32,7 +32,7 @@ func Middleware(validator *Validator, requiredScopes ...string) func(http.Handle
 				}
 			}
 
-			ctx := ContextWithTenant(r.Context(), claims.TenantID)
+			ctx := ContextWithClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -48,7 +48,7 @@ func OptionalAuthMiddleware(validator *Validator) func(http.Handler) http.Handle
 			if tokenString != "" {
 				claims, err := validator.Validate(r.Context(), tokenString)
 				if err == nil {
-					ctx := ContextWithTenant(r.Context(), claims.TenantID)
+					ctx := ContextWithClaims(r.Context(), claims)
 					r = r.WithContext(ctx)
 				}
 			}
