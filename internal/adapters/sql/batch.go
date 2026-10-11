@@ -8,6 +8,72 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+	run := &domain.BatchRun{}
+	err := r.db.QueryRow(ctx, `
+		SELECT batch_id, tenant_id, partition_key, rule_set, status, member_count,
+		       execution_id, decision_hash, window_from, window_to, created_at
+		FROM batch_runs
+		WHERE tenant_id = $1 AND batch_id = $2
+	`, tenantID, batchID).Scan(
+		&run.BatchID, &run.TenantID, &run.PartitionKey, &run.RuleSet, &run.Status,
+		&run.MemberCount, &run.ExecutionID, &run.DecisionHash,
+		&run.WindowFrom, &run.WindowTo, &run.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get batch run for tenant: %w", err)
+	}
+	return run, nil
+}
+
+func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	query := `
+		SELECT batch_id, tenant_id, partition_key, rule_set, status, member_count,
+		       execution_id, decision_hash, window_from, window_to, created_at
+		FROM batch_runs
+		WHERE tenant_id = $1`
+	args := []any{tenantID}
+	if ruleSet != "" {
+		query += " AND rule_set = $2"
+		args = append(args, ruleSet)
+	}
+	query += fmt.Sprintf(" ORDER BY created_at DESC, batch_id DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list batch runs: %w", err)
+	}
+	defer rows.Close()
+	var runs []*domain.BatchRun
+	for rows.Next() {
+		run := &domain.BatchRun{}
+		if err := rows.Scan(
+			&run.BatchID, &run.TenantID, &run.PartitionKey, &run.RuleSet, &run.Status,
+			&run.MemberCount, &run.ExecutionID, &run.DecisionHash,
+			&run.WindowFrom, &run.WindowTo, &run.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan batch run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate batch runs: %w", err)
+	}
+	return runs, nil
+}
+
 type BatchRepository struct {
 	db Querier
 }
