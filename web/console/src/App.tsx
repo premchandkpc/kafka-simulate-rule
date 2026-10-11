@@ -72,45 +72,7 @@ export default function App() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [apiPath, setApiPath] = useState("/v1/rules/active");
   const [apiMethod, setApiMethod] = useState("GET");
-  const [apiBody, setApiBody] = useState('{
-  "rule_set": "transaction.initiated",
-  "revision": 1
-}');
-  const [apiResult, setApiResult] = useState("");
-  const [apiBusy, setApiBusy] = useState(false);
-  const [contractName, setContractName] = useState("");
-  const [contractVersion, setContractVersion] = useState("v1");
-  const [contractSchema, setContractSchema] = useState('{
-  "name": "transaction.initiated",
-  "version": "v1",
-  "fields": []
-}');
-  const [selectedContract, setSelectedContract] = useState("");
-  const [language, setLanguage] = useState("go");
-  const [generated, setGenerated] = useState<any>(null);
-  const [codegenBusy, setCodegenBusy] = useState(false);
-  const [ruleSet, setRuleSet] = useState("");
-  const [ruleSource, setRuleSource] = useState('rule_set: transaction.initiated\nrevision: 1\nrules: []\n');
-  const [ruleResult, setRuleResult] = useState("");
-  const [logs, setLogs] = useState<any[]>([]);
-  const [logsBusy, setLogsBusy] = useState(false);
-  const [logsError, setLogsError] = useState("");
-
-  const saveSettings = (next: Settings) => { setSettings(next); localStorage.setItem("flowrule-console-settings", JSON.stringify(next)); setSettingsOpen(false); setHealth("checking"); };
-  const refresh = useCallback(async () => {
-    setLoading(true); setError("");
-    const checks = await Promise.allSettled([
-      apiRequest(settings, "/health"),
-      apiRequest(settings, "/v1/rules/active"),
-      apiRequest(settings, "/v1/contracts"),
-    ]);
-    if (checks[0].status === "fulfilled") setHealth("online"); else { setHealth("offline"); setError(String(checks[0].reason)); }
-    if (checks[1].status === "fulfilled") setActiveRules(asArray(checks[1].value));
-    if (checks[2].status === "fulfilled") setContracts(asArray(checks[2].value));
-    const endpoints = settings.workerMetrics.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
-    const workerData = await Promise.all(endpoints.map(async (url, index): Promise<WorkerSnapshot> => {
-      try {
-        const response = await fetch(url, { headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {} });
+  const [apiBody, setApiBody] = useState('{"rule_set":"transaction.initiated","revision":1}');
         const text = await response.text(); if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const execs = labeledMetrics(text, "flowrule_executions_total");
         const grouped = new Map<string, number>();
