@@ -2,8 +2,8 @@ package batches
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
