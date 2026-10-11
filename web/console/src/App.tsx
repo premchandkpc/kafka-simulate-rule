@@ -33,7 +33,7 @@ function normalizeBase(value: string) { return value.trim().replace(/\/+$/, "");
 function unwrap(value: any): any { return value && typeof value === "object" && "data" in value ? value.data : value; }
 function asArray(value: any): any[] { const v = unwrap(value); if (Array.isArray(v)) return v; if (!v || typeof v !== "object") return []; for (const key of ["active_rules", "revisions", "contracts", "schemas", "workflows", "events", "batches", "items", "data"]) if (Array.isArray(v[key])) return v[key]; return []; }
 function fmt(value: unknown) { return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value); }
-function metricValue(text: string, name: string): number | null { const line = text.split("\n").find((row) => row.startsWith(name + " ") || row.startsWith(name + "{")); if (!line) return null; const n = Number(line.trim().split(/\\s+/).pop()); return Number.isFinite(n) ? n : null; }
+function metricValue(text: string, name: string): number | null { const line = text.split("\n").find((row) => row.startsWith(name + " ") || row.startsWith(name + "{")); if (!line) return null; const n = Number(line.trim().split(/\s+/).pop()); return Number.isFinite(n) ? n : null; }
 function labeledMetrics(text: string, metric: string) {
   return text.split("\n").flatMap((line) => {
     if (!line.startsWith(metric + "{")) return [];
