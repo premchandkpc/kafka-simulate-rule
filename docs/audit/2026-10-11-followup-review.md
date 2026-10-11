@@ -4,7 +4,7 @@
 
 This follow-up review started from main commit `b25fcd93795b35ca40df244f3c9bcc64c52c024d`, after verifying that the prior main CI run was green and the accidental unreviewed test-file commits had been reverted. The review traced HTTP handler to service to adapter paths, SQL migrations, scheduled-event lifecycle, batch runtime, outbox claim/settlement, Mongo document serialization, output path checks, the six Go module boundaries, and current CI evidence.
 
-The source updates are in draft PR #5, branch `fix/full-review-scheduled-events-and-output-path`. The last fully successful workflow run for the source changes was [Go CI run 38120429488](https://github.com/premchandkpc/kafka-simulate-rule/actions/runs/38120429488) at commit `9caadca15956307b593fd5c31d2127cb470ffc90`. It passed formatting, JSON schema and shell script validation, root build, race-enabled root tests, vet, original SDK tests, client SDK tests, and all three example module tests. Later commits on the branch updated documentation; a fresh run for the current tip must be checked before merging. No local test run is claimed.
+The source updates are in draft PR #5, branch `fix/full-review-scheduled-events-and-output-path`. The complete Go CI passed again at source commit `31e4d3a8a90f98ea48bd209f407744c794c3ba80` in [run 38120568255](https://github.com/premchandkpc/kafka-simulate-rule/actions/runs/38120568255). It passed formatting, JSON schema and shell script validation, root build, race-enabled root tests, vet, both SDK modules, and all three example modules. Later commits add documentation and the current branch tip therefore still needs a fresh Go CI and CodeQL check before merge. No local test run is claimed.
 
 ## Confirmed defects fixed in the follow-up branch
 
@@ -20,8 +20,9 @@ The source updates are in draft PR #5, branch `fix/full-review-scheduled-events-
 ### 2. Generation output path containment
 
 - Replaced an unsafe string-prefix check with path-relative containment plus symlink resolution for existing path components.
-- Rejects sibling prefixes such as `/tmp/flowrule-generated-evil`, parent traversal and symlink escapes.
-- Added regression tests for valid nested paths and each rejection case.
+- Rejects sibling prefixes such as `/tmp/flowrule-generated-evil`, parent traversal, symlink escapes in existing child paths, and a symlink used as the output root itself.
+- The dedicated root directory is forced to mode `0700` before generation.
+- Added regression tests for valid nested paths, traversal, sibling prefixes, child symlinks, and symlink-root rejection.
 
 ### 3. Outbox claimant fencing and durable error handling
 
