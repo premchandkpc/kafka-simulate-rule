@@ -16,12 +16,6 @@ type testPublisher struct {
 	payload []byte
 }
 
-func (p *testPublisher) Publish(_ context.Context, subject string, data []byte) error {
-	p.subject = subject
-	p.payload = append([]byte(nil), data...)
-	return nil
-}
-
 func (p *testPublisher) PublishBatch(_ context.Context, _ []ports.PublishMessage) error {
 	return nil
 }
