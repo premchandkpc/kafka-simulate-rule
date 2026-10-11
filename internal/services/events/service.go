@@ -137,7 +137,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, fmt.Errorf("evaluate: %w", err)
 	}
 
-	executionID := domain.NewID()
+	executionID := domain.ComputeExecutionID(envelope.TenantID, envelope.ID, ruleSet, revision.Revision)
 	now := s.clock.Now()
 
 	execution := &domain.Execution{

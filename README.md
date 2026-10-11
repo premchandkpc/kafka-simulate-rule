@@ -9,7 +9,7 @@ FlowRule is a Go-based, event-driven rules runtime. Rules are compiled into immu
 | Process | Entrypoint | Responsibility |
 |---|---|---|
 | HTTP API | cmd/api | Rule revisions/activation, workflows, contracts, batches, quarantine, scheduled-event endpoints |
-| Worker | cmd/worker | NATS JetStream consumption, shard leases/fencing, per-key ordering, event evaluation, outbox publishing |
+| Worker | cmd/worker | NATS JetStream consumption, shard leases/fencing, per-process key serialization, event evaluation, outbox publishing |
 | Code generator | cmd/codegen | Generate Go, Java, Protobuf, and JSON Schema artifacts from a contract already registered in storage |
 | Migration CLI | cmd/migrate | Apply pending migrations; only the up command is implemented |
 
@@ -18,7 +18,7 @@ The root module uses Go 1.26.0. Both sdk/go and the newer sdk/go/flowrule client
 ## Event lifecycle
 
 1. A producer publishes an EventEnvelope to the NATS subject family events.shard.N. N is computed from tenant ID and partition key using the configured shard count.
-2. The worker consumes only shards for which it owns a lease. The bounded key queue serializes work for each partition key while allowing concurrency across keys.
+2. The worker consumes only shards for which it owns a lease. The key queue serializes work for each partition key within this worker process and can allow concurrency across keys. This alone does not guarantee end-to-end per-key ordering across redelivery, lease handoff, or concurrent outbox publishers.
 3. Inside one storage transaction, the event service validates the fencing token, checks the inbox for duplicates, loads the active rule revision, evaluates rules, and writes the execution plus outbox effects.
 4. The worker acknowledges the broker delivery only after the transaction commits.
 5. The outbox publisher routes emitted child events back to events.shard.N. External command effects are sent to the configured HTTP destination with a stable idempotency key.
