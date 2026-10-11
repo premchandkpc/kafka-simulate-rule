@@ -35,7 +35,7 @@ func TestEvaluateSimpleEq(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	evaluator := NewEvaluator()
+	evaluator := NewEvaluator(domain.SystemClock{})
 	event := &domain.EventEnvelope{
 		ID:           "evt-1",
 		Type:         "order.created",
@@ -73,7 +73,7 @@ func TestEvaluateEmitEventCreatesChildEnvelope(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	decision, err := NewEvaluator().Evaluate(revision, &domain.EventEnvelope{
+	decision, err := NewEvaluator(domain.SystemClock{}).Evaluate(revision, &domain.EventEnvelope{
 		ID: "evt-parent", Type: "order.created", TenantID: "acme", PartitionKey: "order-42",
 		Data: json.RawMessage(`{"total": 42}`),
 	}, nil)
@@ -123,13 +123,13 @@ func TestEvaluateEmitEventDeterministicChildID(t *testing.T) {
 		Data:         json.RawMessage(`{"total": 42}`),
 	}
 
-	decision1, _ := NewEvaluator().Evaluate(revision, env, nil)
+	decision1, _ := NewEvaluator(domain.SystemClock{}).Evaluate(revision, env, nil)
 	var child1 domain.EventEnvelope
 	if err := json.Unmarshal(decision1.Effects[0].Payload, &child1); err != nil {
 		t.Fatalf("unmarshal child1: %v", err)
 	}
 
-	decision2, _ := NewEvaluator().Evaluate(revision, env, nil)
+	decision2, _ := NewEvaluator(domain.SystemClock{}).Evaluate(revision, env, nil)
 	var child2 domain.EventEnvelope
 	if err := json.Unmarshal(decision2.Effects[0].Payload, &child2); err != nil {
 		t.Fatalf("unmarshal child2: %v", err)
@@ -171,7 +171,7 @@ func TestEvaluateNoMatch(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	evaluator := NewEvaluator()
+	evaluator := NewEvaluator(domain.SystemClock{})
 	event := &domain.EventEnvelope{
 		ID:           "evt-2",
 		Type:         "order.created",
@@ -238,7 +238,7 @@ func TestEvaluateAllMatches(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	evaluator := NewEvaluator()
+	evaluator := NewEvaluator(domain.SystemClock{})
 	event := &domain.EventEnvelope{
 		ID:           "evt-3",
 		Type:         "order.created",
@@ -288,7 +288,7 @@ func TestEvaluateDedeterministicHash(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	evaluator := NewEvaluator()
+	evaluator := NewEvaluator(domain.SystemClock{})
 	event := &domain.EventEnvelope{
 		ID:           "evt-4",
 		Type:         "order.created",

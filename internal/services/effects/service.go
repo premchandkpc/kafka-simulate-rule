@@ -94,7 +94,14 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 }
 
 func backoffDuration(attempts int) time.Duration {
-	delay := time.Duration(1<<uint(attempts-1)) * time.Second
+	// Cap attempts to prevent overflow
+	if attempts < 1 {
+		attempts = 1
+	}
+	if attempts > 30 {
+		attempts = 30
+	}
+	delay := time.Duration(1<<uint(attempts-1)) * time.Second //nolint:gosec // attempts bounded to [1,30] above
 	if delay > 60*time.Second {
 		delay = 60 * time.Second
 	}

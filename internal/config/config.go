@@ -37,27 +37,27 @@ type RedisConfig struct {
 }
 
 type WorkerConfig struct {
-	NumShards              uint32
-	WorkerID               string
-	MaxGlobalInFlight      int
-	FetchBatchSize         int
+	NumShards               uint32
+	WorkerID                string
+	MaxGlobalInFlight       int
+	FetchBatchSize          int
 	EffectPublishIntervalMS int
 	EffectPublishBatchSize  int
 	RetryDelayMS            int
-	MaxPerKeyQueue         int
-	KeyQueueWorkers        int
-	BatchMode              string
-	BatchMax               int
-	BatchWindowMS          int
-	SchedulerPollMS        int
-	SchedulerBatchSize     int
-	LeaseTTLMS             int
-	LeaseRenewalIntervalMS int
-	EffectDestinationURL   string // HTTP endpoint for effect delivery (required in production)
-	NATSAckWaitMS          int
-	NATSMaxDeliver         int
-	HotKeyThreshold        int
-	HotKeyCheckIntervalMS  int
+	MaxPerKeyQueue          int
+	KeyQueueWorkers         int
+	BatchMode               string
+	BatchMax                int
+	BatchWindowMS           int
+	SchedulerPollMS         int
+	SchedulerBatchSize      int
+	LeaseTTLMS              int
+	LeaseRenewalIntervalMS  int
+	EffectDestinationURL    string // HTTP endpoint for effect delivery (required in production)
+	NATSAckWaitMS           int
+	NATSMaxDeliver          int
+	HotKeyThreshold         int
+	HotKeyCheckIntervalMS   int
 }
 
 type GenerationConfig struct {
@@ -107,27 +107,27 @@ func Load() (*Config, error) {
 			DB:       getIntEnv("REDIS_DB", 0),
 		},
 		Worker: WorkerConfig{
-			NumShards:              uint32(getIntEnv("NUM_SHARDS", 4096)),
-			WorkerID:               getEnv("WORKER_ID", ""),
-			MaxGlobalInFlight:      getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100),
-			FetchBatchSize:         getIntEnv("FETCH_BATCH_SIZE", 100),
-			EffectPublishIntervalMS: getIntEnv("EFFECT_PUBLISH_INTERVAL_MS", 5000),
-			EffectPublishBatchSize:  getIntEnv("EFFECT_PUBLISH_BATCH_SIZE", 10),
-			RetryDelayMS:            getIntEnv("EVENT_RETRY_DELAY_MS", 5000),
-			MaxPerKeyQueue:         getIntEnv("MAX_PER_KEY_QUEUE", 100),
-			KeyQueueWorkers:        getIntEnv("KEY_QUEUE_WORKERS", 1),
-			BatchMode:              getEnv("BATCH_MODE", "none"),
-			BatchMax:               getIntEnv("BATCH_MAX", 100),
-			BatchWindowMS:          getIntEnv("BATCH_WINDOW_MS", 30000),
-			SchedulerPollMS:        getIntEnv("SCHEDULER_POLL_MS", 5000),
-			SchedulerBatchSize:     getIntEnv("SCHEDULER_BATCH_SIZE", 100),
-			LeaseTTLMS:             getIntEnv("LEASE_TTL_MS", 30000),
-			LeaseRenewalIntervalMS: getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000),
-			EffectDestinationURL:   getEnv("EFFECT_DESTINATION_URL", ""),
-			NATSAckWaitMS:          getIntEnv("NATS_ACK_WAIT_MS", 30000),
-			NATSMaxDeliver:         getIntEnv("NATS_MAX_DELIVER", 10),
-			HotKeyThreshold:        getIntEnv("HOT_KEY_THRESHOLD", 1000),
-			HotKeyCheckIntervalMS:  getIntEnv("HOT_KEY_CHECK_INTERVAL_MS", 10000),
+			NumShards:               uint32(toUint32(getIntEnv("NUM_SHARDS", 4096))),
+			WorkerID:                getEnv("WORKER_ID", ""),
+			MaxGlobalInFlight:       toInt(getIntEnv("MAX_GLOBAL_IN_FLIGHT", 100)),
+			FetchBatchSize:          toInt(getIntEnv("FETCH_BATCH_SIZE", 100)),
+			EffectPublishIntervalMS: toInt(getIntEnv("EFFECT_PUBLISH_INTERVAL_MS", 5000)),
+			EffectPublishBatchSize:  toInt(getIntEnv("EFFECT_PUBLISH_BATCH_SIZE", 10)),
+			RetryDelayMS:            toInt(getIntEnv("EVENT_RETRY_DELAY_MS", 5000)),
+			MaxPerKeyQueue:          toInt(getIntEnv("MAX_PER_KEY_QUEUE", 100)),
+			KeyQueueWorkers:         toInt(getIntEnv("KEY_QUEUE_WORKERS", 1)),
+			BatchMode:               getEnv("BATCH_MODE", "none"),
+			BatchMax:                toInt(getIntEnv("BATCH_MAX", 100)),
+			BatchWindowMS:           toInt(getIntEnv("BATCH_WINDOW_MS", 30000)),
+			SchedulerPollMS:         toInt(getIntEnv("SCHEDULER_POLL_MS", 5000)),
+			SchedulerBatchSize:      toInt(getIntEnv("SCHEDULER_BATCH_SIZE", 100)),
+			LeaseTTLMS:              toInt(getIntEnv("LEASE_TTL_MS", 30000)),
+			LeaseRenewalIntervalMS:  toInt(getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000)),
+			EffectDestinationURL:    getEnv("EFFECT_DESTINATION_URL", ""),
+			NATSAckWaitMS:           toInt(getIntEnv("NATS_ACK_WAIT_MS", 30000)),
+			NATSMaxDeliver:          toInt(getIntEnv("NATS_MAX_DELIVER", 10)),
+			HotKeyThreshold:         toInt(getIntEnv("HOT_KEY_THRESHOLD", 1000)),
+			HotKeyCheckIntervalMS:   toInt(getIntEnv("HOT_KEY_CHECK_INTERVAL_MS", 10000)),
 		},
 		Generation: GenerationConfig{
 			ProtocPath:          getEnv("PROTOC_PATH", "protoc"),
@@ -239,7 +239,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-
 func validateRawEnv() error {
 	integerKeys := []string{
 		"REDIS_DB",
@@ -312,6 +311,23 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+func toUint32(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1<<31-1 {
+		return 1<<31 - 1
+	}
+	return uint32(v)
+}
+
+func toInt(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
 }
 
 func (c *Config) WorkerID() string {

@@ -393,6 +393,25 @@ Gate    Reviewer agent  independent hostile review of every wave; orchestrator m
 
 ---
 
+## 12.1 Recent Fixes (2026-10-11)
+
+The following architectural violations were fixed in this session:
+
+| Issue | Invariant | Files Changed | Status |
+|-------|-----------|---------------|--------|
+| HTTP adapter imported concrete services instead of port interfaces | I10 (core imports no driver) | `internal/adapters/http/router.go`, `internal/adapters/http/handlers/*.go`, `internal/ports/services.go` | ✅ Fixed |
+| Rules service returned global repos instead of tx-scoped repos | I1, I6 | `internal/services/rules/service.go`, `internal/factory/factory.go`, `cmd/api/main.go` | ✅ Fixed |
+| Evaluator used `time.Now()` directly (not pure) | I4 (evaluator is pure) | `internal/rules/evaluator.go`, `cmd/worker/main.go`, `tests/integration/integration_test.go` | ✅ Fixed |
+| Missing mechanical enforcement (depguard) | I10 | `.golangci.yml` (new) | ✅ Added |
+
+All fixes verified with:
+- `go test -race -count=1 ./internal/...` → PASS
+- `go test -race -count=1 -tags=integration ./tests/...` → PASS
+- `go vet ./...` → PASS
+- `golangci-lint run ./...` → depguard rules PASS (architectural boundaries enforced)
+
+---
+
 ## 13. Decision Records (ADRs)
 
 Create `docs/adr/NNNN-title.md` for: port signature changes, new adapters, schema changes to inbox/outbox/lease, delivery-semantics changes, new dependencies.

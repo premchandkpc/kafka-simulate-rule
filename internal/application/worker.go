@@ -16,32 +16,32 @@ import (
 
 // WorkerConfig holds configuration for the worker.
 type WorkerConfig struct {
-	MaxGlobalInFlight   int
-	FetchBatchSize      int
-	EffectPublishInterval time.Duration
+	MaxGlobalInFlight      int
+	FetchBatchSize         int
+	EffectPublishInterval  time.Duration
 	EffectPublishBatchSize int
-	RetryDelay           time.Duration
-	MaxPerKeyQueue      int
-	KeyQueueWorkers     int
-	HotKeyThreshold     int
-	HotKeyCheckInterval time.Duration
-	HotKeyCallback      func(partitionKey string, depth int)
-	RequireSharded      bool // If true, worker requires a sharded consumer and lease manager
+	RetryDelay             time.Duration
+	MaxPerKeyQueue         int
+	KeyQueueWorkers        int
+	HotKeyThreshold        int
+	HotKeyCheckInterval    time.Duration
+	HotKeyCallback         func(partitionKey string, depth int)
+	RequireSharded         bool // If true, worker requires a sharded consumer and lease manager
 }
 
 // DefaultWorkerConfig returns sensible defaults.
 func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{
-		MaxGlobalInFlight:   100,
+		MaxGlobalInFlight:      100,
 		FetchBatchSize:         100,
 		EffectPublishInterval:  5 * time.Second,
 		EffectPublishBatchSize: 10,
-		RetryDelay:              5 * time.Second,
-		MaxPerKeyQueue:      100,
-		KeyQueueWorkers:     1,
-		HotKeyThreshold:     1000,
-		HotKeyCheckInterval: 10 * time.Second,
-		RequireSharded:      true, // Production workers require sharded mode
+		RetryDelay:             5 * time.Second,
+		MaxPerKeyQueue:         100,
+		KeyQueueWorkers:        1,
+		HotKeyThreshold:        1000,
+		HotKeyCheckInterval:    10 * time.Second,
+		RequireSharded:         true, // Production workers require sharded mode
 	}
 }
 

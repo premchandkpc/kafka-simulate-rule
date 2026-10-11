@@ -34,7 +34,11 @@ type EffectService interface {
 // WorkflowService manages long-running workflows
 type WorkflowService interface {
 	Get(ctx context.Context, workflowID string) (*domain.WorkflowInstance, error)
+	Create(ctx context.Context, workflow *domain.WorkflowInstance) error
 	UpdateState(ctx context.Context, workflowID, newState string, revision int64) error
+	Transition(ctx context.Context, workflowID, fromState, toState string) error
+	GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error)
+	GetByCorrelation(ctx context.Context, correlationID string) ([]*domain.WorkflowInstance, error)
 }
 
 // BatchService manages batch processing

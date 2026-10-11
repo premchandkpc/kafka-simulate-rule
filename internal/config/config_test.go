@@ -29,7 +29,6 @@ func validConfigForTest() *Config {
 			NATSMaxDeliver:          1,
 			HotKeyThreshold:         1,
 			HotKeyCheckIntervalMS:   2500,
-
 		},
 	}
 }

@@ -12,21 +12,21 @@ import (
 )
 
 type KeyQueue struct {
-	mu          sync.Mutex
-	queues      map[string]*keyQueue
-	lifecycleMu sync.Mutex
-	started     bool
-	stopped     bool
-	stopOnce    sync.Once
-	submitWG    sync.WaitGroup
-	maxPerKey   int
-	globalSem   chan struct{}
-	workerCount int
+	mu             sync.Mutex
+	queues         map[string]*keyQueue
+	lifecycleMu    sync.Mutex
+	started        bool
+	stopped        bool
+	stopOnce       sync.Once
+	submitWG       sync.WaitGroup
+	maxPerKey      int
+	globalSem      chan struct{}
+	workerCount    int
 	stopWorkers    chan struct{}
 	stopSubmitting chan struct{}
 	wg             sync.WaitGroup
-	processor   func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
-	clock       func() time.Time
+	processor      func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error
+	clock          func() time.Time
 
 	// Hot-key detection
 	hotKeyThreshold     int

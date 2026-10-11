@@ -96,8 +96,8 @@ func run() (runErr error) {
 	}()
 
 	compiler := rules.NewCompiler(rules.DefaultLimits())
-	evaluator := rules.NewEvaluator()
 	clock := domain.SystemClock{}
+	evaluator := rules.NewEvaluator(clock)
 
 	var effectSender ports.EffectSender
 	switch {

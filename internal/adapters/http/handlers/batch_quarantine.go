@@ -8,15 +8,13 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/ports"
-	svcbatches "github.com/flowrule/flowrule/internal/services/batches"
-	svcquarantine "github.com/flowrule/flowrule/internal/services/quarantine"
 )
 
 type BatchHandler struct {
-	batchSvc *svcbatches.Service
+	batchSvc ports.BatchService
 }
 
-func NewBatchHandler(batchSvc *svcbatches.Service) *BatchHandler {
+func NewBatchHandler(batchSvc ports.BatchService) *BatchHandler {
 	return &BatchHandler{batchSvc: batchSvc}
 }
 
@@ -117,10 +115,10 @@ func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 }
 
 type QuarantineHandler struct {
-	quarantineSvc *svcquarantine.Service
+	quarantineSvc ports.QuarantineService
 }
 
-func NewQuarantineHandler(quarantineSvc *svcquarantine.Service) *QuarantineHandler {
+func NewQuarantineHandler(quarantineSvc ports.QuarantineService) *QuarantineHandler {
 	return &QuarantineHandler{quarantineSvc: quarantineSvc}
 }
 

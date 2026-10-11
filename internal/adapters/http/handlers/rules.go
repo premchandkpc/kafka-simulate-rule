@@ -7,14 +7,14 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/domain"
-	svcrules "github.com/flowrule/flowrule/internal/services/rules"
+	"github.com/flowrule/flowrule/internal/ports"
 )
 
 type RuleHandler struct {
-	ruleSvc *svcrules.Service
+	ruleSvc ports.RuleService
 }
 
-func NewRuleHandler(ruleSvc *svcrules.Service) *RuleHandler {
+func NewRuleHandler(ruleSvc ports.RuleService) *RuleHandler {
 	return &RuleHandler{ruleSvc: ruleSvc}
 }
 

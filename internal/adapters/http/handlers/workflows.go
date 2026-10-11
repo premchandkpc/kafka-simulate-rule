@@ -8,17 +8,15 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
-	svcrules "github.com/flowrule/flowrule/internal/services/rules"
-	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
 )
 
 type WorkflowHandler struct {
-	workflowSvc     *svcworkflow.Service
-	ruleSvc         *svcrules.Service
+	workflowSvc     ports.WorkflowService
+	ruleSvc         ports.RuleService
 	workflowDefRepo ports.WorkflowDefinitionRepository
 }
 
-func NewWorkflowHandler(workflowSvc *svcworkflow.Service, ruleSvc *svcrules.Service, workflowDefRepo ports.WorkflowDefinitionRepository) *WorkflowHandler {
+func NewWorkflowHandler(workflowSvc ports.WorkflowService, ruleSvc ports.RuleService, workflowDefRepo ports.WorkflowDefinitionRepository) *WorkflowHandler {
 	return &WorkflowHandler{
 		workflowSvc:     workflowSvc,
 		ruleSvc:         ruleSvc,

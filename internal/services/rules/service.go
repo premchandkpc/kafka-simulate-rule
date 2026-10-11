@@ -17,6 +17,7 @@ type Service struct {
 	executions  ports.ExecutionRepository
 	clock       ports.Clock
 	txManager   ports.TransactionManager
+	newTxRepos  ports.RepositoryFactory
 }
 
 func NewService(
@@ -26,6 +27,7 @@ func NewService(
 	executions ports.ExecutionRepository,
 	clock ports.Clock,
 	txManager ports.TransactionManager,
+	newTxRepos ports.RepositoryFactory,
 ) *Service {
 	return &Service{
 		compiler:    compiler,
@@ -34,6 +36,7 @@ func NewService(
 		executions:  executions,
 		clock:       clock,
 		txManager:   txManager,
+		newTxRepos:  newTxRepos,
 	}
 }
 
@@ -50,6 +53,11 @@ func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet stri
 	return s.activateWithCAS(ctx, tenantScope, ruleSet, revision, actor)
 }
 
+// CompileAndActivate implements ports.RuleService.
+func (s *Service) CompileAndActivate(ctx context.Context, tenantScope, ruleSet string, source []byte, actor string) (*domain.RuleActivation, error) {
+	return s.Activate(ctx, tenantScope, ruleSet, json.RawMessage(source), actor)
+}
+
 // activateWithCAS performs the activation in a transaction with optimistic concurrency control.
 func (s *Service) activateWithCAS(ctx context.Context, tenantScope, ruleSet string, revision *domain.RuleRevision, actor string) (*domain.RuleActivation, error) {
 	tx, err := s.txManager.Begin(ctx)
@@ -58,21 +66,21 @@ func (s *Service) activateWithCAS(ctx context.Context, tenantScope, ruleSet stri
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	repos, err := s.newTxRepos(tx)
+	txRepos, err := s.newTxRepos(tx)
 	if err != nil {
 		return nil, fmt.Errorf("create tx repos: %w", err)
 	}
 	if txCtx := tx.Context(); txCtx != nil {
-		ctx = txCtx
+		ctx = txCtx //nolint:contextcheck // tx context is intentionally used for transaction-scoped operations
 	}
 
 	// Save the immutable revision
-	if err := repos.RuleRepo.Save(ctx, revision); err != nil {
+	if err := txRepos.RuleRepo.Save(ctx, revision); err != nil {
 		return nil, fmt.Errorf("save revision: %w", err)
 	}
 
 	// Get current activation for CAS
-	currentActivation, err := repos.Activations.Get(ctx, tenantScope, ruleSet)
+	currentActivation, err := txRepos.Activations.Get(ctx, tenantScope, ruleSet)
 	if err != nil {
 		return nil, fmt.Errorf("get activation: %w", err)
 	}
@@ -93,7 +101,7 @@ func (s *Service) activateWithCAS(ctx context.Context, tenantScope, ruleSet stri
 	}
 
 	// CAS: only update if version matches expected
-	if err := repos.Activations.SetWithVersion(ctx, activation, expectedVersion); err != nil {
+	if err := txRepos.Activations.SetWithVersion(ctx, activation, expectedVersion); err != nil {
 		return nil, fmt.Errorf("set activation: %w", err)
 	}
 
@@ -102,22 +110,6 @@ func (s *Service) activateWithCAS(ctx context.Context, tenantScope, ruleSet stri
 	}
 
 	return activation, nil
-}
-
-// ruleTxRepos holds the repositories needed for rule activation.
-type ruleTxRepos struct {
-	RuleRepo    ports.RuleRepository
-	Activations ports.ActivationRepository
-}
-
-func (s *Service) newTxRepos(tx ports.Transaction) (ruleTxRepos, error) {
-	// We need access to rule repo and activations within a transaction
-	// The actual implementation will depend on how the storage factory provides tx-scoped repos
-	// For now, we use the global repos but they should work within the transaction context
-	return ruleTxRepos{
-		RuleRepo:    s.ruleRepo,
-		Activations: s.activations,
-	}, nil
 }
 
 // GetExecution retrieves an execution by ID.
@@ -145,6 +137,11 @@ func (s *Service) Deactivate(ctx context.Context, tenantScope, ruleSet string) e
 	// In this design, deactivation means setting activation to nil/zero revision
 	// The activation record is deleted
 	return s.activations.Delete(ctx, tenantScope, ruleSet)
+}
+
+// GetActivation retrieves the current activation for a rule set.
+func (s *Service) GetActivation(ctx context.Context, tenantScope, ruleSet string) (*domain.RuleActivation, error) {
+	return s.activations.Get(ctx, tenantScope, ruleSet)
 }
 
 // ListActiveRules lists all currently active rule sets for a tenant scope.

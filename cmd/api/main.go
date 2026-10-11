@@ -58,6 +58,7 @@ func run() error {
 		repositories.Executions,
 		domain.SystemClock{},
 		repositories.Transactions,
+		repositories.NewTxRepositories,
 	)
 
 	workflowSvc := svcworkflow.NewService(

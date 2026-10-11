@@ -13,10 +13,12 @@ import (
 
 var _ ports.RuleEvaluator = (*Evaluator)(nil)
 
-type Evaluator struct{}
+type Evaluator struct {
+	clock ports.Clock
+}
 
-func NewEvaluator() *Evaluator {
-	return &Evaluator{}
+func NewEvaluator(clock ports.Clock) *Evaluator {
+	return &Evaluator{clock: clock}
 }
 
 func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error) {
@@ -334,13 +336,13 @@ func compareIn(val interface{}, list interface{}) bool {
 
 // interpolateTemplates replaces template placeholders in the JSON data with actual values
 // Supports: {{new_id}}, {{now}}, {{$.path}}
-func interpolateTemplates(data json.RawMessage, parentEvent *domain.EventEnvelope, childID string) (json.RawMessage, error) {
+func interpolateTemplates(data json.RawMessage, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) (json.RawMessage, error) {
 	var dataMap map[string]interface{}
 	if err := json.Unmarshal(data, &dataMap); err != nil {
 		return nil, err
 	}
 
-	interpolated := interpolateMap(dataMap, dataMap, nil, childID)
+	interpolated := interpolateMap(dataMap, dataMap, nil, childID, clock)
 	result, err := json.Marshal(interpolated)
 	if err != nil {
 		return nil, err
@@ -348,24 +350,24 @@ func interpolateTemplates(data json.RawMessage, parentEvent *domain.EventEnvelop
 	return json.RawMessage(result), nil
 }
 
-func interpolateMap(m map[string]interface{}, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string) map[string]interface{} {
+func interpolateMap(m map[string]interface{}, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) map[string]interface{} {
 	result := make(map[string]interface{})
 	for k, v := range m {
-		result[k] = interpolateValue(v, m, nil, childID)
+		result[k] = interpolateValue(v, m, nil, childID, clock)
 	}
 	return result
 }
 
-func interpolateValue(v interface{}, m map[string]interface{}, parentEvent *domain.EventEnvelope, childID string) interface{} {
+func interpolateValue(v interface{}, m map[string]interface{}, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) interface{} {
 	switch val := v.(type) {
 	case string:
-		return interpolateString(val, m, nil, childID)
+		return interpolateString(val, m, nil, childID, clock)
 	case map[string]interface{}:
-		return interpolateMap(val, m, nil, childID)
+		return interpolateMap(val, m, nil, childID, clock)
 	case []interface{}:
 		result := make([]interface{}, len(val))
 		for i, item := range val {
-			result[i] = interpolateValue(item, m, nil, childID)
+			result[i] = interpolateValue(item, m, nil, childID, clock)
 		}
 		return result
 	default:
@@ -373,14 +375,14 @@ func interpolateValue(v interface{}, m map[string]interface{}, parentEvent *doma
 	}
 }
 
-func interpolateString(s string, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string) string {
+func interpolateString(s string, root map[string]interface{}, parentEvent *domain.EventEnvelope, childID string, clock ports.Clock) string {
 	// Replace {{new_id}}
 	if strings.Contains(s, "{{new_id}}") {
 		s = strings.ReplaceAll(s, "{{new_id}}", childID)
 	}
 	// Replace {{now}}
 	if strings.Contains(s, "{{now}}") {
-		s = strings.ReplaceAll(s, "{{now}}", time.Now().UTC().Format(time.RFC3339))
+		s = strings.ReplaceAll(s, "{{now}}", clock.Now().UTC().Format(time.RFC3339))
 	}
 	// Replace {{$.path}}
 	if strings.Contains(s, "{{$.") && strings.HasSuffix(s, "}}") {
@@ -408,11 +410,12 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 	var dest, name string
 	var payload json.RawMessage
 
-	if action.Emit != nil {
+	switch {
+	case action.Emit != nil:
 		dest = action.Emit.Topic
 		name = action.Emit.Topic
 		payload = action.Emit.Data
-	} else if action.EmitEvent != nil {
+	case action.EmitEvent != nil:
 		childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
 
 		// Resolve partition key based on policy
@@ -440,7 +443,7 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		}
 
 		// Interpolate template values in the effect data
-		interpolatedData, err := interpolateTemplates(action.EmitEvent.Data, event, childID)
+		interpolatedData, err := interpolateTemplates(action.EmitEvent.Data, event, childID, e.clock)
 		if err != nil {
 			return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
 		}
@@ -450,7 +453,7 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 			Type:         action.EmitEvent.Type,
 			TenantID:     event.TenantID,
 			PartitionKey: partitionKey,
-			OccurredAt:   domain.SystemClock{}.Now(),
+			OccurredAt:   e.clock.Now(),
 			Data:         interpolatedData,
 			Headers: map[string]string{
 				"flowrule_parent_event_id": event.ID,
@@ -465,7 +468,7 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		dest = "events." + child.Type
 		name = child.Type
 		payload = encoded
-	} else if action.Command != nil {
+	case action.Command != nil:
 		effectType = domain.EffectTypeCommand
 		dest = action.Command.Destination
 		name = action.Command.Name
@@ -481,7 +484,7 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		Name:        name,
 		Payload:     payload,
 		EffectType:  effectType,
-		CreatedAt:   domain.SystemClock{}.Now(),
+		CreatedAt:   e.clock.Now(),
 	}, nil
 }
 

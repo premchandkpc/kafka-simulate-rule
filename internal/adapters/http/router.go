@@ -9,10 +9,6 @@ import (
 	"github.com/flowrule/flowrule/internal/adapters/http/middleware"
 	"github.com/flowrule/flowrule/internal/adapters/http/responses"
 	"github.com/flowrule/flowrule/internal/ports"
-	"github.com/flowrule/flowrule/internal/services/batches"
-	"github.com/flowrule/flowrule/internal/services/quarantine"
-	"github.com/flowrule/flowrule/internal/services/rules"
-	"github.com/flowrule/flowrule/internal/services/workflow"
 )
 
 // Router holds all HTTP handlers and middleware
@@ -22,12 +18,12 @@ type Router struct {
 
 // NewRouter creates a new HTTP router with all routes registered
 func NewRouter(
-	ruleSvc *rules.Service,
-	workflowSvc *workflow.Service,
+	ruleSvc ports.RuleService,
+	workflowSvc ports.WorkflowService,
 	workflowDefRepo ports.WorkflowDefinitionRepository,
 	contractRegistry ports.ContractRegistry,
-	batchSvc *batches.Service,
-	quarantineSvc *quarantine.Service,
+	batchSvc ports.BatchService,
+	quarantineSvc ports.QuarantineService,
 	scheduledRepo ports.ScheduledEventRepository,
 ) *Router {
 	mux := http.NewServeMux()

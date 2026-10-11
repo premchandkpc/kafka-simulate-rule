@@ -279,8 +279,8 @@ func (m *mockQuarantine) Delete(ctx context.Context, id string) error {
 func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecutionRepo, *mockOutbox) {
 	t.Helper()
 	compiler := rules.NewCompiler(rules.DefaultLimits())
-	evaluator := rules.NewEvaluator()
 	clock := domain.SystemClock{}
+	evaluator := rules.NewEvaluator(clock)
 
 	inbox := newMockInbox()
 	activations := newMockActivation()
@@ -510,7 +510,17 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 		ruleRepo:    ruleRepo,
 		activations: activations,
 	})
-	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{}, txManager)
+	// Mock RepositoryFactory that returns tx-scoped repos
+	newTxRepos := func(tx ports.Transaction) (ports.TxRepos, error) {
+		return ports.TxRepos{
+			Inbox:       nil,
+			Activations: activations,
+			RuleRepo:    ruleRepo,
+			Executions:  executions,
+			Outbox:      nil,
+		}, nil
+	}
+	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{}, txManager, newTxRepos)
 
 	_, err := svc.Activate(context.Background(), "tenant-a", "order.created", json.RawMessage(`{
 		"rule_set":"order.created", "revision":1, "mode":"first_match",

@@ -261,7 +261,6 @@ func TestKeyQueue_HotKeyDetection(t *testing.T) {
 	}
 }
 
-
 // TestKeyQueue_SameKeyNeverProcessesConcurrently guards the per-key ordering
 // invariant even when the queue has multiple worker goroutines.
 func TestKeyQueue_SameKeyNeverProcessesConcurrently(t *testing.T) {

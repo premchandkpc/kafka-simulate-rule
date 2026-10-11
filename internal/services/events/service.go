@@ -70,7 +70,7 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, fmt.Errorf("create transaction repositories: %w", err)
 	}
 	if txCtx := tx.Context(); txCtx != nil {
-		ctx = txCtx
+		ctx = txCtx //nolint:contextcheck // tx context is intentionally used for transaction-scoped operations
 	}
 
 	// F3: Validate fencing token FIRST with row lock (AssertHeld)

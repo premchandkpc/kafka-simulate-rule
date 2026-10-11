@@ -287,8 +287,9 @@ func (f *Factory) RuleService(
 	executions *mongo.ExecutionRepository,
 	clock ports.Clock,
 	txManager ports.TransactionManager,
+	newTxRepos ports.RepositoryFactory,
 ) *rules.Service {
-	return rules.NewService(compiler, ruleRepo, activation, executions, clock, txManager)
+	return rules.NewService(compiler, ruleRepo, activation, executions, clock, txManager, newTxRepos)
 }
 
 func (f *Factory) EffectService(
