@@ -2,7 +2,7 @@
 
 ## High-level Design
 
-FlowRule guarantees **domain-level exactly-once processing**: business events are processed exactly once even when the broker delivers them at least once.
+FlowRule provides **transactional event deduplication and at-least-once effect delivery**. A committed inbox record prevents a duplicate delivery of the same `(tenant_id, event_id)` from creating another execution while that inbox record is retained. This is not end-to-end exactly-once delivery: an effect may reach a destination before the publisher crashes and records it as delivered. External effects are effectively-once only when the destination durably deduplicates the `Idempotency-Key` for a documented retention window and returns the original result for repeated requests.
 
 ### Core Guarantee
 
@@ -27,7 +27,7 @@ At-least-once broker delivery
         │
         ▼
 ┌───────────────────┐
-│  Outbox Effects   │  ← deterministic effect IDs = idempotency keys
+│  Outbox Effects   │  ← effect IDs are sent as destination idempotency keys
 └───────┬───────────┘
         │
         ▼
@@ -69,7 +69,7 @@ COMMIT
 - Inbox unique constraint prevents duplicate execution creation
 - If crash before commit: rollback, broker redelivers, inbox insert succeeds on retry
 - If crash after commit but before ACK: inbox already committed, redelivery finds existing execution, returns it, ACKs
-- Outbox effects have deterministic IDs → safe to re-deliver
+- Effect IDs are used as destination idempotency keys. Retries can still send the same request more than once; the destination must durably deduplicate repeated keys. SQL cannot make a remote HTTP side effect atomic with the outbox transaction.
 
 ## Low-level Design
 
@@ -286,7 +286,7 @@ CREATE INDEX idx_quarantine_tenant ON quarantine (tenant_id);
 CREATE INDEX idx_quarantine_created ON quarantine (created_at);
 ```
 
-### Effect ID (Deterministic Idempotency Key)
+### Effect ID (Destination Idempotency Key)
 
 Effect IDs are deterministic and serve as natural idempotency keys for destinations:
 
@@ -294,7 +294,7 @@ Effect IDs are deterministic and serve as natural idempotency keys for destinati
 effect_id = sha256(tenant_id + "|" + event_id + "|" + rule_set + "|" + revision + "|" + rule_id + "|" + action_index)
 ```
 
-This makes them stable across replays. Replaying the same event produces the same effect IDs, allowing destinations to deduplicate.
+This formula is intended to make effect IDs stable for the same tenant, event, rule revision, rule, and action position. The destination must persistently deduplicate the key for at least the supported retry/replay horizon. Execution IDs are currently generated separately; do not infer that replay creates the same execution ID until deterministic execution identity and replay semantics are implemented and tested.
 
 ### Decision Hash
 
