@@ -184,8 +184,8 @@ Rules:
 | P1 | Lease allocation uses a configured fixed replica count; no dynamic membership/rebalancing | Keep WORKER_REPLICAS consistent across the deployment; add membership and coordinated rebalancing before autoscaling |
 | P1 | Batch execution passes a zero fencing token and bypasses the key queue | BATCH_MODE is rejected unless none; integrate batch work with lease fencing and key ordering before enabling |
 | P1 | Mongo adapters previously treated JSON bytes as bson.Raw | JSON payloads/source/context now use BSON binary bytes; keep BSON round-trip tests for each JSON-backed field |
-| P1 | Scheduled SQL claim fields did not exist in migration 011 | Migration 015 adds claim fields; expired claims can be reclaimed and settlement is claimant/expiry fenced |
-| P2 | Scheduled event publishing failure is recorded as terminal failed | Define bounded retries/backoff for retryable broker failures |
+| P1 | Scheduled SQL claim fields did not exist in migration 011 | Migrations 015/016 add claim and retry fields; expired claims can be reclaimed and settlement is claimant/expiry fenced |
+| P2 | Scheduled event publishing retries with bounded exponential backoff and a terminal attempt limit; validate recovery and adapter parity |
 | P2 | Some tenant-scoped reads/writes remain unscoped and no trusted identity exists | AuthN/AuthZ and resource-level scoping remain release blockers |
 | P1 | Transaction context/fencing leaks into the ports; adapter parity is not fully proven | Validate transaction port methods and add SQL/Mongo atomicity and repository conformance tests |
 | P1 | Contract tests are in-memory-only | Reuse suites against actual SQL and Mongo adapters and test transaction/unique-key semantics |

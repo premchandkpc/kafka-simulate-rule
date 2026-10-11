@@ -88,6 +88,7 @@ type ScheduledEventRepository interface {
 	GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error)
 	Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error)
 	MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error
+	ScheduleRetry(ctx context.Context, eventID, claimant string, retryAt time.Time, errMsg string) error
 	MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error
 	Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error)
 	List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error)
