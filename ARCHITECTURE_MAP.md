@@ -171,7 +171,7 @@ Rules:
 - Use-case services depend on domain and ports, not concrete adapters.
 - Adapters implement interfaces and keep infrastructure concerns at the edge.
 - Keep only one preferred composition route. internal/factory and internal/storage currently overlap; verify references before deleting the legacy factory.
-- The transaction port still exposes transaction context/fencing details and TxRepos groups many repositories. These are recognized debt, not a pattern to expand.
+- EventTxRepos and RuleTxRepos are narrow transaction-scoped views; SQL/Mongo adapters own concrete transaction assertions and repository construction. The transaction port still exposes context/fencing details, which remain review debt.
 - SDK generated code must not import unexported/internal server packages.
 
 ## Confirmed gaps and next steps
@@ -187,7 +187,7 @@ Rules:
 | P1 | Scheduled SQL claim fields did not exist in migration 011 | Migration 015 adds claim fields; expired claims can be reclaimed and settlement is claimant/expiry fenced |
 | P2 | Scheduled event publishing failure is recorded as terminal failed | Define bounded retries/backoff for retryable broker failures |
 | P2 | Some tenant-scoped reads/writes remain unscoped and no trusted identity exists | AuthN/AuthZ and resource-level scoping remain release blockers |
-| P1 | Transaction context/fencing leaks into the ports; TxRepos too broad | Introduce use-case-owned unit-of-work contracts with atomicity regression tests |
+| P1 | Transaction context/fencing leaks into the ports; adapter parity is not fully proven | Validate transaction port methods and add SQL/Mongo atomicity and repository conformance tests |
 | P1 | Contract tests are in-memory-only | Reuse suites against actual SQL and Mongo adapters and test transaction/unique-key semantics |
 | P1 | HTTP decoding is bounded and rejects trailing JSON/multiple YAML docs, but tenant identity is still caller-controlled and resource scoping is incomplete | Implement auth-derived tenant identity and authorize every resource operation |
 | P2 | Workflow service contains not-implemented definition methods | Implement intentionally or remove placeholders and use a clear repository/service boundary |
