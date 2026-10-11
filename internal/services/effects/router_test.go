@@ -41,7 +41,7 @@ type testDestination struct {
 	sent bool
 }
 
-func (d *testDestination) Send(_ context.Context, _ *domain.Effect) error {
+func (d *testDestination) Send(_ context.Context, _ *domain.Effect, _ string) error {
 	d.sent = true
 	return nil
 }
@@ -62,7 +62,7 @@ func TestRouterPublishesChildEvent(t *testing.T) {
 		EffectType:  domain.EffectTypeEmitEvent,
 		Destination: "events.payment.requested",
 		Payload:     child,
-	})
+	}, "test-idempotency-key")
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}

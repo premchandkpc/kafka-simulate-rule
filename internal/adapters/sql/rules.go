@@ -174,6 +174,31 @@ func (a *ActivationRepository) Set(ctx context.Context, activation *domain.RuleA
 	return nil
 }
 
+// SetWithVersion atomically sets the activation only if the current version matches expectedVersion.
+// Returns error if version mismatch (optimistic concurrency conflict).
+func (a *ActivationRepository) SetWithVersion(ctx context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
+	var version int64
+	err := a.db.QueryRow(ctx, `
+		INSERT INTO rule_activations (tenant_scope, rule_set, revision, version, actor, activated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (tenant_scope, rule_set) DO UPDATE SET
+			revision = CASE WHEN rule_activations.version = $7 THEN EXCLUDED.revision ELSE rule_activations.revision END,
+			version = CASE WHEN rule_activations.version = $7 THEN rule_activations.version + 1 ELSE rule_activations.version END,
+			actor = CASE WHEN rule_activations.version = $7 THEN EXCLUDED.actor ELSE rule_activations.actor END,
+			activated_at = CASE WHEN rule_activations.version = $7 THEN EXCLUDED.activated_at ELSE rule_activations.activated_at END
+		WHERE rule_activations.version = $7 OR rule_activations.tenant_scope IS NULL
+		RETURNING version
+	`, activation.TenantScope, activation.RuleSet, activation.Revision, activation.Version,
+		activation.Actor, activation.ActivatedAt, expectedVersion).Scan(&version)
+	if err != nil {
+		return fmt.Errorf("set activation with version: %w", err)
+	}
+	if version != expectedVersion+1 {
+		return domain.ErrActivationConflict
+	}
+	return nil
+}
+
 func (a *ActivationRepository) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
 	rows, err := a.db.Query(ctx, `
 		SELECT tenant_scope, rule_set, revision, version, actor, activated_at

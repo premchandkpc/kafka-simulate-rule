@@ -29,7 +29,7 @@ func NewFakeDestination() *FakeDestination {
 	}
 }
 
-func (f *FakeDestination) Send(ctx context.Context, effect *domain.Effect) error {
+func (f *FakeDestination) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -44,7 +44,7 @@ func (f *FakeDestination) Send(ctx context.Context, effect *domain.Effect) error
 	}
 
 	f.sent[effect.ID] = true
-	log.Printf("FakeDestination: sent effect %s to %s", effect.ID, effect.Destination)
+	log.Printf("FakeDestination: sent effect %s to %s (idempotency: %s)", effect.ID, effect.Destination, idempotencyKey)
 	return nil
 }
 
@@ -91,7 +91,7 @@ func NewHTTPDestination(endpoint string) *HTTPDestination {
 	}
 }
 
-func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect) error {
+func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	data, err := json.Marshal(effect)
 	if err != nil {
 		return fmt.Errorf("marshal effect: %w", err)
@@ -105,6 +105,7 @@ func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect) error
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Effect-ID", effect.ID)
 	req.Header.Set("X-Execution-ID", effect.ExecutionID)
+	req.Header.Set("Idempotency-Key", idempotencyKey)
 
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -121,7 +122,7 @@ func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect) error
 	h.sent[effect.ID] = true
 	h.mu.Unlock()
 
-	log.Printf("HTTPDestination: sent effect %s to %s", effect.ID, url)
+	log.Printf("HTTPDestination: sent effect %s to %s (idempotency: %s)", effect.ID, url, idempotencyKey)
 	return nil
 }
 

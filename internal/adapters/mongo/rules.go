@@ -224,6 +224,38 @@ func (r *ActivationRepository) Set(ctx context.Context, activation *domain.RuleA
 	return err
 }
 
+// SetWithVersion atomically sets the activation only if the current version matches expectedVersion.
+// Returns error if version mismatch (optimistic concurrency conflict).
+func (r *ActivationRepository) SetWithVersion(ctx context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
+	coll := r.collection("rule_activations")
+	filter := bson.M{
+		"tenant_scope": activation.TenantScope,
+		"rule_set":     activation.RuleSet,
+		"version":      expectedVersion,
+	}
+	update := bson.M{
+		"$set": bson.M{
+			"revision":     activation.Revision,
+			"version":      expectedVersion + 1,
+			"actor":        activation.Actor,
+			"activated_at": activation.ActivatedAt,
+		},
+	}
+	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
+	var result ActivationDoc
+	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return domain.ErrActivationConflict
+		}
+		return fmt.Errorf("set activation with version: %w", err)
+	}
+	if result.Version != expectedVersion+1 {
+		return domain.ErrActivationConflict
+	}
+	return nil
+}
+
 func (d *ActivationDoc) ToDomain() *domain.RuleActivation {
 	return &domain.RuleActivation{
 		TenantScope: d.TenantScope,
@@ -245,4 +277,23 @@ func (r *ActivationRepository) Delete(ctx context.Context, tenantScope string, r
 		return fmt.Errorf("delete activation: %w", err)
 	}
 	return nil
+}
+
+func (r *ActivationRepository) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
+	coll := r.collection("rule_activations")
+	cursor, err := coll.Find(ctx, bson.M{"tenant_scope": tenantScope})
+	if err != nil {
+		return nil, fmt.Errorf("list activations: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var activations []*domain.RuleActivation
+	for cursor.Next(ctx) {
+		var doc ActivationDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode activation: %w", err)
+		}
+		activations = append(activations, doc.ToDomain())
+	}
+	return activations, nil
 }

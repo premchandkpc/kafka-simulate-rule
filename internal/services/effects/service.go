@@ -40,7 +40,7 @@ func NewService(
 
 // PublishBatch claims pending effects and publishes them.
 func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
-	effects, err := s.outbox.ClaimPending(ctx, batchSize, s.claimant, 1*time.Minute)
+	effects, err := s.outbox.ClaimPending(ctx, batchSize, s.claimant, 2*time.Minute)
 	if err != nil {
 		return fmt.Errorf("claim pending: %w", err)
 	}
@@ -56,7 +56,10 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 			CreatedAt:   ef.CreatedAt,
 		}
 
-		err := s.effectSender.Send(ctx, effect)
+		// Use effect ID as idempotency key for destination
+		idempotencyKey := fmt.Sprintf("effect-%s", ef.ID)
+
+		err := s.effectSender.Send(ctx, effect, idempotencyKey)
 		if err != nil {
 			attempts := ef.Attempts + 1
 			if attempts >= ef.MaxAttempts {
@@ -100,7 +103,8 @@ func backoffDuration(attempts int) time.Duration {
 
 // Dispatch sends a single effect immediately (bypasses outbox)
 func (s *Service) Dispatch(ctx context.Context, effect *domain.Effect) error {
-	return s.effectSender.Send(ctx, effect)
+	idempotencyKey := fmt.Sprintf("effect-%s", effect.ID)
+	return s.effectSender.Send(ctx, effect, idempotencyKey)
 }
 
 // GetPending returns pending outbox effects

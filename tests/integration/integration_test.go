@@ -71,6 +71,30 @@ func (m *mockActivation) Delete(ctx context.Context, tenantScope string, ruleSet
 	return nil
 }
 
+func (m *mockActivation) SetWithVersion(ctx context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
+	key := activation.TenantScope + ":" + activation.RuleSet
+	current := m.activations[key]
+	if current != nil && current.Version != expectedVersion {
+		return domain.ErrActivationConflict
+	}
+	if current == nil && expectedVersion != 0 {
+		return domain.ErrActivationConflict
+	}
+	activation.Version = expectedVersion + 1
+	m.activations[key] = activation
+	return nil
+}
+
+func (m *mockActivation) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
+	var result []*domain.RuleActivation
+	for _, act := range m.activations {
+		if act.TenantScope == tenantScope {
+			result = append(result, act)
+		}
+	}
+	return result, nil
+}
+
 type mockRuleRepo struct {
 	revisions map[string]*domain.RuleRevision
 }
@@ -482,7 +506,11 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	ruleRepo := newMockRuleRepo()
 	activations := newMockActivation()
 	executions := newMockExecutionRepo()
-	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{})
+	txManager := newMockTxManager(&mockTx{
+		ruleRepo:    ruleRepo,
+		activations: activations,
+	})
+	svc := svcrules.NewService(compiler, ruleRepo, activations, executions, domain.SystemClock{}, txManager)
 
 	_, err := svc.Activate(context.Background(), "tenant-a", "order.created", json.RawMessage(`{
 		"rule_set":"order.created", "revision":1, "mode":"first_match",

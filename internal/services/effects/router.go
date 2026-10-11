@@ -21,9 +21,9 @@ func NewRouter(publisher ports.BrokerPublisher, external ports.EffectSender) *Ro
 	return &Router{publisher: publisher, external: external}
 }
 
-func (r *Router) Send(ctx context.Context, effect *domain.Effect) error {
+func (r *Router) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	if effect.EffectType != domain.EffectTypeEmitEvent {
-		return r.external.Send(ctx, effect)
+		return r.external.Send(ctx, effect, idempotencyKey)
 	}
 	if r.publisher == nil {
 		return fmt.Errorf("publish child event: broker publisher is not configured")

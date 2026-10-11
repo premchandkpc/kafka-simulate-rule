@@ -56,7 +56,11 @@ type RuleRepository interface {
 type ActivationRepository interface {
 	Get(ctx context.Context, tenantScope, ruleSet string) (*domain.RuleActivation, error)
 	Set(ctx context.Context, activation *domain.RuleActivation) error
+	// SetWithVersion atomically sets the activation only if the current version matches expectedVersion.
+	// Returns error if version mismatch (optimistic concurrency conflict).
+	SetWithVersion(ctx context.Context, activation *domain.RuleActivation, expectedVersion int64) error
 	Delete(ctx context.Context, tenantScope, ruleSet string) error
+	List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error)
 }
 
 // WorkflowRepository handles workflow instances

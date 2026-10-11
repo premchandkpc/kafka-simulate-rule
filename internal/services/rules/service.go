@@ -16,6 +16,7 @@ type Service struct {
 	activations ports.ActivationRepository
 	executions  ports.ExecutionRepository
 	clock       ports.Clock
+	txManager   ports.TransactionManager
 }
 
 func NewService(
@@ -24,6 +25,7 @@ func NewService(
 	activations ports.ActivationRepository,
 	executions ports.ExecutionRepository,
 	clock ports.Clock,
+	txManager ports.TransactionManager,
 ) *Service {
 	return &Service{
 		compiler:    compiler,
@@ -31,10 +33,11 @@ func NewService(
 		activations: activations,
 		executions:  executions,
 		clock:       clock,
+		txManager:   txManager,
 	}
 }
 
-// Activate compiles and activates a rule revision.
+// Activate compiles and activates a rule revision atomically with CAS.
 // The tenantScope should be derived from authenticated user context.
 func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet string, source json.RawMessage, actor string) (*domain.RuleActivation, error) {
 	revision, err := s.compiler.Compile(source)
@@ -44,34 +47,77 @@ func (s *Service) Activate(ctx context.Context, tenantScope string, ruleSet stri
 	revision.RuleID = ruleSet
 	revision.TenantScope = tenantScope
 
-	if err := s.ruleRepo.Save(ctx, revision); err != nil {
+	return s.activateWithCAS(ctx, tenantScope, ruleSet, revision, actor)
+}
+
+// activateWithCAS performs the activation in a transaction with optimistic concurrency control.
+func (s *Service) activateWithCAS(ctx context.Context, tenantScope, ruleSet string, revision *domain.RuleRevision, actor string) (*domain.RuleActivation, error) {
+	tx, err := s.txManager.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	repos, err := s.newTxRepos(tx)
+	if err != nil {
+		return nil, fmt.Errorf("create tx repos: %w", err)
+	}
+	if txCtx := tx.Context(); txCtx != nil {
+		ctx = txCtx
+	}
+
+	// Save the immutable revision
+	if err := repos.RuleRepo.Save(ctx, revision); err != nil {
 		return nil, fmt.Errorf("save revision: %w", err)
 	}
 
-	// Get current activation version for optimistic concurrency
-	currentActivation, getErr := s.activations.Get(ctx, tenantScope, ruleSet)
-	version := int64(1)
-	if getErr != nil {
-		return nil, fmt.Errorf("get activation: %w", getErr)
-	}
-	if currentActivation != nil {
-		version = currentActivation.Version + 1
+	// Get current activation for CAS
+	currentActivation, err := repos.Activations.Get(ctx, tenantScope, ruleSet)
+	if err != nil {
+		return nil, fmt.Errorf("get activation: %w", err)
 	}
 
+	expectedVersion := int64(0)
+	if currentActivation != nil {
+		expectedVersion = currentActivation.Version
+	}
+
+	newVersion := expectedVersion + 1
 	activation := &domain.RuleActivation{
 		TenantScope: tenantScope,
 		RuleSet:     ruleSet,
 		Revision:    revision.Revision,
-		Version:     version,
+		Version:     newVersion,
 		Actor:       actor,
 		ActivatedAt: s.clock.Now(),
 	}
 
-	if err := s.activations.Set(ctx, activation); err != nil {
+	// CAS: only update if version matches expected
+	if err := repos.Activations.SetWithVersion(ctx, activation, expectedVersion); err != nil {
 		return nil, fmt.Errorf("set activation: %w", err)
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
 	return activation, nil
+}
+
+// ruleTxRepos holds the repositories needed for rule activation.
+type ruleTxRepos struct {
+	RuleRepo    ports.RuleRepository
+	Activations ports.ActivationRepository
+}
+
+func (s *Service) newTxRepos(tx ports.Transaction) (ruleTxRepos, error) {
+	// We need access to rule repo and activations within a transaction
+	// The actual implementation will depend on how the storage factory provides tx-scoped repos
+	// For now, we use the global repos but they should work within the transaction context
+	return ruleTxRepos{
+		RuleRepo:    s.ruleRepo,
+		Activations: s.activations,
+	}, nil
 }
 
 // GetExecution retrieves an execution by ID.

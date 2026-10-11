@@ -131,7 +131,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 	log.Printf("scheduler: releasing %d scheduled events", len(claimedEvents))
 
 	for _, evt := range claimedEvents {
-		if err := s.releaseEvent(ctx, evt); err != nil {
+		// Use idempotency key based on event ID to prevent duplicate publication
+		idempotencyKey := fmt.Sprintf("sched-%s", evt.EventID)
+		if err := s.releaseEvent(ctx, evt, idempotencyKey); err != nil {
 			log.Printf("scheduler: release event %s: %v", evt.EventID, err)
 			// Mark as failed
 			if markErr := s.repo.MarkFailed(ctx, evt.EventID, err.Error()); markErr != nil {
@@ -140,13 +142,14 @@ func (s *Scheduler) tick(ctx context.Context) {
 			continue
 		}
 
+		// Mark released with the same timestamp used for idempotency
 		if err := s.repo.MarkReleased(ctx, evt.EventID, now); err != nil {
 			log.Printf("scheduler: mark released %s: %v", evt.EventID, err)
 		}
 	}
 }
 
-func (s *Scheduler) releaseEvent(ctx context.Context, evt *domain.ScheduledEvent) error {
+func (s *Scheduler) releaseEvent(ctx context.Context, evt *domain.ScheduledEvent, idempotencyKey string) error {
 	env := &domain.EventEnvelope{
 		ID:           evt.EventID,
 		Type:         evt.EventType,
@@ -157,6 +160,12 @@ func (s *Scheduler) releaseEvent(ctx context.Context, evt *domain.ScheduledEvent
 		Data:         evt.Payload,
 		Headers:      evt.Headers,
 	}
+
+	// Add idempotency key to headers
+	if env.Headers == nil {
+		env.Headers = make(map[string]string)
+	}
+	env.Headers["Idempotency-Key"] = idempotencyKey
 
 	data, err := json.Marshal(env)
 	if err != nil {

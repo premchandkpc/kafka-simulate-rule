@@ -66,7 +66,7 @@ type EffectPublisher interface {
 
 // EffectSender sends effects to external destinations
 type EffectSender interface {
-	Send(ctx context.Context, effect *domain.Effect) error
+	Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error
 }
 
 // Clock provides time abstraction
