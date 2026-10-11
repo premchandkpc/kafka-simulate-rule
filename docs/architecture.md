@@ -29,7 +29,7 @@ Delivery is at-least-once. Inbox/outbox patterns improve recovery and handoff co
 
 Routes are registered in internal/adapters/http/handlers. Rule creation/activation is POST /v1/rules/{ruleSet}/revisions; rule revisions and active rules are exposed through GET routes; DELETE on a revision path deactivates a rule set. Contract routes are under /v1/contracts. Workflow definition routes are under /v1/workflows/definitions. See docs/README.md for the route matrix.
 
-Security limitation: authentication and authorization are not implemented. TenantExtractor currently trusts X-Tenant-ID or tenant_id query values and falls back to default. The API must not be exposed to untrusted networks until identity and tenant authorization are implemented. /health is process liveness only; GRPC_ADDR is not backed by a listener.
+Security limitation: authentication and authorization are not implemented. TenantExtractor currently trusts X-Tenant-ID or tenant_id query values and falls back to default. The API must not be exposed to untrusted networks until identity and tenant authorization are implemented. /health is process liveness only; the API has no gRPC listener. The default native HTTP bind is loopback.
 
 ## Transaction and failure invariants
 
