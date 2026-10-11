@@ -226,8 +226,8 @@ type ScheduledDoc struct {
 	EventType      string     `bson:"event_type"`
 	PartitionKey   string     `bson:"partition_key"`
 	WorkflowID     string     `bson:"workflow_id,omitempty"`
-	Payload        bson.Raw   `bson:"payload"`
-	Headers        bson.Raw   `bson:"headers,omitempty"`
+	Payload        []byte     `bson:"payload"`
+	Headers        map[string]string `bson:"headers,omitempty"`
 	ScheduledAt    time.Time  `bson:"scheduled_at"`
 	Status         string     `bson:"status"`
 	CreatedAt      time.Time  `bson:"created_at"`
@@ -239,21 +239,14 @@ type ScheduledDoc struct {
 }
 
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
-	var payload, headers bson.Raw
-	if event.Payload != nil {
-		payload = bson.Raw(event.Payload)
-	}
-	if event.Headers != nil {
-		headers, _ = bson.Marshal(event.Headers)
-	}
 	return &ScheduledDoc{
 		EventID:      event.EventID,
 		TenantID:     event.TenantID,
 		EventType:    event.EventType,
 		PartitionKey: event.PartitionKey,
 		WorkflowID:   event.WorkflowID,
-		Payload:      payload,
-		Headers:      headers,
+		Payload:      append([]byte(nil), event.Payload...),
+		Headers:      event.Headers,
 		ScheduledAt:  event.ScheduledAt,
 		Status:       event.Status,
 		CreatedAt:    event.CreatedAt,
@@ -263,12 +256,8 @@ func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 
 func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 	var payload json.RawMessage
-	var headers map[string]string
 	if d.Payload != nil {
-		payload = json.RawMessage(d.Payload)
-	}
-	if d.Headers != nil {
-		_ = bson.Unmarshal(d.Headers, &headers)
+		payload = json.RawMessage(append([]byte(nil), d.Payload...))
 	}
 	return &domain.ScheduledEvent{
 		EventID:      d.EventID,
@@ -277,7 +266,7 @@ func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 		PartitionKey: d.PartitionKey,
 		WorkflowID:   d.WorkflowID,
 		Payload:      payload,
-		Headers:      headers,
+		Headers:      d.Headers,
 		ScheduledAt:  d.ScheduledAt,
 		Status:       d.Status,
 		CreatedAt:    d.CreatedAt,
