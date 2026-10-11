@@ -19,7 +19,7 @@
 - [x] Worker fetch/evaluate/ack loop
 - [x] API for rule deployment
 - [x] Outbox claim with FOR UPDATE SKIP LOCKED
-- [x] HTTP destination adapter (FakeDestination for testing)
+- [x] HTTP destination adapter with Idempotency-Key support; destination-side durable deduplication remains a deployment contract
 - [x] Graceful shutdown with in-flight drain
 - [x] MaxDeliver = 10
 
@@ -38,8 +38,8 @@
 
 ### Phase 2 — Production-shaped distribution (IN PROGRESS)
 
-- [x] Shard ownership via ShardLease with fencing tokens (tables created, not enforced in worker)
-- [x] Worker subject routing by virtual shard (table exists, not implemented in consumer)
+- [x] Shard ownership via ShardLease with fencing-token validation in the event-processing transaction
+- [x] Worker subject routing by virtual shard
 - [ ] Bounded concurrency per shard
 - [ ] Metrics and structured logging
 - [ ] Replay API
@@ -64,11 +64,11 @@
 
 | Gap | Status | Fix order |
 |-----|--------|-----------|
-| Shard ownership not enforced in worker | Open | 1 |
-| Worker processes all subjects, not shard-filtered | Open | 2 |
-| No real destination adapters (only FakeDestination) | Open | 3 |
-| In-memory quarantine loses data on restart | Open | 4 |
-| Worker processes sequentially (no concurrency) | Open | 5 |
+| Lease expiry/contention and stale-worker behavior need live-infrastructure failure-injection coverage | Open | 1 |
+| Dynamic worker membership and lease rebalancing are not implemented; assignment currently assumes three worker replicas | Open | 2 |
+| Destination-side idempotency and duplicate-send behavior need production-like receiver tests | Open | 3 |
+| Verify every quarantine path is durable and quarantine-write failures remain safely retryable | Open | 4 |
+| Worker defaults to one key-queue worker; tune bounded concurrency and test per-key ordering under redelivery | Open | 5 |
 | No authentication/authorization | Open | 6 |
 | No replay API endpoint | Open | 7 |
 | No metrics/observability | Open | 8 |
@@ -78,10 +78,10 @@
 ## Target success criteria
 
 1. Duplicate effect rate = 0 (idempotent delivery verified)
-2. Per-key ordering maintained across worker restarts
+2. Target: per-key ordering across worker restarts and redelivery, verified under concurrent workers; no global ordering guarantee
 3. Decision p99 < 10ms for 1KB events
 4. Backlog recovery within 60s after worker restart
-5. Replay produces identical execution + effect set
+5. Replay produces identical decision and effect content; stable execution identity across replay is not yet guaranteed
 6. Operational surface: start, stop, deploy, rollback, quarantine inspect
 
 ## What we will not build
@@ -91,3 +91,15 @@
 - Global event ordering
 - Cross-database 2PC
 - Sync request/reply as a rule primitive
+
+## Correctness contracts and open verification
+
+- **Broker/inbox boundary:** event processing commits the inbox, execution, and outbox in one database transaction; the broker ACK follows commit. A crash after commit but before ACK is expected to cause redelivery, which the retained inbox record must deduplicate.
+- **Outbox/destination boundary:** publishing and marking an effect delivered are separate operations. A crash after send can cause a repeated request. Idempotency-Key must be honored durably by the destination for effectively-once external behavior.
+- **Fencing:** the event service validates shard ownership and the fencing token in its transaction before mutating inbox/execution/outbox state. This needs integration/failure-injection coverage for lease expiry, contention, and stale workers.
+- **Replay identity:** execution IDs are currently generated randomly. Stable effect IDs do not by themselves guarantee a stable execution ID. Define whether replay reuses the original revision or evaluates a selected revision, then implement and test identity accordingly.
+- **Poison events:** permanent event errors are quarantined before ACK. If quarantine persistence fails, the worker retries the delivery. Verify JetStream MaxDeliver exhaustion/advisory handling and document the operational recovery path; MaxDeliver alone is not a durable DLQ.
+- **Ordering:** key-queue serialization is local to a worker process. Broker redelivery, lease transitions, and multiple publishers can affect ordering. FOR UPDATE SKIP LOCKED improves concurrent claiming but does not itself guarantee per-key outbox order.
+- **Retention:** inbox retention defines the deduplication horizon. Retention must exceed broker redelivery and supported replay horizons. Producers must use stable event IDs; JetStream publish deduplication is not a substitute for durable inbox deduplication.
+- **Delivery throughput:** the default publisher attempts one batch of 10 every five seconds. This is a nominal ceiling of about 2 effects/second per publisher before considering processing time. Measure before tuning; any drain loop must remain bounded and cancellation-aware.
+- **Security:** the API is not safe to expose to untrusted networks until authentication, authorization, and a trusted tenant identity resolver are implemented.
