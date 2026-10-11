@@ -32,7 +32,7 @@ func Middleware(validator *Validator, requiredScopes ...string) func(http.Handle
 				}
 			}
 
-			ctx := ContextWithTenant(r.Context(), claims.TenantID)
+			ctx := ContextWithClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
