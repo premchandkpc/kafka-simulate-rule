@@ -75,15 +75,12 @@ func (f *FakeDestination) FailOn(effectID string) {
 }
 
 type HTTPDestination struct {
-	mu       sync.Mutex
-	sent     map[string]bool
 	endpoint string
 	client   *http.Client
 }
 
 func NewHTTPDestination(endpoint string) *HTTPDestination {
 	return &HTTPDestination{
-		sent:     make(map[string]bool),
 		endpoint: endpoint,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -113,23 +110,22 @@ func (h *HTTPDestination) Send(ctx context.Context, effect *domain.Effect, idemp
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("destination returned %d: %s", resp.StatusCode, string(body))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		const maxErrorBodyBytes = 4 << 10
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes+1))
+		if readErr != nil {
+			return fmt.Errorf("read destination error response (status %d): %w", resp.StatusCode, readErr)
+		}
+		suffix := ""
+		if len(body) > maxErrorBodyBytes {
+			body = body[:maxErrorBodyBytes]
+			suffix = " [response body truncated]"
+		}
+		return fmt.Errorf("destination returned %d: %s%s", resp.StatusCode, string(body), suffix)
 	}
-
-	h.mu.Lock()
-	h.sent[effect.ID] = true
-	h.mu.Unlock()
 
 	log.Printf("HTTPDestination: sent effect %s to %s (idempotency: %s)", effect.ID, url, idempotencyKey)
 	return nil
-}
-
-func (h *HTTPDestination) WasSent(effectID string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.sent[effectID]
 }
 
 type FakeIDProvider struct{}
