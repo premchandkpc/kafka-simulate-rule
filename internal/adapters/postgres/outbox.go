@@ -80,22 +80,19 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	if len(effectIDs) == 0 {
 		return nil
 	}
-	now := time.Now().UTC()
-
-	// Build placeholders for IN clause
+	// Build placeholders for the effect IDs; all settlement timestamps use the database clock.
 	placeholders := make([]string, len(effectIDs))
-	args := make([]interface{}, len(effectIDs)+2)
-	args[0] = now
-	args[1] = claimant
+	args := make([]any, 1, len(effectIDs)+1)
+	args[0] = claimant
 	for i, id := range effectIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+3)
-		args[i+2] = id
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
 	}
 
 	query := fmt.Sprintf(`
 		UPDATE outbox_effects
-		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
-		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
+		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = NOW()
+		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $1 AND claim_expires_at > NOW()
 	`, strings.Join(placeholders, ","))
 
 	tag, err := r.db.Exec(ctx, query, args...)
@@ -109,14 +106,13 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 }
 
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
-	now := time.Now().UTC()
-	availableAt := now.Add(delay)
 	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
-		SET status = 'pending', attempts = $3, available_at = $4, last_error = $5,
-			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $6
+		SET status = 'pending', attempts = $3,
+			available_at = NOW() + ($4 * INTERVAL '1 millisecond'), last_error = $5,
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = NOW()
 		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
-	`, effectID, claimant, attempts, availableAt, errMsg, now)
+	`, effectID, claimant, attempts, delay.Milliseconds(), errMsg)
 	if err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
 	}
@@ -127,13 +123,12 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 }
 
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
-	now := time.Now().UTC()
 	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
 		SET status = 'quarantined', last_error = $3,
-			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $4
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = NOW()
 		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
-	`, effectID, claimant, errMsg, now)
+	`, effectID, claimant, errMsg)
 	if err != nil {
 		return fmt.Errorf("quarantine effect: %w", err)
 	}
