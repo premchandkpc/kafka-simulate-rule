@@ -20,7 +20,7 @@ type capturePublisher struct {
 	calls   int
 }
 
-func (p *capturePublisher) Publish(context.Context, string, []byte) error { return nil }
+func (p *capturePublisher) Publish(context.Context, string, []byte) error              { return nil }
 func (p *capturePublisher) PublishBatch(context.Context, []ports.PublishMessage) error { return nil }
 func (p *capturePublisher) PublishToShard(_ context.Context, subject string, shard uint32, payload []byte) error {
 	p.subject = subject
