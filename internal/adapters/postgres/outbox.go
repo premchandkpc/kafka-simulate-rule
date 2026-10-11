@@ -80,22 +80,19 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	if len(effectIDs) == 0 {
 		return nil
 	}
-	now := time.Now().UTC()
-
-	// Build placeholders for IN clause
+	// Build placeholders for the effect IDs; all settlement timestamps use the database clock.
 	placeholders := make([]string, len(effectIDs))
-	args := make([]interface{}, len(effectIDs)+2)
-	args[0] = now
-	args[1] = claimant
+	args := make([]any, 1, len(effectIDs)+1)
+	args[0] = claimant
 	for i, id := range effectIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+3)
-		args[i+2] = id
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
 	}
 
 	query := fmt.Sprintf(`
 		UPDATE outbox_effects
-		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $1
-		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
+		SET status = 'delivered', claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = NOW()
+		WHERE effect_id IN (%s) AND status = 'claimed' AND claimed_by = $1 AND claim_expires_at > NOW()
 	`, strings.Join(placeholders, ","))
 
 	tag, err := r.db.Exec(ctx, query, args...)
@@ -109,14 +106,13 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 }
 
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
-	now := time.Now().UTC()
-	availableAt := now.Add(delay)
 	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
-		SET status = 'pending', attempts = $3, available_at = $4, last_error = $5,
-			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $6
+		SET status = 'pending', attempts = $3,
+			available_at = NOW() + ($4 * INTERVAL '1 millisecond'), last_error = $5,
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = NOW()
 		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
-	`, effectID, claimant, attempts, availableAt, errMsg, now)
+	`, effectID, claimant, attempts, delay.Milliseconds(), errMsg)
 	if err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
 	}
@@ -127,13 +123,12 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 }
 
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
-	now := time.Now().UTC()
 	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
 		SET status = 'quarantined', last_error = $3,
-			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = $4
+			claimed_by = NULL, claimed_at = NULL, claim_expires_at = NULL, updated_at = NOW()
 		WHERE effect_id = $1 AND status = 'claimed' AND claimed_by = $2 AND claim_expires_at > NOW()
-	`, effectID, claimant, errMsg, now)
+	`, effectID, claimant, errMsg)
 	if err != nil {
 		return fmt.Errorf("quarantine effect: %w", err)
 	}
@@ -207,16 +202,14 @@ func NewShardLeaseRepository(db Querier) *ShardLeaseRepository {
 }
 
 func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
-	now := time.Now().UTC()
-	expiresAt := now.Add(ttl)
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO shard_leases (virtual_shard, owner, fencing_token, expires_at, routing_epoch)
-		VALUES ($1, $2, 1, $3, 0)
+		VALUES ($1, $2, 1, NOW() + ($3 * INTERVAL '1 millisecond'), 0)
 		ON CONFLICT (virtual_shard) DO UPDATE SET
 			owner = CASE WHEN shard_leases.expires_at < NOW() THEN EXCLUDED.owner ELSE shard_leases.owner END,
 			fencing_token = CASE WHEN shard_leases.expires_at < NOW() THEN shard_leases.fencing_token + 1 ELSE shard_leases.fencing_token END,
 			expires_at = CASE WHEN shard_leases.expires_at < NOW() THEN EXCLUDED.expires_at ELSE shard_leases.expires_at END
-	`, shard, owner, expiresAt)
+	`, shard, owner, ttl.Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("acquire lease: %w", err)
 	}
@@ -224,12 +217,11 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 }
 
 func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
-	now := time.Now().UTC()
-	expiresAt := now.Add(ttl)
 	tag, err := r.db.Exec(ctx, `
-		UPDATE shard_leases SET expires_at = $3
-		WHERE virtual_shard = $1 AND owner = $2 AND fencing_token = $4
-	`, shard, owner, expiresAt, fencingToken)
+		UPDATE shard_leases
+		SET expires_at = NOW() + ($4 * INTERVAL '1 millisecond')
+		WHERE virtual_shard = $1 AND owner = $2 AND fencing_token = $3 AND expires_at > NOW()
+	`, shard, owner, fencingToken, ttl.Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("renew lease: %w", err)
 	}
@@ -239,9 +231,58 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 	return r.GetOwner(ctx, shard)
 }
 
+// RenewOwned renews the supplied leases in one database round trip. The expected
+// fencing token is part of each row match so a stale local snapshot cannot renew
+// a lease that has already been reassigned. Rows omitted from the result are lost.
+func (r *ShardLeaseRepository) RenewOwned(ctx context.Context, owner string, leases map[uint32]int64, ttl time.Duration) (map[uint32]*domain.ShardLease, error) {
+	renewed := make(map[uint32]*domain.ShardLease, len(leases))
+	if len(leases) == 0 {
+		return renewed, nil
+	}
+
+	args := make([]any, 0, 2+2*len(leases))
+	args = append(args, owner, ttl.Milliseconds())
+	values := make([]string, 0, len(leases))
+	for shardID, token := range leases {
+		base := len(args) + 1
+		values = append(values, fmt.Sprintf("($%d::bigint, $%d::bigint)", base, base+1))
+		args = append(args, int64(shardID), token)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE shard_leases AS lease
+		SET expires_at = NOW() + ($2 * INTERVAL '1 millisecond')
+		FROM (VALUES %s) AS requested(virtual_shard, fencing_token)
+		WHERE lease.virtual_shard = requested.virtual_shard
+		  AND lease.fencing_token = requested.fencing_token
+		  AND lease.owner = $1
+		  AND lease.expires_at > NOW()
+		RETURNING lease.virtual_shard, lease.owner, lease.fencing_token, lease.expires_at, lease.routing_epoch
+	`, strings.Join(values, ","))
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("renew owned leases: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		lease := &domain.ShardLease{}
+		if err := rows.Scan(&lease.VirtualShard, &lease.Owner, &lease.FencingToken, &lease.ExpiresAt, &lease.RoutingEpoch); err != nil {
+			return nil, fmt.Errorf("scan renewed lease: %w", err)
+		}
+		renewed[lease.VirtualShard] = lease
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate renewed leases: %w", err)
+	}
+	return renewed, nil
+}
+
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
+	// Preserve the row so the fencing token remains monotonic across release/reacquire.
+	// Deleting it would let the next INSERT reset the token to 1 and revive a zombie.
 	_, err := r.db.Exec(ctx, `
-		DELETE FROM shard_leases WHERE virtual_shard = $1 AND owner = $2
+		UPDATE shard_leases SET expires_at = NOW() - INTERVAL '1 millisecond'
+		WHERE virtual_shard = $1 AND owner = $2
 	`, shard, owner)
 	if err != nil {
 		return fmt.Errorf("release lease: %w", err)
@@ -284,11 +325,13 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
 	var currentToken int64
 	var expiresAt time.Time
+	var active bool
 	err := r.db.QueryRow(ctx, `
-		SELECT fencing_token, expires_at FROM shard_leases
+		SELECT fencing_token, expires_at, expires_at > NOW()
+		FROM shard_leases
 		WHERE virtual_shard = $1 AND owner = $2
 		FOR SHARE
-	`, shard, owner).Scan(&currentToken, &expiresAt)
+	`, shard, owner).Scan(&currentToken, &expiresAt, &active)
 	if err != nil {
 		return fmt.Errorf("assert held: %w", err)
 	}
@@ -296,7 +339,7 @@ func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, own
 	if fencingToken <= 0 {
 		return domain.ErrFencingTokenMismatch
 	}
-	if time.Now().UTC().After(expiresAt) {
+	if !active {
 		return domain.ErrLeaseExpired
 	}
 	if currentToken != fencingToken {

@@ -56,15 +56,27 @@ func TestLeaseManagerDefaultsInvalidReplicaCount(t *testing.T) {
 }
 
 type leaseAllocationTestRepo struct {
-	released   []uint32
-	releaseErr error
+	released     []uint32
+	releaseErr   error
+	batchCalls   int
+	batchRenewed map[uint32]*domain.ShardLease
+	batchErr     error
+	renewCalls   int
 }
 
 func (r *leaseAllocationTestRepo) Acquire(context.Context, uint32, string, time.Duration) (*domain.ShardLease, error) {
 	return nil, errors.New("unexpected acquire")
 }
 func (r *leaseAllocationTestRepo) Renew(context.Context, uint32, string, int64, time.Duration) (*domain.ShardLease, error) {
-	return nil, errors.New("unexpected renew")
+	r.renewCalls++
+	return nil, errors.New("unexpected per-shard renew")
+}
+func (r *leaseAllocationTestRepo) RenewOwned(_ context.Context, _ string, _ map[uint32]int64, _ time.Duration) (map[uint32]*domain.ShardLease, error) {
+	r.batchCalls++
+	if r.batchErr != nil {
+		return nil, r.batchErr
+	}
+	return r.batchRenewed, nil
 }
 func (r *leaseAllocationTestRepo) Release(_ context.Context, shard uint32, _ string) error {
 	if r.releaseErr != nil {
@@ -81,6 +93,32 @@ func (r *leaseAllocationTestRepo) ValidateFencingToken(context.Context, uint32, 
 }
 func (r *leaseAllocationTestRepo) AssertHeld(context.Context, uint32, string, int64) error {
 	return nil
+}
+
+func TestRenewOwnedUsesBatchAndDropsLeasesMissingFromDatabaseResult(t *testing.T) {
+	repo := &leaseAllocationTestRepo{batchRenewed: map[uint32]*domain.ShardLease{
+		1: {VirtualShard: 1, Owner: "worker-test", FencingToken: 7, ExpiresAt: time.Now().Add(time.Minute)},
+	}}
+	manager := NewLeaseManagerWithReplicaCountAndRenewInterval(repo, nil, "worker-test", 4, 1, time.Minute, time.Second)
+	manager.ownedShards = map[uint32]*domain.ShardLease{
+		1: {VirtualShard: 1, Owner: "worker-test", FencingToken: 7},
+		2: {VirtualShard: 2, Owner: "worker-test", FencingToken: 9},
+	}
+
+	manager.renewOwned(context.Background())
+
+	if repo.batchCalls != 1 || repo.renewCalls != 0 {
+		t.Fatalf("renew calls: batch=%d per-shard=%d, want batch=1 per-shard=0", repo.batchCalls, repo.renewCalls)
+	}
+	if !manager.IsOwner(1) {
+		t.Fatal("lease returned by batch renewal should remain owned")
+	}
+	if token, ok := manager.GetFencingToken(1); !ok || token != 7 {
+		t.Fatalf("renewed fencing token = %d, owned=%v; want 7, true", token, ok)
+	}
+	if manager.IsOwner(2) {
+		t.Fatal("lease omitted from batch renewal result must be removed as lost")
+	}
 }
 
 func TestRebalanceReleasesExcessLeasesWhenTargetShrinks(t *testing.T) {
