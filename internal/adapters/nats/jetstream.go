@@ -326,7 +326,12 @@ func (c *Consumer) ConsumeOrderCreate(ctx context.Context, maxMessages int, shar
 }
 
 // Publish is the generic adapter-level primitive that implements ports.BrokerPublisher.
-func (c *Consumer) Publish(ctx context.Context, subject string, data []byte) error {
+var _ ports.EventConsumer = (*Consumer)(nil)
+var _ ports.EventPublisher = (*Consumer)(nil)
+var _ ports.OrderEventBroker = (*Consumer)(nil)
+var _ ports.EventPublisher = (*Publisher)(nil)
+
+// func (c *Consumer) Publish(ctx context.Context, subject string, data []byte) error {
 	_, err := c.js.Publish(ctx, subject, data)
 	if err != nil {
 		return fmt.Errorf("publish subject %q: %w", subject, err)
