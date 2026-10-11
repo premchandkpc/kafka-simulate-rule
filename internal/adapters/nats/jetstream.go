@@ -3,14 +3,16 @@ package nats
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
-	"github.com/nats-io/nats.go"
+	natslib "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -34,6 +36,7 @@ type Consumer struct {
 	baseDurable string
 	cfg         Config
 	numShards   uint32
+	fetchCursor uint64
 	mu          sync.RWMutex
 }
 
@@ -51,7 +54,7 @@ func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 		cfg.MaxDeliver = 10
 	}
 
-	conn, err := nats.Connect(cfg.NatsURL)
+	conn, err := natslib.Connect(cfg.NatsURL)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
 	}
@@ -149,53 +152,141 @@ func (c *Consumer) RemoveShardConsumer(ctx context.Context, shard uint32) error 
 	return nil
 }
 
+// FetchShards fetches at most maxMessages across the requested shards. It
+// polls a rotating, bounded subset in parallel so a large shard count cannot
+// turn one poll into thousands of sequential fetch timeouts.
 func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error) {
+	if maxMessages <= 0 {
+		return nil, fmt.Errorf("fetch shards: maxMessages must be > 0")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("fetch shards: context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(shards) == 0 {
 		return nil, nil
 	}
 
-	var allDeliveries []ports.Delivery
-	perShard := maxMessages / len(shards)
-	if perShard == 0 {
-		perShard = 1
-	}
-
-	for _, shard := range shards {
-		c.mu.RLock()
-		durable := c.consumers[shard]
-		c.mu.RUnlock()
-
-		if durable == "" {
-			continue
-		}
-
-		consumer, err := c.js.Consumer(ctx, c.stream, durable)
-		if err != nil {
-			log.Printf("get consumer for shard %d: %v", shard, err)
-			continue
-		}
-
-		batch, err := consumer.Fetch(perShard, jetstream.FetchMaxWait(5*time.Second))
-		if err != nil {
-			log.Printf("fetch from shard %d: %v", shard, err)
-			continue
-		}
-
-		for msg := range batch.Messages() {
-			allDeliveries = append(allDeliveries, &jetstreamDelivery{msg: msg})
+	shardIDs := append([]uint32(nil), shards...)
+	sort.Slice(shardIDs, func(i, j int) bool { return shardIDs[i] < shardIDs[j] })
+	unique := shardIDs[:0]
+	for _, shardID := range shardIDs {
+		if len(unique) == 0 || unique[len(unique)-1] != shardID {
+			unique = append(unique, shardID)
 		}
 	}
+	shardIDs = unique
+	if len(shardIDs) == 0 {
+		return nil, nil
+	}
 
-	return allDeliveries, nil
+	selectedCount := len(shardIDs)
+	if selectedCount > maxMessages {
+		selectedCount = maxMessages
+	}
+
+	c.mu.Lock()
+	start := int(c.fetchCursor % uint64(len(shardIDs)))
+	selected := make([]uint32, selectedCount)
+	for i := 0; i < selectedCount; i++ {
+		selected[i] = shardIDs[(start+i)%len(shardIDs)]
+	}
+	c.fetchCursor = uint64((start + selectedCount) % len(shardIDs))
+	c.mu.Unlock()
+
+	type fetchResult struct {
+		shard      uint32
+		deliveries []ports.Delivery
+		err        error
+	}
+	results := make(chan fetchResult, selectedCount)
+	var wg sync.WaitGroup
+
+	baseBudget := maxMessages / selectedCount
+	remainder := maxMessages % selectedCount
+	for i, shardID := range selected {
+		budget := baseBudget
+		if i < remainder {
+			budget++
+		}
+
+		wg.Add(1)
+		go func(shardID uint32, budget int) {
+			defer wg.Done()
+
+			c.mu.RLock()
+			durable := c.consumers[shardID]
+			c.mu.RUnlock()
+			if durable == "" {
+				results <- fetchResult{shard: shardID}
+				return
+			}
+
+			consumer, err := c.js.Consumer(ctx, c.stream, durable)
+			if err != nil {
+				results <- fetchResult{shard: shardID, err: fmt.Errorf("get consumer for shard %d: %w", shardID, err)}
+				return
+			}
+
+			batch, err := consumer.Fetch(budget, jetstream.FetchMaxWait(250*time.Millisecond))
+			if err != nil {
+				// A fetch timeout is the normal empty-poll path, not a worker error.
+				if errors.Is(err, natslib.ErrTimeout) {
+					results <- fetchResult{shard: shardID}
+					return
+				}
+				results <- fetchResult{shard: shardID, err: fmt.Errorf("fetch shard %d: %w", shardID, err)}
+				return
+			}
+
+			deliveries := make([]ports.Delivery, 0, budget)
+			for msg := range batch.Messages() {
+				deliveries = append(deliveries, &jetstreamDelivery{msg: msg})
+			}
+			if batchErr := batch.Error(); batchErr != nil &&
+				!errors.Is(batchErr, natslib.ErrTimeout) &&
+				!errors.Is(batchErr, jetstream.ErrNoMessages) {
+				results <- fetchResult{
+					shard:      shardID,
+					deliveries: deliveries,
+					err:        fmt.Errorf("receive messages from shard %d: %w", shardID, batchErr),
+				}
+				return
+			}
+			results <- fetchResult{shard: shardID, deliveries: deliveries}
+		}(shardID, budget)
+	}
+
+	wg.Wait()
+	close(results)
+
+	deliveries := make([]ports.Delivery, 0, maxMessages)
+	var fetchErrors []error
+	for result := range results {
+		deliveries = append(deliveries, result.deliveries...)
+		if result.err != nil {
+			fetchErrors = append(fetchErrors, result.err)
+		}
+	}
+
+	// Budgets sum to maxMessages, so this is an invariant rather than a
+	// truncation step: never discard messages that have already been fetched.
+	if len(deliveries) > maxMessages {
+		return deliveries, errors.Join(append(fetchErrors, fmt.Errorf("fetch invariant violated: got %d deliveries for limit %d", len(deliveries), maxMessages))...)
+	}
+	return deliveries, errors.Join(fetchErrors...)
 }
 
 func (c *Consumer) OwnedShards() []uint32 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	shards := make([]uint32, 0, len(c.consumers))
-	for shard := range c.consumers {
-		shards = append(shards, shard)
+	for shardID := range c.consumers {
+		shards = append(shards, shardID)
 	}
+	sort.Slice(shards, func(i, j int) bool { return shards[i] < shards[j] })
 	return shards
 }
 
@@ -256,7 +347,7 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 	if cfg.NumShards == 0 {
 		cfg.NumShards = 4096
 	}
-	conn, err := nats.Connect(cfg.NatsURL)
+	conn, err := natslib.Connect(cfg.NatsURL)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
 	}

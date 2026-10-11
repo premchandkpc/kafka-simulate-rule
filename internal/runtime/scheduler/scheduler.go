@@ -22,6 +22,7 @@ type Scheduler struct {
 
 	mu       sync.Mutex
 	running  bool
+	stopped  bool
 	stopChan chan struct{}
 	wg       sync.WaitGroup
 }
@@ -54,30 +55,36 @@ func NewScheduler(
 	}
 }
 
+// Start begins the scheduler once. Scheduler instances cannot be restarted after Stop.
 func (s *Scheduler) Start(ctx context.Context) {
+	if ctx == nil {
+		log.Printf("scheduler: refusing to start with nil context")
+		return
+	}
+
 	s.mu.Lock()
-	if s.running {
+	if s.running || s.stopped {
 		s.mu.Unlock()
 		return
 	}
 	s.running = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
-	s.wg.Add(1)
 	go s.runLoop(ctx)
 	log.Println("scheduler started")
 }
 
+// Stop is idempotent and waits for the scheduler loop to exit.
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
-	if !s.running {
-		s.mu.Unlock()
-		return
+	if !s.stopped {
+		s.stopped = true
+		close(s.stopChan)
 	}
 	s.running = false
 	s.mu.Unlock()
 
-	close(s.stopChan)
 	s.wg.Wait()
 	log.Println("scheduler stopped")
 }
