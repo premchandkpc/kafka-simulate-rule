@@ -38,7 +38,41 @@ function labeledMetrics(text: string, metric: string) {
   return text.split("\n").flatMap((line) => {
     if (!line.startsWith(metric + "{")) return [];
     const match = line.match(/^([^\s]+)\s+([\d.eE+-]+)$/); if (!match) return [];
-    const labels: Record<string, string> = {}; for (const part of (line.match(/\{(.*?)\}/)?.[1] || "").matchAll(/([a-zA-Z_][\w]*)="((?:\\.|[^"])*)"/g)) labels[part[1]] = part[2];
+    const labels: Record<string, string> = {};
+    const open = line.indexOf("{");
+    const close = line.indexOf("}", open + 1);
+    const labelText = open >= 0 && close > open ? line.slice(open + 1, close) : "";
+    let cursor = 0;
+    while (cursor < labelText.length) {
+      while (cursor < labelText.length && (labelText[cursor] === "," || /\\s/.test(labelText[cursor]))) cursor++;
+      const keyStart = cursor;
+      while (cursor < labelText.length && /[A-Za-z0-9_]/.test(labelText[cursor])) cursor++;
+      const key = labelText.slice(keyStart, cursor);
+      if (!key || labelText[cursor] !== "=") {
+        cursor++;
+        continue;
+      }
+      cursor++;
+      if (labelText[cursor] !== '"') {
+        cursor++;
+        continue;
+      }
+      cursor++;
+      let value = "";
+      while (cursor < labelText.length) {
+        const char = labelText[cursor++];
+        if (char === '"') break;
+        if (char === "\\\\" && cursor < labelText.length) {
+          const escaped = labelText[cursor++];
+          value += escaped === "n" ? "\\n" : escaped;
+        } else {
+          value += char;
+        }
+      }
+      labels[key] = value;
+      while (cursor < labelText.length && labelText[cursor] !== ",") cursor++;
+      if (labelText[cursor] === ",") cursor++;
+    }
     return [{ labels, count: Number(match[2]) }];
   });
 }
