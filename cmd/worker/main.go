@@ -136,11 +136,12 @@ func run() (runErr error) {
 	}
 	batchSvc := batches.NewService(repositories.Batches, eventsSvc, clock, batchCfg)
 
-	leaseManager := shard.NewLeaseManagerWithRenewInterval(
+	leaseManager := shard.NewLeaseManagerWithReplicaCountAndRenewInterval(
 		repositories.ShardLeases,
 		clock,
 		workerID,
 		cfg.Worker.NumShards,
+		cfg.Worker.WorkerReplicas,
 		cfg.LeaseTTL(),
 		cfg.LeaseRenewalInterval(),
 	)
