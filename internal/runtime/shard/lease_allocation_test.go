@@ -56,12 +56,12 @@ func TestLeaseManagerDefaultsInvalidReplicaCount(t *testing.T) {
 }
 
 type leaseAllocationTestRepo struct {
-	released   []uint32
-	releaseErr error
-	batchCalls int
+	released     []uint32
+	releaseErr   error
+	batchCalls   int
 	batchRenewed map[uint32]*domain.ShardLease
-	batchErr error
-	renewCalls int
+	batchErr     error
+	renewCalls   int
 }
 
 func (r *leaseAllocationTestRepo) Acquire(context.Context, uint32, string, time.Duration) (*domain.ShardLease, error) {
@@ -120,6 +120,7 @@ func TestRenewOwnedUsesBatchAndDropsLeasesMissingFromDatabaseResult(t *testing.T
 		t.Fatal("lease omitted from batch renewal result must be removed as lost")
 	}
 }
+
 func TestRebalanceReleasesExcessLeasesWhenTargetShrinks(t *testing.T) {
 	repo := &leaseAllocationTestRepo{}
 	manager := NewLeaseManagerWithReplicaCountAndRenewInterval(repo, nil, "worker-test", 10, 5, time.Second, time.Millisecond)
