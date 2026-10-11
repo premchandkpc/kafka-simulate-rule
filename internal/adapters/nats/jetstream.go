@@ -384,25 +384,25 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
 	_, err := p.js.Publish(ctx, subject, data)
 	if err != nil {
-		return fmt.Errorf("publish: %w", err)
+		return fmt.Errorf("publish subject %q: %w", subject, err)
 	}
 	return nil
+}
+
+// SendOrderCreate publishes the order-create contract payload to its assigned shard.
+func (p *Publisher) SendOrderCreate(ctx context.Context, shard uint32, payload []byte) error {
+	return p.PublishToShard(ctx, "orders.create", shard, payload)
 }
 
 func (p *Publisher) PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error {
 	subject := fmt.Sprintf("%s.shard.%d", baseSubject, shard)
-	_, err := p.js.Publish(ctx, subject, data)
-	if err != nil {
-		return fmt.Errorf("publish to shard %d: %w", shard, err)
-	}
-	return nil
+	return p.Publish(ctx, subject, data)
 }
 
 func (p *Publisher) PublishBatch(ctx context.Context, messages []ports.PublishMessage) error {
-	for _, msg := range messages {
-		_, err := p.js.Publish(ctx, msg.Subject, msg.Data)
-		if err != nil {
-			return fmt.Errorf("publish batch: %w", err)
+	for i, msg := range messages {
+		if err := p.Publish(ctx, msg.Subject, msg.Data); err != nil {
+			return fmt.Errorf("publish batch message %d: %w", i, err)
 		}
 	}
 	return nil
