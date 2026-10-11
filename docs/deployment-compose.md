@@ -12,6 +12,8 @@ cp .env.example .env
 docker compose config
 docker compose up --build -d
 docker compose ps
+# Confirm exactly three worker containers
+docker compose ps worker
 ```
 
 Open **http://localhost:3000**. The UI's default settings use same-origin paths:
@@ -29,7 +31,7 @@ Keep these pairs consistent when changing credentials:
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `DATABASE_URL`
 - `REDIS_PASSWORD` and the app's `REDIS_PASSWORD`
 - `NUM_SHARDS` across API, worker, SDK producers and any other event publishers
-- `WORKER_REPLICAS` with the deployed worker count
+- `WORKER_REPLICAS` with the deployed worker count; the default Compose topology is three worker replicas
 
 The defaults are for local development only. Use a secret manager or orchestrator secrets for production credentials. Do not commit `.env`. The Compose-published ports are bound to `127.0.0.1`, not all host interfaces.
 
@@ -39,7 +41,7 @@ The defaults are for local development only. Use a secret manager or orchestrato
 |---|---|---|
 | `console` | React UI and same-origin reverse proxy | `http://localhost:3000` |
 | `api` | HTTP management API | `http://localhost:8080` |
-| `worker` | JetStream consumer, scheduler, outbox and worker metrics | Metrics are private; proxied through the console |
+| `worker` | Three worker replicas by default; JetStream consumer, shard leases, scheduler, outbox and worker metrics | Metrics are private; proxied through the console |
 | `postgres` | Transactional storage | `localhost:5432` |
 | `nats` | JetStream event broker | `localhost:4222`; monitoring `localhost:8222` |
 | `redis` | Optional cache/coordination dependency | `localhost:6379` |
@@ -86,8 +88,8 @@ docker compose --profile tools run --rm codegen --help
 
 ## Known boundaries
 
-- The stack is for local development and demos. The API's authentication/tenant configuration must be secured before exposure to untrusted clients.
-- Compose's one-worker default reflects the current shard-lease implementation. Worker membership/rebalancing is not implemented; do not simply scale workers and assume balanced shard ownership.
+- The stack starts **three worker replicas by default** (`WORKER_REPLICAS=3`) and is for local development and demos. The API's authentication/tenant configuration must be secured before exposure to untrusted clients.
+- Compose starts three workers with `WORKER_REPLICAS=3`. The current lease manager uses a fixed-replica allocation contract, not dynamic membership. If a worker permanently fails, surviving workers do not automatically increase their shard target; restore the replica or deliberately change the configured replica count and recreate the workers. Validate lease fencing and per-key ordering under failure before production use.
 - The UI metrics endpoint is process-local and exposes no authentication. It is kept private and only reverse-proxied from the local console.
 - MongoDB is an alternative storage backend, not part of the default Compose stack. It requires a replica-set or sharded deployment for transactions.
 - The codegen container is a CLI utility, not a long-running HTTP service.
