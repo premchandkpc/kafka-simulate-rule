@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	minClients        = 1
-	maxClients       = 1000
-	minMessages       = 1
-	maxMessages       = 100
-	minConcurrency    = 1
-	maxConcurrency    = 256
+	minClients         = 1
+	maxClients         = 1000
+	minMessages        = 1
+	maxMessages        = 100
+	minConcurrency     = 1
+	maxConcurrency     = 256
+	// DefaultBaseSubject is the base subject used by FlowRule event producers.
 	DefaultBaseSubject = "events"
 )
 
