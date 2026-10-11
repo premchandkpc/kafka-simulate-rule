@@ -28,10 +28,11 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 		return "", fmt.Errorf("resolve output root: %w", err)
 	}
 
-	outputAbs, err := filepath.Abs(outputDir)
+	cleanOutput, err := sanitizeRelativeOutputPath(outputDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve output directory: %w", err)
 	}
+	outputAbs := filepath.Join(rootAbs, cleanOutput)
 	rel, err := filepath.Rel(rootAbs, outputAbs)
 	if err != nil {
 		return "", fmt.Errorf("check output directory: %w", err)
@@ -76,6 +77,29 @@ func safeGenerationOutputDir(outputDir, root string) (string, error) {
 	}
 
 	return outputAbs, nil
+}
+
+func sanitizeRelativeOutputPath(outputDir string) (string, error) {
+	if outputDir == "" {
+		return "", fmt.Errorf("output directory is required")
+	}
+	if filepath.IsAbs(outputDir) || filepath.VolumeName(outputDir) != "" {
+		return "", fmt.Errorf("output directory must be a relative path")
+	}
+
+	cleaned := filepath.Clean(outputDir)
+	if cleaned == "." {
+		return ".", nil
+	}
+
+	parts := strings.Split(cleaned, string(filepath.Separator))
+	for _, part := range parts {
+		if part == ".." {
+			return "", fmt.Errorf("output directory must not contain parent traversal")
+		}
+	}
+
+	return cleaned, nil
 }
 
 func withinDirectory(rel string) bool {
