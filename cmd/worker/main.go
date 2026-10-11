@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	serviceName = "flowrule-worker"
+	serviceName  = "flowrule-worker"
 	eventSubject = "events"
 )
 
