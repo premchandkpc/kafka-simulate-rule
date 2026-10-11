@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
@@ -13,16 +12,37 @@ import (
 // Router sends internal child events to the broker and delegates all other
 // effects to the configured external destination.
 type Router struct {
-	publisher ports.BrokerPublisher
-	external  ports.EffectSender
+	publisher   ports.BrokerPublisher
+	external    ports.EffectSender
+	baseSubject string
+	numShards   uint32
 }
 
+// NewRouter creates a router using the default event subject and shard count.
 func NewRouter(publisher ports.BrokerPublisher, external ports.EffectSender) *Router {
-	return &Router{publisher: publisher, external: external}
+	return NewRouterWithConfig(publisher, external, "events", 4096)
+}
+
+// NewRouterWithConfig creates a router aligned with the stream's subject family
+// and the shard count used by producers, consumers, and the scheduler.
+func NewRouterWithConfig(publisher ports.BrokerPublisher, external ports.EffectSender, baseSubject string, numShards uint32) *Router {
+	if baseSubject == "" {
+		baseSubject = "events"
+	}
+	if numShards == 0 {
+		numShards = 4096
+	}
+	return &Router{publisher: publisher, external: external, baseSubject: baseSubject, numShards: numShards}
 }
 
 func (r *Router) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
+	if effect == nil {
+		return fmt.Errorf("send effect: effect is nil")
+	}
 	if effect.EffectType != domain.EffectTypeEmitEvent {
+		if r.external == nil {
+			return fmt.Errorf("send external effect: destination is not configured")
+		}
 		return r.external.Send(ctx, effect, idempotencyKey)
 	}
 	if r.publisher == nil {
@@ -36,10 +56,10 @@ func (r *Router) Send(ctx context.Context, effect *domain.Effect, idempotencyKey
 		return fmt.Errorf("validate child event: %w", err)
 	}
 
-	// Use shard-specific publishing for proper routing
-	shard := child.VirtualShard(4096)
-	baseSubject := strings.TrimSuffix(effect.Destination, fmt.Sprintf(".shard.%d", shard))
-	return r.publisher.PublishToShard(ctx, baseSubject, shard, effect.Payload)
+	// Event type is carried in the envelope. The broker subject must match the
+	// stream filter shared by consumers and the scheduler: <baseSubject>.shard.N.
+	shard := child.VirtualShard(r.numShards)
+	return r.publisher.PublishToShard(ctx, r.baseSubject, shard, effect.Payload)
 }
 
 var _ ports.EffectSender = (*Router)(nil)
