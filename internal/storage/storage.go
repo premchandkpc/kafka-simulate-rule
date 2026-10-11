@@ -64,25 +64,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 				Quarantine:          sqladapter.NewQuarantineRepository(pool),
 				Contracts:           sqladapter.NewContractRegistry(pool),
 				Transactions:        sqladapter.NewTransactionManager(pool),
-				NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
-					sqlTx, ok := tx.(*sqladapter.Tx)
-					if !ok {
-						return ports.TxRepos{}, fmt.Errorf("postgres transaction has unexpected type %T", tx)
-					}
-					q := sqladapter.NewTxQuerier(sqlTx)
-					return ports.TxRepos{
-						Inbox:           sqladapter.NewInboxRepository(q),
-						Activations:     sqladapter.NewActivationRepository(q),
-						RuleRepo:        sqladapter.NewRuleRepository(q),
-						Executions:      sqladapter.NewExecutionRepository(q),
-						Outbox:          sqladapter.NewOutboxRepository(q),
-						ShardLeases:     sqladapter.NewShardLeaseRepository(q),
-						Workflow:        sqladapter.NewWorkflowRepository(q),
-						ScheduledEvents: sqladapter.NewScheduledEventRepository(q),
-						Batches:         sqladapter.NewBatchRepository(q),
-						Quarantine:      sqladapter.NewQuarantineRepository(q),
-					}, nil
-				},
+				NewTxRepositories: sqladapter.NewEventTxRepositories,
 			},
 			initialize: db.RunMigrations,
 			close:      db.Close,
@@ -114,25 +96,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 				Quarantine:          quarantineRepo,
 				Contracts:           mongoadapter.NewContractRegistry(q),
 				Transactions:        mongoadapter.NewTransactionManager(db.Client(), db.Database()),
-				NewTxRepositories: func(tx ports.Transaction) (ports.TxRepos, error) {
-					mongoTx, ok := tx.(*mongoadapter.Transaction)
-					if !ok {
-						return ports.TxRepos{}, fmt.Errorf("mongodb transaction has unexpected type %T", tx)
-					}
-					txQuerier := mongoadapter.NewTxQuerier(mongoTx.Session(), db.Database())
-					return ports.TxRepos{
-						Inbox:           mongoadapter.NewInboxRepository(txQuerier),
-						Activations:     mongoadapter.NewActivationRepository(txQuerier),
-						RuleRepo:        mongoadapter.NewRepository(txQuerier),
-						Executions:      mongoadapter.NewExecutionRepository(txQuerier),
-						Outbox:          mongoadapter.NewOutboxRepository(txQuerier),
-						ShardLeases:     mongoadapter.NewShardLeaseRepository(txQuerier),
-						Workflow:        mongoadapter.NewWorkflowRepository(txQuerier),
-						ScheduledEvents: mongoadapter.NewScheduledEventRepository(txQuerier),
-						Batches:         mongoadapter.NewBatchRepository(txQuerier),
-						Quarantine:      mongoadapter.NewQuarantineRepository(txQuerier),
-					}, nil
-				},
+				NewTxRepositories: mongoadapter.NewEventTxRepositories,
 			},
 			initialize: quarantineRepo.BackfillEffectTenantIDs,
 			close:      db.Close,
