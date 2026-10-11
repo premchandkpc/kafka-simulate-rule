@@ -114,7 +114,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 	var doc QuarantineDoc
 	err := coll.FindOne(ctx, bson.M{
 		"quarantine_id": id,
-		"tenant_id": tenantID,
+		"tenant_id":     tenantID,
 	}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
