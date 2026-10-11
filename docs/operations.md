@@ -4,7 +4,7 @@ This guide describes the current implementation. It does not certify the service
 
 ## Security and exposure warning
 
-The HTTP API currently has **no authentication or authorization middleware**. Tenant extraction trusts the caller-supplied `X-Tenant-ID` header or `tenant_id` query parameter and falls back to `default`. A caller can therefore choose a tenant identifier. Do not expose the API to untrusted users or rely on tenant isolation until identity is derived from a trusted authentication layer and each resource operation checks authorization.
+JWT authentication and scope checks are available through `internal/auth`; enable them with `REQUIRE_AUTH=true`, a high-entropy `JWT_SECRET` (at least 32 characters), and the expected issuer/audience. In production, tenant extraction also supports a fail-closed trusted-proxy contract via `FLOWRULE_TRUSTED_PROXY_TOKEN`, `X-Proxy-Auth`, and `X-Authenticated-Tenant-ID`. A validated JWT tenant claim is authoritative; conflicting caller-supplied tenant values are rejected. Do not expose the API to untrusted multi-tenant traffic until authentication is required in the deployed configuration, every resource path has been audited, and cross-tenant negative tests plus proxy/header-stripping behavior are verified.
 
 Native configuration defaults the HTTP server to `127.0.0.1:8080`. The local Compose file publishes API, PostgreSQL, NATS, NATS monitoring and Redis ports on host loopback only. Compose still uses demo credentials. Do not reuse those credentials or treat the development stack as a production deployment.
 
@@ -147,7 +147,7 @@ The current publisher sends effects sequentially and uses a fixed two-minute cla
 
 The SQL adapter uses columns introduced by migration `015_scheduled_event_claims.sql`. SQL and Mongo can reclaim expired claims and require the claimant token plus a non-expired claim when marking an event released or failed. A stale claimant cannot settle an event after its lease expires. However, the scheduler currently marks publish errors terminally failed instead of retrying transient broker failures; treat that as an open reliability limitation.
 
-The scheduled-event list and get endpoints are tenant-filtered. Cancellation only changes events that are still `pending`; an event that is claimed or already released returns a conflict. Caller-supplied tenant headers are still not authenticated identity.
+The scheduled-event list and get endpoints are tenant-filtered. Cancellation only changes events that are still `pending`; an event that is claimed or already released returns a conflict. A validated JWT claim or trusted proxy identity establishes the tenant; caller-supplied tenant headers are not identity and cannot override a JWT claim.
 
 ### Batch processing
 
@@ -163,7 +163,7 @@ The event transaction validates the fencing token before writes, and the queue s
 
 ### API tenant isolation
 
-This is a release blocker for untrusted environments. The current tenant header/query value is caller-controlled and the API has no authN/authZ. Add trusted identity, per-resource authorization and cross-tenant denial tests before exposing the service.
+This remains a release blocker until deployment authentication is mandatory and correctly configured. JWT validation and trusted-proxy tenant resolution are implemented, but configuration alone does not prove production wiring or complete resource-level authorization. Verify every read/write path and cross-tenant denial tests before exposing the service.
 
 ## Operational readiness
 
@@ -172,4 +172,4 @@ This is a release blocker for untrusted environments. The current tenant header/
 - Observability packages exist, but instrumentation/metric coverage should be checked against operational objectives rather than assumed complete.
 - Retention policies, index/query-plan reviews, throughput/latency benchmarks and live crash/failure-injection coverage remain work items.
 - LeaseManager currently targets `NUM_SHARDS/3` per worker without a worker-membership/rebalancing protocol. This assumes a three-worker topology; changing replica count can leave shards unowned. Validate shard ownership coverage before scaling or changing replicas.
-- Keep the HTTP API and local backing services on private interfaces until auth and tenant authorization are complete.
+- Keep the HTTP API and local backing services on private interfaces until required JWT/proxy authentication, header stripping, and tenant authorization are verified in the deployment.
