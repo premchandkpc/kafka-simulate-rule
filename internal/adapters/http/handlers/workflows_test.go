@@ -15,16 +15,16 @@ import (
 type workflowServiceStub struct {
 	ports.WorkflowService
 	createCalls int
-	getTenant   string
-	getID       string
-	getCalls    int
+	getTenant        string
+	getID            string
+	getCalls         int
 	transitionTenant string
-	transitionID string
-	transitionFrom string
-	transitionTo string
-	updateTenant string
-	updateID string
-	updateState string
+	transitionID     string
+	transitionFrom   string
+	transitionTo     string
+	updateTenant     string
+	updateID         string
+	updateState      string
 }
 
 func (s *workflowServiceStub) Get(_ context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
