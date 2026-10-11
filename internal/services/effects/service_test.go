@@ -12,17 +12,17 @@ import (
 )
 
 type testOutboxRepository struct {
-	effects            []domain.OutboxEffect
-	claimToken         string
-	deliveredToken     string
-	retryToken         string
-	quarantineToken    string
-	deliveredErr       error
-	retryErr           error
-	quarantineErr      error
-	quarantineCalls    int
-	retryCalls         int
-	deliveredCalls     int
+	effects         []domain.OutboxEffect
+	claimToken      string
+	deliveredToken  string
+	retryToken      string
+	quarantineToken string
+	deliveredErr    error
+	retryErr        error
+	quarantineErr   error
+	quarantineCalls int
+	retryCalls      int
+	deliveredCalls  int
 }
 
 func (r *testOutboxRepository) Insert(context.Context, []domain.OutboxEffect) error { return nil }
@@ -59,10 +59,10 @@ type testEffectSender struct {
 func (s *testEffectSender) Send(context.Context, *domain.Effect, string) error { return s.err }
 
 type testQuarantineRepository struct {
-	saved       []*domain.QuarantineEntry
-	deleted     []string
-	saveErr     error
-	deleteErr   error
+	saved     []*domain.QuarantineEntry
+	deleted   []string
+	saveErr   error
+	deleteErr error
 }
 
 func (r *testQuarantineRepository) Save(_ context.Context, entry *domain.QuarantineEntry) error {
@@ -70,7 +70,9 @@ func (r *testQuarantineRepository) Save(_ context.Context, entry *domain.Quarant
 	r.saved = append(r.saved, &copy)
 	return r.saveErr
 }
-func (r *testQuarantineRepository) Get(context.Context, string) (*domain.QuarantineEntry, error) { return nil, nil }
+func (r *testQuarantineRepository) Get(context.Context, string) (*domain.QuarantineEntry, error) {
+	return nil, nil
+}
 func (r *testQuarantineRepository) List(context.Context, ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	return nil, nil
 }
