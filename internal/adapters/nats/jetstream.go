@@ -376,7 +376,7 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 	if cfg.NumShards == 0 {
 		cfg.NumShards = 4096
 	}
-	conn, err := natslib.Connect(cfg.NatsURL)
+	conn, err := connect(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
 	}
