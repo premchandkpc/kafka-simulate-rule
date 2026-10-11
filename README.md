@@ -54,6 +54,26 @@ Test the nested modules separately:
 (cd examples/food-delivery && go test -race -count=1 ./...)
 ~~~
 
+## Generated Go clients
+
+Generating a Go target emits both the contract type and a typed client alongside it. The generated client defaults to the registered contract name as its rule set; `SendToRuleSet` and `SubscribeRuleSet` allow an explicit rule-set name. Send options such as `flowrule.WithPartitionKey`, `WithWorkflowID`, `WithCorrelationID`, and `WithHeaders` are passed through to the SDK. Consumer modules need a dependency on `github.com/flowrule/flowrule-sdk/go/flowrule`.
+
+~~~go
+client, err := flowrule.New()
+if err != nil {
+    return err
+}
+defer client.Close()
+
+typed := transactioninitiated.NewClient(client)
+err = typed.Send(ctx, &transactioninitiated.Initiated{
+    TransactionId: "txn-123",
+    AccountId:     "account-456",
+}, flowrule.WithPartitionKey("account-456"))
+~~~
+
+Generated `Subscribe` methods use live core NATS subscriptions and are available only with the NATS transport. They receive matching events for the configured tenant without competing with the worker's JetStream WorkQueue consumer. They are best-effort rather than durable: events published while disconnected are not replayed, and handler failures stop the subscription without ACK/retry behavior.
+
 Environment variable names and local defaults are documented in .env.example. API and worker startup initialize storage/migrations. Outside development/test, the worker requires EFFECT_DESTINATION_URL and fails startup if it is missing.
 
 ## Repository map

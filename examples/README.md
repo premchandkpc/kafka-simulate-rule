@@ -68,14 +68,21 @@ cd examples/banking
 
 ### 5. Run Producer/Consumer
 ```bash
-# E-commerce producer
-cd examples/ecommerce/backend/producer
-go run main.go
+# Set the same tenant for the producer and consumer, and start the consumer first.
+export FLOWRULE_TENANT_ID=acme-corp
+export FLOWRULE_TRANSPORT=nats
+export NATS_URL=nats://localhost:4222
 
 # E-commerce consumer
 cd examples/ecommerce/backend/consumer
-go run main.go
+go run .
+
+# In another terminal, with the same environment:
+cd examples/ecommerce/backend/producer
+go run .
 ```
+
+Example producers use the generated typed `Send` method. Consumers use the generated typed `Subscribe` method, which observes live core NATS publications without competing for JetStream messages owned by the FlowRule worker. Start consumers before producing events; this subscription is non-durable, has no replay, and is intended for live observation rather than reliable business processing. The worker remains responsible for durable rule processing.
 
 ## Code Generation
 
@@ -136,6 +143,7 @@ generated/
 ```
 
 Use these directly in your application code - no manual DTO maintenance needed.
+Generating a Go target also emits a typed client with default-rule-set and explicit-rule-set send/subscribe methods. Generated Go clients import the separate FlowRule client SDK module.
 
 ## Key Concepts Demonstrated
 

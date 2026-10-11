@@ -2,57 +2,28 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
+	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
 	orderplaced "examples/food-delivery/generated/go/order_placed"
 )
 
-type EventEnvelope struct {
-	ID           string            `json:"id"`
-	Type         string            `json:"type"`
-	TenantID     string            `json:"tenant_id"`
-	PartitionKey string            `json:"partition_key"`
-	WorkflowID   string            `json:"workflow_id,omitempty"`
-	OccurredAt   time.Time         `json:"occurred_at"`
-	Data         json.RawMessage   `json:"data"`
-	Headers      map[string]string `json:"headers,omitempty"`
+func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+	}
 }
 
-func main() {
-	natsURL := os.Getenv("NATS_URL")
-	if natsURL == "" {
-		natsURL = "nats://localhost:4222"
-	}
-
-	ctx := context.Background()
-
-	nc, err := nats.Connect(natsURL)
+func run() error {
+	client, err := flowrule.New()
 	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
+		return fmt.Errorf("create FlowRule client: %w", err)
 	}
-	defer nc.Drain()
+	defer client.Close()
 
-	js, err := jetstream.New(nc)
-	if err != nil {
-		log.Fatalf("Failed to create JetStream context: %v", err)
-	}
-
-	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     "flowrule",
-		Subjects: []string{"events.>"},
-	})
-	if err != nil {
-		log.Fatalf("Failed to create stream: %v", err)
-	}
-
-	// Create order using generated types
 	order := orderplaced.Placed{
 		OrderId:      "order-001",
 		CustomerId:   "customer-789",
@@ -64,43 +35,21 @@ func main() {
 			{MenuItemId: "garlic-bread", Quantity: 2, UnitPrice: 500, Name: "Garlic Bread"},
 		},
 		DeliveryAddress: orderplaced.DeliveryAddress{
-			Street:      "456 Oak Ave",
-			City:        "San Francisco",
-			State:       "CA",
-			PostalCode:  "94102",
+			Street:     "456 Oak Ave",
+			City:       "San Francisco",
+			State:      "CA",
+			PostalCode: "94102",
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
-	orderData, err := json.Marshal(order)
-	if err != nil {
-		log.Fatalf("Failed to marshal order: %v", err)
-	}
-
-	orderEvent := EventEnvelope{
-		ID:           "order-001",
-		Type:         "order.placed",
-		TenantID:     "food-delivery-platform",
-		PartitionKey: "94102",
-		OccurredAt:   time.Now().UTC(),
-		Data:         orderData,
-	}
-
-	data, err := json.Marshal(orderEvent)
-	if err != nil {
-		log.Fatalf("Failed to marshal event: %v", err)
-	}
-
-	shard := uint32(94102)
-	subject := fmt.Sprintf("events.shard.%d", shard)
-
-	_, err = js.Publish(ctx, subject, data)
-	if err != nil {
-		log.Fatalf("Failed to publish event: %v", err)
+	typed := orderplaced.NewClient(client)
+	if err := typed.Send(context.Background(), &order, flowrule.WithPartitionKey(order.DeliveryAddress.PostalCode)); err != nil {
+		return fmt.Errorf("send order.placed: %w", err)
 	}
 
 	fmt.Println("Order placed event published successfully!")
-	fmt.Printf("Event ID: %s\n", orderEvent.ID)
-	fmt.Printf("Type: %s\n", orderEvent.Type)
-	fmt.Printf("Tenant: %s\n", orderEvent.TenantID)
+	fmt.Printf("Type: %s\n", orderplaced.DefaultRuleSet)
+	fmt.Printf("Partition key: %s\n", order.DeliveryAddress.PostalCode)
+	return nil
 }
