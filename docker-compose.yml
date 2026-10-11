@@ -93,7 +93,10 @@ services:
       REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
       FLOWRULE_METRICS_ADDR: ${FLOWRULE_METRICS_ADDR:-:9090}
       FLOWRULE_CONSOLE_ORIGIN: ${FLOWRULE_CONSOLE_ORIGIN:-http://localhost:3000}
+      WORKER_REPLICAS: ${WORKER_REPLICAS:-3}
       MIGRATIONS_DIR: /app/migrations
+    deploy:
+      replicas: ${WORKER_REPLICAS:-3}
     expose: ["9090"]
     depends_on:
       postgres:
