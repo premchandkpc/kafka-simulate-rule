@@ -178,7 +178,7 @@ Rules:
 
 | Priority | Gap | Next step |
 |---|---|---|
-| P0 | No authentication/authorization or trusted tenant identity | Add verified identity, tenant/resource authorization and cross-tenant denial tests before public exposure |
+| P0 | Production auth config fails closed and global contract mutations require admin JWT scope; complete resource-level authorization and cross-tenant denial coverage remain incomplete | Keep public exposure blocked until every resource path and cross-tenant negative tests are verified |
 | P1 | Outbox delivery/retry/quarantine transitions now require unique claimant tokens and unexpired claims; settlement errors propagate | Keep failure-injection tests and consider transactional quarantine/outbox settlement |
 | P1 | Sequential effect dispatch and fixed claim TTL | Add per-effect timeouts and bounded concurrency only after idempotency/claim recovery is verified |
 | P1 | Lease allocation uses a configured fixed replica count; no dynamic membership/rebalancing | Keep WORKER_REPLICAS consistent across the deployment; add membership and coordinated rebalancing before autoscaling |
