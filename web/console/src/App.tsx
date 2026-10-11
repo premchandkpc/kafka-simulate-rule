@@ -44,7 +44,7 @@ function labeledMetrics(text: string, metric: string) {
     const labelText = open >= 0 && close > open ? line.slice(open + 1, close) : "";
     let cursor = 0;
     while (cursor < labelText.length) {
-      while (cursor < labelText.length && (labelText[cursor] === "," || /\\s/.test(labelText[cursor]))) cursor++;
+      while (cursor < labelText.length && (labelText[cursor] === "," || /\s/.test(labelText[cursor]))) cursor++;
       const keyStart = cursor;
       while (cursor < labelText.length && /[A-Za-z0-9_]/.test(labelText[cursor])) cursor++;
       const key = labelText.slice(keyStart, cursor);
@@ -62,7 +62,7 @@ function labeledMetrics(text: string, metric: string) {
       while (cursor < labelText.length) {
         const char = labelText[cursor++];
         if (char === '"') break;
-        if (char === "\\\\" && cursor < labelText.length) {
+        if (char === "\\" && cursor < labelText.length) {
           const escaped = labelText[cursor++];
           value += escaped === "n" ? "\\n" : escaped;
         } else {
