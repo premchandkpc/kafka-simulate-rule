@@ -30,6 +30,24 @@ func isYAMLContentType(contentType string) bool {
 	return strings.Contains(contentType, "yaml") || strings.Contains(contentType, "yml")
 }
 
+// decodeSingleYAMLDocument decodes exactly one YAML document and rejects trailing
+// documents or malformed trailing content.
+func decodeSingleYAMLDocument(data []byte, target any) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode YAML request: %w", err)
+	}
+
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple YAML documents are not supported")
+		}
+		return fmt.Errorf("decode trailing YAML document: %w", err)
+	}
+	return nil
+}
+
 // decodeRequestBody decodes one JSON or YAML document. It bounds the input and
 // rejects trailing values/multiple YAML documents instead of silently ignoring them.
 func decodeRequestBody(r *http.Request, v any) error {
@@ -38,18 +56,7 @@ func decodeRequestBody(r *http.Request, v any) error {
 		return err
 	}
 	if isYAMLContentType(r.Header.Get("Content-Type")) {
-		decoder := yaml.NewDecoder(bytes.NewReader(data))
-		if err := decoder.Decode(v); err != nil {
-			return fmt.Errorf("decode YAML request: %w", err)
-		}
-		var extra any
-		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-			if err == nil {
-				return errors.New("multiple YAML documents are not supported")
-			}
-			return fmt.Errorf("decode trailing YAML document: %w", err)
-		}
-		return nil
+		return decodeSingleYAMLDocument(data, v)
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -80,17 +87,9 @@ func decodeRawRequestBody(r *http.Request) (json.RawMessage, error) {
 		return json.RawMessage(data), nil
 	}
 
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var document any
-	if err := decoder.Decode(&document); err != nil {
-		return nil, fmt.Errorf("decode YAML request: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple YAML documents are not supported")
-		}
-		return nil, fmt.Errorf("decode trailing YAML document: %w", err)
+	if err := decodeSingleYAMLDocument(data, &document); err != nil {
+		return nil, err
 	}
 	normalized, err := json.Marshal(document)
 	if err != nil {
