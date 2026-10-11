@@ -187,16 +187,20 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	entry, err := h.quarantineSvc.Get(ctx, tenantID, id)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil || entry.TenantID != middleware.GetTenantID(r.Context()) {
+	if entry == nil {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
-
 	responses.WriteOK(w, entry)
 }
 
@@ -208,20 +212,19 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
-	if err != nil {
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if err := h.quarantineSvc.Replay(ctx, tenantID, id); err != nil {
+		if errors.Is(err, domain.ErrQuarantineNotFound) {
+			responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil || entry.TenantID != middleware.GetTenantID(ctx) {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
-		return
-	}
-	if err := h.quarantineSvc.Replay(ctx, id); err != nil {
-		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
-		return
-	}
-
 	responses.WriteOK(w, map[string]string{"status": "replayed"})
 }
 
@@ -233,19 +236,18 @@ func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Requ
 	}
 
 	ctx := r.Context()
-	entry, err := h.quarantineSvc.Get(ctx, id)
-	if err != nil {
+	tenantID := middleware.GetTenantID(ctx)
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+	if err := h.quarantineSvc.Delete(ctx, tenantID, id); err != nil {
+		if errors.Is(err, domain.ErrQuarantineNotFound) {
+			responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+			return
+		}
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if entry == nil || entry.TenantID != middleware.GetTenantID(ctx) {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
-		return
-	}
-	if err := h.quarantineSvc.Delete(ctx, id); err != nil {
-		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
-		return
-	}
-
 	responses.WriteNoContent(w)
 }
