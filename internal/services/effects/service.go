@@ -30,11 +30,11 @@ func NewService(
 		claimant = "publisher"
 	}
 	return &Service{
-		outbox: outbox,
+		outbox:       outbox,
 		effectSender: effectSender,
-		quarantine: quarantine,
-		clock: clock,
-		claimant: claimant,
+		quarantine:   quarantine,
+		clock:        clock,
+		claimant:     claimant,
 	}
 }
 
@@ -50,8 +50,13 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 	var failures []error
 	for _, ef := range effects {
 		effect := &domain.Effect{
-			ID: ef.ID, ExecutionID: ef.ExecutionID, Destination: ef.Destination,
-			Name: ef.Name, Payload: ef.Payload, EffectType: ef.EffectType, CreatedAt: ef.CreatedAt,
+			ID:          ef.ID,
+			ExecutionID: ef.ExecutionID,
+			Destination: ef.Destination,
+			Name:        ef.Name,
+			Payload:     ef.Payload,
+			EffectType:  ef.EffectType,
+			CreatedAt:   ef.CreatedAt,
 		}
 		idempotencyKey := fmt.Sprintf("effect-%s", ef.ID)
 		sendErr := s.effectSender.Send(ctx, effect, idempotencyKey)
@@ -59,9 +64,12 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 			attempts := ef.Attempts + 1
 			if attempts >= ef.MaxAttempts {
 				entry := &domain.QuarantineEntry{
-					ID: domain.NewID(), SourceType: "effect", SourceID: ef.ID,
-					ErrorClass: string(domain.ClassifyError(sendErr)), Error: sendErr.Error(),
-					CreatedAt: s.clock.Now(),
+					ID:         domain.NewID(),
+					SourceType: "effect",
+					SourceID:   ef.ID,
+					ErrorClass: string(domain.ClassifyError(sendErr)),
+					Error:      sendErr.Error(),
+					CreatedAt:  s.clock.Now(),
 				}
 				if err := s.quarantine.Save(ctx, entry); err != nil {
 					failures = append(failures, fmt.Errorf("save quarantine entry for effect %s: %w", ef.ID, err))
@@ -86,10 +94,16 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 }
 
 func backoffDuration(attempts int) time.Duration {
-	if attempts < 1 { attempts = 1 }
-	if attempts > 30 { attempts = 30 }
+	if attempts < 1 {
+		attempts = 1
+	}
+	if attempts > 30 {
+		attempts = 30
+	}
 	delay := time.Duration(1<<uint(attempts-1)) * time.Second
-	if delay > 60*time.Second { delay = 60*time.Second }
+	if delay > 60*time.Second {
+		delay = 60 * time.Second
+	}
 	return delay
 }
 
