@@ -39,7 +39,7 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 
 	tenantID := middleware.GetTenantID(r.Context())
 	if req.TenantID != "" && req.TenantID != tenantID {
-		responses.WriteError(w, http.StatusForbidden, "tenant_id must match the request tenant", responses.CodeForbidden)
+		responses.WriteError(w, http.StatusForbidden, messageTenantMismatch, responses.CodeForbidden)
 		return
 	}
 	req.TenantID = tenantID
@@ -80,7 +80,7 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if batch == nil {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		responses.WriteError(w, http.StatusNotFound, messageNotFound, responses.CodeNotFound)
 		return
 	}
 
@@ -89,8 +89,8 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 
 func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
-	ruleSet := r.URL.Query().Get("rule_set")
-	pagination, err := parsePagination(r, 100, 500, 10000)
+	ruleSet := r.URL.Query().Get(queryParamRuleSet)
+	pagination, err := parsePagination(r, defaultPageLimit, maxPageLimit, maxPageOffset)
 	if err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
 		return
@@ -130,17 +130,17 @@ func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	if tenantID == "" {
-		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		responses.WriteError(w, http.StatusUnauthorized, messageTenantRequired, responses.CodeTenantRequired)
 		return
 	}
 
 	filter := ports.QuarantineFilter{
 		TenantID:   tenantID,
-		SourceType: r.URL.Query().Get("source_type"),
-		ErrorClass: r.URL.Query().Get("error_class"),
+		SourceType: r.URL.Query().Get(queryParamSourceType),
+		ErrorClass: r.URL.Query().Get(queryParamErrorClass),
 		Limit:      100,
 	}
-	if value := r.URL.Query().Get("from"); value != "" {
+	if value := r.URL.Query().Get(queryParamFrom); value != "" {
 		parsed, err := time.Parse(time.RFC3339, value)
 		if err != nil {
 			responses.WriteError(w, http.StatusBadRequest, "invalid from timestamp; expected RFC3339", responses.CodeValidationFailed)
@@ -148,7 +148,7 @@ func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Reques
 		}
 		filter.From = parsed
 	}
-	if value := r.URL.Query().Get("to"); value != "" {
+	if value := r.URL.Query().Get(queryParamTo); value != "" {
 		parsed, err := time.Parse(time.RFC3339, value)
 		if err != nil {
 			responses.WriteError(w, http.StatusBadRequest, "invalid to timestamp; expected RFC3339", responses.CodeValidationFailed)

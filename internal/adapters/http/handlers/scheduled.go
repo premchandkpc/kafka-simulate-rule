@@ -28,13 +28,13 @@ func (h *ScheduledHandler) RegisterRoutes(mux *http.ServeMux) {
 func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request) {
 	var evt domain.ScheduledEvent
 	if err := decodeRequestBody(r, &evt); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		responses.WriteError(w, http.StatusBadRequest, messageInvalidBodyPrefix+err.Error(), responses.CodeInvalidJSON)
 		return
 	}
 
 	tenantID := middleware.GetTenantID(r.Context())
 	if evt.TenantID != "" && evt.TenantID != tenantID {
-		responses.WriteError(w, http.StatusForbidden, "tenant_id must match the request tenant", responses.CodeForbidden)
+		responses.WriteError(w, http.StatusForbidden, messageTenantMismatch, responses.CodeForbidden)
 		return
 	}
 	evt.TenantID = tenantID
@@ -50,7 +50,7 @@ func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request)
 		evt.EventID = domain.NewID()
 	}
 
-	evt.Status = "pending"
+	evt.Status = domain.ScheduledEventStatusPending
 	evt.CreatedAt = time.Now().UTC()
 	if err := h.repo.Save(r.Context(), &evt); err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
@@ -72,14 +72,14 @@ func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if evt == nil {
-		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
+		responses.WriteError(w, http.StatusNotFound, messageNotFound, responses.CodeNotFound)
 		return
 	}
 	responses.WriteOK(w, evt)
 }
 
 func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Request) {
-	pagination, err := parsePagination(r, 100, 500, 10000)
+	pagination, err := parsePagination(r, defaultPageLimit, maxPageLimit, maxPageOffset)
 	if err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
 		return

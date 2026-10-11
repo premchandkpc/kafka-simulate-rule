@@ -32,7 +32,7 @@ func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request) {
 	var schema domain.ContractSchema
 	if err := decodeRequestBody(r, &schema); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		responses.WriteError(w, http.StatusBadRequest, messageInvalidBodyPrefix+err.Error(), responses.CodeInvalidJSON)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) 
 
 func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	version := r.URL.Query().Get("version")
+	version := r.URL.Query().Get(queryParamVersion)
 
 	if version == "" {
 		responses.WriteError(w, http.StatusBadRequest, "version query parameter is required", responses.CodeValidationFailed)
