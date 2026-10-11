@@ -56,7 +56,10 @@ func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID strin
 
 func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.WorkflowInstance) error {
 	coll := r.collection("workflow_instances")
-	now := time.Now().UTC()
+	updatedAt := workflow.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
 
 	filter := bson.M{
 		"workflow_id": workflow.WorkflowID,
@@ -69,7 +72,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 			"state":            workflow.State,
 			"current_revision": workflow.CurrentRevision,
 			"context":          workflow.Context,
-			"updated_at":       now,
+			"updated_at":       updatedAt,
 			"completed_at":     workflow.CompletedAt,
 		},
 		"$inc": bson.M{
@@ -85,8 +88,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 		return domain.ErrWorkflowConflict
 	}
 
-	workflow.Version++
-	workflow.UpdatedAt = now
+	workflow.UpdatedAt = updatedAt
 	return nil
 }
 

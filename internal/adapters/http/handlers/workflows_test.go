@@ -135,3 +135,33 @@ func TestTransitionWorkflowPassesTenantToService(t *testing.T) {
 			service.getTenant, service.transitionTenant, service.transitionID, service.transitionFrom, service.transitionTo)
 	}
 }
+
+type workflowDefinitionRepositoryStub struct {
+	ports.WorkflowDefinitionRepository
+	gotType    string
+	gotVersion int64
+}
+
+func (s *workflowDefinitionRepositoryStub) Get(_ context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
+	s.gotType, s.gotVersion = workflowType, version
+	return &domain.WorkflowDefinition{WorkflowType: workflowType, Version: version}, nil
+}
+
+func (s *workflowDefinitionRepositoryStub) List(context.Context) ([]*domain.WorkflowDefinition, error) {
+	return nil, nil
+}
+
+func TestGetWorkflowDefinitionSupportsVersionedRoute(t *testing.T) {
+	definitions := &workflowDefinitionRepositoryStub{}
+	handler := NewWorkflowHandler(&workflowServiceStub{}, nil, definitions)
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/workflows/definitions/orders/3", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if definitions.gotType != "orders" || definitions.gotVersion != 3 {
+		t.Fatalf("Get called with (%q, %d), want (%q, %d)", definitions.gotType, definitions.gotVersion, "orders", 3)
+	}
+}
