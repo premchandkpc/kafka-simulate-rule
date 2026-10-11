@@ -144,48 +144,60 @@ func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.GetTenantID(r.Context())
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, "authenticated tenant identity is required", responses.CodeTenantRequired)
+		return
+	}
+
 	filter := ports.QuarantineFilter{
-		TenantID:   middleware.GetTenantID(r.Context()),
+		TenantID:   tenantID,
 		SourceType: r.URL.Query().Get("source_type"),
 		ErrorClass: r.URL.Query().Get("error_class"),
+		Limit:      100,
+	}
+	if value := r.URL.Query().Get("from"); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			responses.WriteError(w, http.StatusBadRequest, "invalid from timestamp; expected RFC3339", responses.CodeValidationFailed)
+			return
+		}
+		filter.From = parsed
+	}
+	if value := r.URL.Query().Get("to"); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			responses.WriteError(w, http.StatusBadRequest, "invalid to timestamp; expected RFC3339", responses.CodeValidationFailed)
+			return
+		}
+		filter.To = parsed
+	}
+	if !filter.From.IsZero() && !filter.To.IsZero() && filter.From.After(filter.To) {
+		responses.WriteError(w, http.StatusBadRequest, "from must not be after to", responses.CodeValidationFailed)
+		return
+	}
+	if value := r.URL.Query().Get("limit"); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil || limit < 1 || limit > 500 {
+			responses.WriteError(w, http.StatusBadRequest, "limit must be an integer between 1 and 500", responses.CodeValidationFailed)
+			return
+		}
+		filter.Limit = limit
+	}
+	if value := r.URL.Query().Get("offset"); value != "" {
+		offset, err := strconv.Atoi(value)
+		if err != nil || offset < 0 {
+			responses.WriteError(w, http.StatusBadRequest, "offset must be a non-negative integer", responses.CodeValidationFailed)
+			return
+		}
+		filter.Offset = offset
 	}
 
-	// Parse time filters if provided
-	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
-		if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
-			filter.From = t
-		}
-	}
-	if toStr := r.URL.Query().Get("to"); toStr != "" {
-		if t, err := time.Parse(time.RFC3339, toStr); err == nil {
-			filter.To = t
-		}
-	}
-
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			filter.Limit = l
-		}
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 100
-	}
-	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			filter.Offset = o
-		}
-	}
-
-	ctx := r.Context()
-	entries, err := h.quarantineSvc.List(ctx, filter)
+	entries, err := h.quarantineSvc.List(r.Context(), filter)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-
 	responses.WriteOK(w, map[string]interface{}{
 		"entries": entries,
 		"total":   len(entries),
@@ -193,7 +205,6 @@ func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Reques
 		"offset":  filter.Offset,
 	})
 }
-
 func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
