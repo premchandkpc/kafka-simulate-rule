@@ -19,7 +19,7 @@ const (
 	ScenarioFoodDelivery Scenario = "food-delivery"
 )
 
-var supportedScenarios = []Scenario{
+var supportedEventTypes = map[string]struct{}{\n\t"order.created": {},\n\t"transaction.initiated": {},\n\t"order.placed": {},\n}\n\nvar supportedScenarios = []Scenario{
 	ScenarioEcommerce,
 	ScenarioBanking,
 	ScenarioFoodDelivery,
