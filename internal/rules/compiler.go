@@ -94,6 +94,18 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 		return nil, domain.ErrRuleExceedsLimits
 	}
 
+	// These budgets apply to the complete rule set, not independently to each
+	// rule. Keep total evaluation work and possible side effects bounded.
+	totalPredicates := 0
+	totalActions := 0
+	for _, rule := range rawRules {
+		totalPredicates += countPredicates(rule.When)
+		totalActions += len(rule.Then) + len(rule.Otherwise)
+		if totalPredicates > c.limits.MaxPredicates || totalActions > c.limits.MaxActionsPerSet {
+			return nil, domain.ErrRuleExceedsLimits
+		}
+	}
+
 	compiled, err := c.compileRules(rawRules)
 	if err != nil {
 		return nil, err
