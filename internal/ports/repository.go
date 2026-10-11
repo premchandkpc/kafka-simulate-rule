@@ -37,8 +37,8 @@ type OutboxRepository interface {
 	Insert(ctx context.Context, effects []domain.OutboxEffect) error
 	ClaimPending(ctx context.Context, batchSize int, claimant string, claimTTL time.Duration) ([]domain.OutboxEffect, error)
 	MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error
-	ScheduleRetry(ctx context.Context, effectID string, delay time.Duration, attempts int, errMsg string) error
-	Quarantine(ctx context.Context, effectID, errMsg string) error
+	ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error
+	Quarantine(ctx context.Context, effectID, claimant, errMsg string) error
 	GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error)
 	GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error)
 }
