@@ -28,10 +28,11 @@ go test -race -count=1 ./...
 go vet ./...
 ~~~
 
-The standalone SDK and each example module must be checked separately because nested go.mod files form module boundaries:
+Both SDK modules and each example module must be checked separately because nested go.mod files form module boundaries:
 
 ~~~sh
 (cd sdk/go && go test -race -count=1 ./...)
+(cd sdk/go/flowrule && go test -race -count=1 ./...)
 (cd examples/banking && go test -race -count=1 ./...)
 (cd examples/ecommerce && go test -race -count=1 ./...)
 (cd examples/food-delivery && go test -race -count=1 ./...)
@@ -94,7 +95,7 @@ Keep dependencies moving inward:
 - internal/adapters/* implements I/O and translates between ports/domain and transport or persistence details.
 - internal/storage selects the configured backend and composes repositories. Current API/worker entrypoints use it.
 - internal/factory/factory.go is an older broad Mongo-oriented assembly factory that overlaps current storage/wiring. Do not add new wiring paths there without migrating callers and consolidating composition.
-- sdk/go is a separate module. Generated consumer code should not depend on inaccessible internal packages from the server module.
+- sdk/go and sdk/go/flowrule are independent modules and both need separate CI coverage. sdk/go/runtime is the original envelope/publisher/consumer helper; sdk/go/flowrule is the newer client SDK with local/HTTP/gRPC/NATS transports and a basic example. Generated consumer code should not depend on inaccessible internal packages from the server module.
 - api/*.json defines public JSON schemas. Verify handler validation actually invokes a schema before claiming incoming requests conform to it.
 
 Avoid circular dependencies, driver types in domain/ports, global mutable state, unbounded goroutines or queues, fire-and-forget goroutines, swallowing persistence errors, and using context.Background for request-scoped work.
@@ -202,11 +203,16 @@ Storage/messaging:
 - api/envelope-schema.json — event envelope JSON Schema.
 - api/rule-schema.json — rule-set JSON Schema for leaf/composite predicates and emit, emit_event, and command actions. The schema is not automatically applied by every handler; keep it aligned with compiler behavior.
 - migrations/001_rule_revisions.sql through migrations/014_workflow_definitions.sql — numbered SQL migrations. There is a numbering gap at 010 and no down-migration set; do not renumber/edit applied migrations.
-- sdk/go/go.mod — independent SDK module definition.
+- sdk/go/go.mod — original independent SDK module definition.
 - sdk/go/runtime/envelope.go — public envelope, payload and shard hashing.
 - sdk/go/runtime/publisher.go — JetStream publisher.
 - sdk/go/runtime/consumer.go — consumer helper.
 - sdk/go/runtime/evaluator.go — SDK-side evaluator support.
+- sdk/go/flowrule/go.mod — separate client SDK module definition.
+- sdk/go/flowrule/client.go, config.go, contract.go — client/config/contract API.
+- sdk/go/flowrule/transport*.go — local, HTTP, gRPC, and NATS transport implementations.
+- sdk/go/flowrule/shard.go — SDK-compatible shard calculation.
+- sdk/go/flowrule/examples/basic/main.go — basic client usage example.
 - examples/README.md — example overview and startup guide.
 - examples/banking, examples/ecommerce, examples/food-delivery — independent application modules, each with contracts, rules, workflows, backend producer/consumer source, deployment script and generated Go contract types.
 - examples/*/contracts — event/command schema definitions.
