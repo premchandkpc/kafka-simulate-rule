@@ -72,9 +72,9 @@ func run() error {
 	}
 
 	publisher, err := natsadapter.NewPublisher(natsadapter.Config{
-		NatsURL:       *natsURL,
-		Stream:        env("NATS_STREAM", defaultNATSStream),
-		NumShards:     cfg.NumShards,
+		NatsURL:        *natsURL,
+		Stream:         env("NATS_STREAM", defaultNATSStream),
+		NumShards:      cfg.NumShards,
 		ConnectTimeout: connectTimeout,
 	})
 	if err != nil {
