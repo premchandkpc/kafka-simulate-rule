@@ -44,8 +44,8 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	coll := r.collection("scheduled_events")
 	filter := bson.M{
 		"$or": []bson.M{
-			{"status": "pending", "scheduled_at": bson.M{"$lte": before}},
-			{"status": "claimed", "claim_expires_at": bson.M{"$lte": before}},
+			{"status": domain.ScheduledEventStatusPending, "scheduled_at": bson.M{"$lte": before}},
+			{"status": domain.ScheduledEventStatusClaimed, "claim_expires_at": bson.M{"$lte": before}},
 		},
 	}
 	cursor, err := coll.Find(ctx, filter, options.Find().
@@ -96,7 +96,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		}
 		err := coll.FindOneAndUpdate(ctx, filter,
 			bson.M{"$set": bson.M{
-				"status":           "claimed",
+				"status":           domain.ScheduledEventStatusClaimed,
 				"claimant":         claimant,
 				"claimed_at":       now,
 				"claim_expires_at": expiresAt,
@@ -119,7 +119,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": releasedAt}},
 		bson.M{
-			"$set": bson.M{"status": "released", "released_at": releasedAt},
+			"$set": bson.M{"status": domain.ScheduledEventStatusReleased, "released_at": releasedAt},
 			"$unset": bson.M{
 				"claimant": "", "claimed_at": "", "claim_expires_at": "",
 			},
@@ -140,7 +140,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"event_id": eventID, "status": "claimed", "claimant": claimant, "claim_expires_at": bson.M{"$gt": now}},
 		bson.M{
-			"$set": bson.M{"status": "failed", "last_error": errMsg},
+			"$set": bson.M{"status": domain.ScheduledEventStatusFailed, "last_error": errMsg},
 			"$unset": bson.M{
 				"claimant": "", "claimed_at": "", "claim_expires_at": "",
 			},
@@ -209,7 +209,7 @@ func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID
 	coll := r.collection("scheduled_events")
 	result, err := coll.UpdateOne(ctx,
 		bson.M{"tenant_id": tenantID, "event_id": eventID, "status": "pending"},
-		bson.M{"$set": bson.M{"status": "cancelled"}},
+		bson.M{"$set": bson.M{"status": domain.ScheduledEventStatusCancelled}},
 	)
 	if err != nil {
 		return fmt.Errorf("cancel scheduled event: %w", err)

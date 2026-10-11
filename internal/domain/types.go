@@ -484,11 +484,11 @@ const (
 func (w *WorkflowInstance) CanTransition(from, to string) bool {
 	// Basic state machine - can be extended
 	validTransitions := map[string][]string{
-		"pending":   {"running", "failed"},
-		"running":   {"completed", "failed", "paused"},
-		"paused":    {"running", "failed"},
-		"completed": {},
-		"failed":    {},
+		WorkflowStatusPending:   {WorkflowStatusRunning, WorkflowStatusFailed},
+		WorkflowStatusRunning:   {WorkflowStatusCompleted, WorkflowStatusFailed, WorkflowStatusPaused},
+		WorkflowStatusPaused:    {WorkflowStatusRunning, WorkflowStatusFailed},
+		WorkflowStatusCompleted: {},
+		WorkflowStatusFailed:    {},
 	}
 	if next, ok := validTransitions[from]; ok {
 		for _, s := range next {
