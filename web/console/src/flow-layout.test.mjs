@@ -10,8 +10,8 @@ test("layout marks disconnected rule sets unreachable, not service-triggered", (
   ]);
   const nodes = layoutRuleFlow(graph, "entry");
   assert.deepEqual(nodes.map(node => [node.ruleSet, node.reachability]), [
-    ["child", "rule-set"],
     ["entry", "entry"],
+    ["child", "rule-set"],
     ["orphan", "unreachable"],
   ]);
   assert.equal(layoutRuleFlow(graph, "missing").length, 0);
