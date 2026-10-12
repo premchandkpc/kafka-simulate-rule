@@ -98,6 +98,9 @@ type ScheduledEventRepository interface {
 // BatchRepository handles batch processing
 type BatchRepository interface {
 	SaveRun(ctx context.Context, run *domain.BatchRun) error
+	// CompleteBatch atomically persists the completed run and associates every member.
+	// It must reject missing members and members already assigned to another batch.
+	CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error
 	GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error)
 	GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error)
 	ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error)
