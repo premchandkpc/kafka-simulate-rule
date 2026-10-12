@@ -353,18 +353,51 @@ function RuleStudio({ settings, activeRules, contracts: allContracts, onChanged 
 
 function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { settings: Settings; scenario: string; startRuleSet: string; events: SimulationEvent[]; running: boolean }) {
   const [stored, setStored] = useState<Map<string, FlowRuleBranch[]>>(new Map());
+  const [serviceEventTypes, setServiceEventTypes] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState("");
   useEffect(() => {
     let cancelled = false;
+    // Clear tenant-scoped graph data immediately so a settings change cannot briefly show
+    // the previous tenant's graph or service subscriptions while the new request is pending.
+    setStored(new Map());
+    setServiceEventTypes(new Set());
+    setLoadError("");
     (async () => {
       try {
-        const [domains, active] = await Promise.all([apiRequest(settings, "/v1/domains"), apiRequest(settings, "/v1/rules/active")]);
-        const domain = asArray(domains).find(d => d.name === scenario);
-        const types = new Set<string>(domain?.event_types ?? []);
-        const names = asArray(active).map(r => ({ name: String(r.rule_set), revision: Number(r.revision) })).filter(r => types.has(r.name));
-        const entries = await Promise.all(names.map(async ({ name, revision }) => [name, branchesFromRevision(unwrap(await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions/${revision}`)))] as const));
-        if (!cancelled) { setStored(new Map(entries)); setLoadError(""); }
-      } catch (e) { if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e)); }
+        const [domainsResponse, activeResponse, servicesResponse] = await Promise.all([
+          apiRequest(settings, "/v1/domains"),
+          apiRequest(settings, "/v1/rules/active"),
+          apiRequest(settings, "/v1/services"),
+        ]);
+        const domainRows = asArray(domainsResponse);
+        const serviceRows = asArray(servicesResponse) as DomainService[];
+        const subscribedTypes = new Set<string>();
+        for (const domain of domainRows) {
+          if (!Array.isArray(domain.event_types)) continue;
+          const subscribed = serviceRows.some(service =>
+            service.active && Array.isArray(service.domain_ids) && service.domain_ids.includes(String(domain.id))
+          );
+          if (subscribed) domain.event_types.forEach((type: unknown) => {
+            if (typeof type === "string" && type.trim()) subscribedTypes.add(type.trim());
+          });
+        }
+        const domain = domainRows.find(d => d.name === scenario);
+        const types = new Set<string>(Array.isArray(domain?.event_types) ? domain.event_types : []);
+        const names = asArray(activeResponse)
+          .map(r => ({ name: String(r.rule_set ?? ""), revision: Number(r.revision) }))
+          .filter(r => r.name && Number.isFinite(r.revision) && r.revision > 0 && types.has(r.name));
+        const entries = await Promise.all(names.map(async ({ name, revision }) => [
+          name,
+          branchesFromRevision(unwrap(await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions/${revision}`))),
+        ] as const));
+        if (!cancelled) {
+          setStored(new Map(entries));
+          setServiceEventTypes(subscribedTypes);
+          setLoadError("");
+        }
+      } catch (e) {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+      }
     })();
     return () => { cancelled = true; };
   }, [settings, scenario]);
@@ -380,7 +413,7 @@ function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { se
     {loadError && <div className="notice" role="alert">{loadError}</div>}
     {!loadError && nodes.length === 0 && <Empty title="No rule sets in the database" detail={`Save the ${DOMAIN_LABELS[scenario] || scenario} domain from the Domain catalog page to see its flow.`} />}
     <div className="rule-flow-map">{levels.map(level => <div className="rule-flow-column" key={level}>
-      <div className="rule-flow-level">{level === 0 ? "Entry" : nodes.some(n => n.level === level && n.viaService) ? "Not emitted by this flow" : `Hop ${level}`}</div>
+      <div className="rule-flow-level">{level === 0 ? "Entry" : nodes.some(n => n.level === level && n.reachability === "unreachable") ? "Unreachable from entry" : `Hop ${level}`}</div>
       {nodes.filter(node => node.level === level).map(node => {
         const emitted = seen.ran.get(node.ruleSet);
         return <div className={`rule-flow-node ${emitted ? "flow-complete" : "flow-waiting"}${emitted && running ? " flow-live" : ""}`} key={node.ruleSet}>
@@ -389,8 +422,10 @@ function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { se
             <span className="rule-flow-branch-id">{branch.id}</span>
             {branch.emits.map(type => {
               const next = stored.has(type);
+              const subscribed = serviceEventTypes.has(type);
               const taken = emitted?.has(type) ?? false;
-              return <span className={`rule-flow-emit ${next ? "to-rule" : "to-service"}${taken ? " taken" : ""}`} key={type} title={next ? "Continues in the next rule set" : "Leaves for a subscribed service or ends here"}>→ {type}<em>{next ? "next rule set" : "service / end"}</em></span>;
+              const destination = next && subscribed ? "rule set + subscribed service" : next ? "next rule set" : subscribed ? "subscribed service" : "terminal / unhandled";
+              return <span className={`rule-flow-emit ${next ? "to-rule" : subscribed ? "to-service" : "to-terminal"}${taken ? " taken" : ""}`} key={type} title={destination}>→ {type}<em>{destination}</em></span>;
             })}
           </div>)}
         </div>;
@@ -540,6 +575,7 @@ export default function App() {
   const simulationStopRequestedRef = useRef(false);
   const simulationWaitRef = useRef<AbortController | null>(null);
   const simulationEventsRef = useRef<SimulationEvent[]>([]);
+  const simulationTraceInFlightRef = useRef(new Set<string>());
 
   const saveSettings = (next: Settings) => { setSettings(next); localStorage.setItem("flowrule-console-settings", JSON.stringify(next)); setSettingsOpen(false); setHealth("checking"); };
   const loadDomainServices = useCallback(async () => {
@@ -580,14 +616,33 @@ export default function App() {
   const loadDomainIntoDatabase = async (domainKey: string) => {
     setCatalogBusy(domainKey);
     setCatalogMessage("");
+    const items = CATALOG.filter(item => item.domain === domainKey);
+    let completed = 0;
+    let currentItem = "";
     try {
-      const items = CATALOG.filter(item => item.domain === domainKey);
-      for (const item of items.filter(i => i.kind === "contract")) await apiRequest(settings, "/v1/contracts", { method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source });
-      for (const item of items.filter(i => i.kind === "rule")) await apiRequest(settings, `/v1/rules/${encodeURIComponent(item.name)}/revisions`, { method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source });
-      setCatalogMessage(`${DOMAIN_LABELS[domainKey] ?? domainKey} contracts and rules saved to the database for tenant ${settings.tenant}.`);
+      if (items.length === 0) throw new Error(`No bundled contracts or rules found for domain "${domainKey}".`);
+      for (const item of items) {
+        currentItem = `${item.kind} "${item.name}"`;
+        if (item.kind === "contract") {
+          await apiRequest(settings, "/v1/contracts", {
+            method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source,
+          });
+        } else {
+          await apiRequest(settings, `/v1/rules/${encodeURIComponent(item.name)}/revisions`, {
+            method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source,
+          });
+        }
+        completed++;
+      }
+      setCatalogMessage(`${DOMAIN_LABELS[domainKey] ?? domainKey}: saved ${completed} contracts/rules to tenant ${settings.tenant}.`);
       await loadCatalog();
     } catch (e) {
-      setCatalogMessage(e instanceof Error ? e.message : String(e));
+      const reason = e instanceof Error ? e.message : String(e);
+      const partial = completed > 0
+        ? ` Import stopped after ${completed} of ${items.length} items; previous writes were not rolled back.`
+        : "";
+      setCatalogMessage(`Failed while saving ${currentItem || "domain catalog"}: ${reason}.${partial}`);
+    } finally {
       setCatalogBusy("");
     }
   };
@@ -598,12 +653,15 @@ export default function App() {
       apiRequest(settings, "/v1/rules/active"),
       apiRequest(settings, "/v1/contracts"),
     ]);
-    if (checks[0].status === "fulfilled") setHealth("online"); else { setHealth("offline"); setError(String(checks[0].reason)); }
-    if (checks[1].status === "fulfilled") setActiveRules(asArray(checks[1].value));
-    if (checks[2].status === "fulfilled") setContracts(asArray(checks[2].value));
+    if (checks[0].status === "fulfilled") setHealth("online"); else setHealth("offline");
+    const failures = checks.flatMap((check, index) => check.status === "rejected"
+      ? [[ "API health", "Active rules", "Contracts" ][index] + ": " + (check.reason instanceof Error ? check.reason.message : String(check.reason))]
+      : []);
+    setError(failures.join(" · "));
+    if (checks[1].status === "fulfilled") setActiveRules(asArray(checks[1].value)); else setActiveRules([]);
+    if (checks[2].status === "fulfilled") setContracts(asArray(checks[2].value)); else setContracts([]);
     try {
-      const ready = await fetch(normalizeBase(settings.apiBase) + "/ready", { headers: { "X-Tenant-ID": settings.tenant.trim() } });
-      const body = await ready.json();
+      const body = await apiRequest(settings, "/ready");
       setDependencies(body?.data?.dependencies ?? null);
     } catch { setDependencies(null); }
     const endpoints = settings.workerMetrics.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
@@ -630,14 +688,7 @@ export default function App() {
   const selectedContractVersion = selectedContractParts[1] || "";
   const simulationProcessed = simulationEvents.filter(event => event.trace?.execution?.status === "completed").length;
   const simulationDelivered = simulationEvents.reduce((total, event) => total + countDeliveredEffects(event.trace), 0);
-  const [entryRuleChoice, setEntryRuleChoice] = useState<Record<string, string>>({});
-  const entryRuleFor = (scenario: Exclude<SimulationScenario, "all">) => entryRuleChoice[scenario] || SOURCE_RULE_BY_SCENARIO[scenario];
-  const entryRuleOptions = (scenario: Exclude<SimulationScenario, "all">) => {
-    const types = tenantDomains.find(d => d.id === scenario)?.event_types ?? [];
-    const stored = new Set(activeRules.map((r: any) => r.rule_set));
-    const withRules = types.filter(t => stored.has(t));
-    return withRules.length ? withRules : [SOURCE_RULE_BY_SCENARIO[scenario]];
-  };
+  const entryRuleFor = (scenario: Exclude<SimulationScenario, "all">) => SOURCE_RULE_BY_SCENARIO[scenario];
   const selectedSourceRules = EXAMPLE_SOURCE_RULES.filter(item => simulationScenario === "all" || item.scenario === simulationScenario).map(item => ({ ...item, rule: entryRuleFor(item.scenario) }));
   const latestSimulationEvent = simulationEvents[0];
   const liveFlowStage = !latestSimulationEvent ? -1
@@ -654,8 +705,21 @@ export default function App() {
 
   const runApi = async () => {
     setApiBusy(true); setApiResult("");
-    try { const body = apiMethod === "GET" || apiMethod === "DELETE" ? undefined : JSON.stringify(JSON.parse(apiBody)); const result = await apiRequest(settings, apiPath.startsWith("/") ? apiPath : "/" + apiPath, { method: apiMethod, body }); setApiResult(JSON.stringify(result, null, 2)); }
-    catch (e) { setApiResult(e instanceof Error ? e.message : String(e)); } finally { setApiBusy(false); }
+    try {
+      let requestPath = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
+      const parameters = [...requestPath.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)];
+      for (const [, name] of parameters) {
+        const value = window.prompt(`Value for path parameter "${name}"`);
+        if (value === null) return;
+        if (!value.trim()) throw new Error(`Path parameter "${name}" cannot be empty.`);
+        requestPath = requestPath.replace(`{${name}}`, encodeURIComponent(value.trim()));
+      }
+      const body = apiMethod === "GET" || apiMethod === "DELETE" ? undefined : JSON.stringify(JSON.parse(apiBody));
+      const result = await apiRequest(settings, requestPath, { method: apiMethod, body });
+      setApiResult(JSON.stringify(result, null, 2));
+    } catch (e) {
+      setApiResult(e instanceof Error ? e.message : String(e));
+    } finally { setApiBusy(false); }
   };
   const createContract = async () => {
     setCodegenBusy(true); setGenerated(null);
@@ -735,6 +799,8 @@ export default function App() {
   }, []);
   const [simulationTraceRefreshedAt, setSimulationTraceRefreshedAt] = useState("");
   const refreshSimulationTrace = useCallback(async (event: SimulationEvent) => {
+    if (simulationTraceInFlightRef.current.has(event.id)) return;
+    simulationTraceInFlightRef.current.add(event.id);
     try {
       const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
       const trace = response as TraceNode;
@@ -745,6 +811,8 @@ export default function App() {
       setSimulationTraceError("");
     } catch (e) {
       setSimulationTraceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      simulationTraceInFlightRef.current.delete(event.id);
     }
   }, [settings]);
   useEffect(() => {
@@ -752,9 +820,13 @@ export default function App() {
     let failures = 0;
     let timer = 0;
     const poll = async () => {
-      const latest = simulationEventsRef.current.slice(0, 8).filter(event => !isTerminalTrace(event.trace));
+      const latest = simulationEventsRef.current.slice(0, 8).filter(event =>
+        !isTerminalTrace(event.trace) && !simulationTraceInFlightRef.current.has(event.id)
+      );
       let failed = false;
       await Promise.all(latest.map(async event => {
+        if (simulationTraceInFlightRef.current.has(event.id)) return;
+        simulationTraceInFlightRef.current.add(event.id);
         try {
           const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
           if (!stopped) {
@@ -769,6 +841,8 @@ export default function App() {
         } catch (e) {
           failed = true;
           if (!stopped) setSimulationTraceError(`${e instanceof Error ? e.message : String(e)} — showing the last known trace; retrying with backoff`);
+        } finally {
+          simulationTraceInFlightRef.current.delete(event.id);
         }
       }));
       failures = failed ? Math.min(failures + 1, 5) : 0;
@@ -916,7 +990,7 @@ export default function App() {
           <MetricCard label="Worker processed" value={simulationProcessed} hint="Completed executions in current event list" icon="⚙"/>
           <MetricCard label="Effects delivered" value={simulationDelivered} hint="Outbox deliveries in observed traces" icon="⇢"/>
         </div>
-        {selectedSourceRules.map(({ scenario, label, rule }) => <label className="entry-rule-picker" key={`pick-${scenario}`}>{label} entry rule set <select value={rule} onChange={e => setEntryRuleChoice(c => ({ ...c, [scenario]: e.target.value }))}>{entryRuleOptions(scenario).map(t => <option key={t} value={t}>{t}</option>)}</select></label>)}
+        {selectedSourceRules.map(({ scenario, label, rule }) => <div className="entry-rule-picker" key={`pick-${scenario}`}><span>{label} source event type</span><code>{rule}</code></div>)}
         {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} settings={settings} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
         <section className="panel source-rules-panel">
           <div className="panel-heading"><div><h3>Source rule sets for this tenant</h3><p>Events are still published when a source rule is missing, but no rule execution can be shown for that event.</p></div><button className="text-button" onClick={() => void refresh()}>Refresh rules ↻</button></div>

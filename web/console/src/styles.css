@@ -254,3 +254,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .simulation-flow-step.flow-failed{border-color:#d64545;background:#fdf0f0}.simulation-flow-step.flow-failed .flow-step-icon{background:#d64545;color:#fff}.flow-connector.flow-failed{color:#d64545}
 
 .entry-rule-picker{display:flex;gap:8px;align-items:center;font-size:13px;margin:0 0 8px}.entry-rule-picker select{padding:4px 8px}
+/* Explicitly distinguish terminal/unhandled emissions from subscribed service routes. */
+.rule-flow-emit.to-terminal{border-style:dashed;opacity:.78}
+.entry-rule-picker code{font-size:12px;padding:4px 8px;border-radius:6px;background:var(--surface-muted,rgba(127,127,127,.12));}
