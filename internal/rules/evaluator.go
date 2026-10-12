@@ -3,6 +3,7 @@ package rules
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -334,75 +335,93 @@ func compareIn(val interface{}, list interface{}) bool {
 	return false
 }
 
-// interpolateTemplates replaces template placeholders in the JSON data with actual values
-// Supports: {{new_id}}, {{now}}, {{$.path}}
-func interpolateTemplates(data json.RawMessage, _ *domain.EventEnvelope, childID string, clock ports.Clock) (json.RawMessage, error) {
-	var dataMap map[string]interface{}
-	if err := json.Unmarshal(data, &dataMap); err != nil {
+// interpolateTemplates replaces placeholders in emitted event data.
+// Supported: {{new_id}}, {{now}}, {{$.path}} (event data, nested paths allowed).
+// A string that is exactly one {{$.path}} keeps the JSON type of the resolved
+// value; placeholders embedded in longer strings are rendered as text.
+func interpolateTemplates(data json.RawMessage, event *domain.EventEnvelope, childID string, clock ports.Clock) (json.RawMessage, error) {
+	var tree interface{}
+	if err := json.Unmarshal(data, &tree); err != nil {
 		return nil, err
 	}
-
-	interpolated := interpolateMap(dataMap, dataMap, nil, childID, clock)
-	result, err := json.Marshal(interpolated)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(result), nil
+	ctx := templateContext{event: event, childID: childID, now: clock.Now().UTC().Format(time.RFC3339)}
+	return json.Marshal(ctx.walk(tree))
 }
 
-func interpolateMap(m map[string]interface{}, _ map[string]interface{}, _ *domain.EventEnvelope, childID string, clock ports.Clock) map[string]interface{} {
-	result := make(map[string]interface{})
-	for k, v := range m {
-		result[k] = interpolateValue(v, m, nil, childID, clock)
-	}
-	return result
+var templatePlaceholder = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*\}\}`)
+
+type templateContext struct {
+	event   *domain.EventEnvelope
+	childID string
+	now     string
 }
 
-func interpolateValue(v interface{}, m map[string]interface{}, _ *domain.EventEnvelope, childID string, clock ports.Clock) interface{} {
+func (c templateContext) walk(v interface{}) interface{} {
 	switch val := v.(type) {
 	case string:
-		return interpolateString(val, m, nil, childID, clock)
+		return c.expand(val)
 	case map[string]interface{}:
-		return interpolateMap(val, m, nil, childID, clock)
-	case []interface{}:
-		result := make([]interface{}, len(val))
-		for i, item := range val {
-			result[i] = interpolateValue(item, m, nil, childID, clock)
+		out := make(map[string]interface{}, len(val))
+		for k, item := range val {
+			out[k] = c.walk(item)
 		}
-		return result
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, item := range val {
+			out[i] = c.walk(item)
+		}
+		return out
 	default:
 		return val
 	}
 }
 
-func interpolateString(s string, root map[string]interface{}, _ *domain.EventEnvelope, childID string, clock ports.Clock) string {
-	// Replace {{new_id}}
-	if strings.Contains(s, "{{new_id}}") {
-		s = strings.ReplaceAll(s, "{{new_id}}", childID)
+func (c templateContext) lookup(expr string) (interface{}, bool) {
+	switch expr {
+	case "new_id":
+		return c.childID, true
+	case "now":
+		return c.now, true
 	}
-	// Replace {{now}}
-	if strings.Contains(s, "{{now}}") {
-		s = strings.ReplaceAll(s, "{{now}}", clock.Now().UTC().Format(time.RFC3339))
+	path := expr
+	if !strings.HasPrefix(path, "$.") {
+		path = "$." + path
 	}
-	// Replace {{$.path}}
-	if strings.Contains(s, "{{$.") && strings.HasSuffix(s, "}}") {
-		key := strings.TrimPrefix(s, "{{$.")
-		key = strings.TrimSuffix(key, "}}")
-		if val, ok := root[key]; ok {
-			return fmt.Sprintf("%v", val)
+	if c.event == nil {
+		return nil, false
+	}
+	val, err := resolvePath(path, c.event.Data, nil)
+	if err != nil || val == nil {
+		return nil, false
+	}
+	return val, true
+}
+
+func (c templateContext) expand(s string) interface{} {
+	if !strings.Contains(s, "{{") {
+		return s
+	}
+	if m := templatePlaceholder.FindStringSubmatch(s); m != nil && m[0] == s {
+		if val, ok := c.lookup(m[1]); ok {
+			return val
 		}
 		return ""
 	}
-	// Replace {{field}}
-	if strings.HasPrefix(s, "{{") && strings.HasSuffix(s, "}}") {
-		key := strings.TrimPrefix(s, "{{")
-		key = strings.TrimSuffix(key, "}}")
-		if val, ok := root[key]; ok {
-			return fmt.Sprintf("%v", val)
+	return templatePlaceholder.ReplaceAllStringFunc(s, func(match string) string {
+		val, ok := c.lookup(templatePlaceholder.FindStringSubmatch(match)[1])
+		if !ok {
+			return ""
 		}
-		return ""
-	}
-	return s
+		if str, isStr := val.(string); isStr {
+			return str
+		}
+		encoded, err := json.Marshal(val)
+		if err != nil {
+			return ""
+		}
+		return string(encoded)
+	})
 }
 
 func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {

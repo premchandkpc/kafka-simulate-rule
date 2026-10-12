@@ -6,6 +6,6 @@ package order_confirmed
 // Confirmed represents the order.confirmed contract v1.0
 type Confirmed struct {
 	ConfirmedAt string `json:"confirmed_at"`
-	CustomerId  string `json:"customer_id"`
-	OrderId     string `json:"order_id"`
+	CustomerId string `json:"customer_id"`
+	OrderId string `json:"order_id"`
 }

@@ -5,8 +5,8 @@ package delivered
 // Event emitted when order is delivered
 // Delivered represents the delivered contract v1.0
 type Delivered struct {
-	CustomerId  string `json:"customer_id"`
+	CustomerId string `json:"customer_id"`
 	DeliveredAt string `json:"delivered_at"`
-	DriverId    string `json:"driver_id"`
-	OrderId     string `json:"order_id"`
+	DriverId string `json:"driver_id"`
+	OrderId string `json:"order_id"`
 }

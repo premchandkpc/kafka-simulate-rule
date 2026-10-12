@@ -18,6 +18,7 @@ func TestGenerateGoIncludesTypedClient(t *testing.T) {
 		Version: "1.0",
 		Fields: map[string]domain.ContractField{
 			"order_id": {Type: "string", Required: true},
+			"note":     {Type: "string"},
 		},
 	})
 
@@ -42,6 +43,10 @@ func TestGenerateGoIncludesTypedClient(t *testing.T) {
 	}
 	if !strings.Contains(string(contractContent), "OrderId string `json:\"order_id\"`") {
 		t.Errorf("generated Go contract does not expose the order_id field as OrderId")
+	}
+
+	if !strings.Contains(string(contractContent), "Note string `json:\"note,omitempty\"`") {
+		t.Errorf("generated Go contract should mark optional fields omitempty")
 	}
 
 	clientPath := filepath.Join(outputDir, TargetGo, "created_client.go")
@@ -233,12 +238,12 @@ func TestGenerateGoEmitsNestedTypes(t *testing.T) {
 		t.Fatalf("read generated contract: %v", err)
 	}
 	for _, expected := range []string{
-		"Items []Item `json:\"items\"`",
-		"ShippingAddress ShippingAddress `json:\"shipping_address\"`",
-		"Tags []string `json:\"tags\"`",
+		"Items []Item `json:\"items,omitempty\"`",
+		"ShippingAddress ShippingAddress `json:\"shipping_address,omitempty\"`",
+		"Tags []string `json:\"tags,omitempty\"`",
 		"type Item struct",
-		"ProductId string `json:\"product_id\"`",
-		"Quantity int64 `json:\"quantity\"`",
+		"ProductId string `json:\"product_id,omitempty\"`",
+		"Quantity int64 `json:\"quantity,omitempty\"`",
 		"type ShippingAddress struct",
 	} {
 		if !strings.Contains(string(content), expected) {

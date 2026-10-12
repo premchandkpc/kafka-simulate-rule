@@ -15,7 +15,7 @@ for f in contracts/*.yaml; do
   echo "  Registering $f"
   curl --fail-with-body -sS -X POST "$API_URL/v1/contracts" \
     -H "X-Tenant-ID: $TENANT_ID" -H "Content-Type: application/yaml" \
-    -d @"$f" | jq .
+    --data-binary @"$f" | jq .
 done
 
 echo "Deploying rules..."
@@ -24,7 +24,7 @@ for f in rules/*.yaml; do
   echo "  Deploying $ruleSet"
   curl --fail-with-body -sS -X POST "$API_URL/v1/rules/$ruleSet/revisions" \
     -H "X-Tenant-ID: $TENANT_ID" -H "Content-Type: application/yaml" \
-    -d @"$f" | jq .
+    --data-binary @"$f" | jq .
 done
 
 # Workflow definitions (workflows/*.yaml) are reference files: the tenant API does not expose workflow mutation.

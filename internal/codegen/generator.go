@@ -799,14 +799,14 @@ package {{.GoPackageName}}
 {{end}}// {{.TypeName}} represents the {{.Schema.Name}} contract v{{.Schema.Version}}
 type {{.TypeName}} struct {
 {{- range .Fields}}
-	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}"` + "`" + `
+	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}{{if not .Required}},omitempty{{end}}"` + "`" + `
 {{- end}}
 }
 {{range .NestedTypes}}
 // {{.Name}} represents a nested type in {{$.Schema.Name}}
 type {{.Name}} struct {
 {{- range .Fields}}
-	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}"` + "`" + `
+	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}{{if not .Required}},omitempty{{end}}"` + "`" + `
 {{- end}}
 }
 {{end}}`))

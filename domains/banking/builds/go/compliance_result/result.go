@@ -2,13 +2,16 @@
 
 package compliance_result
 
-// Event emitted with compliance check result
-// Result represents the compliance.result contract v1.0
+// Outcome of a compliance check
+// Result represents the compliance.result contract v2.0
 type Result struct {
-	CheckId       string   `json:"check_id"`
-	Flags         []string `json:"flags"`
-	Passed        bool     `json:"passed"`
-	ReviewedAt    string   `json:"reviewed_at"`
-	RiskLevel     string   `json:"risk_level"`
-	TransactionId string   `json:"transaction_id"`
+	AccountId string `json:"account_id"`
+	Amount float64 `json:"amount"`
+	CheckId string `json:"check_id"`
+	Currency string `json:"currency"`
+	Flags []string `json:"flags,omitempty"`
+	Passed bool `json:"passed"`
+	ReviewedAt string `json:"reviewed_at"`
+	RiskLevel string `json:"risk_level"`
+	TransactionId string `json:"transaction_id"`
 }

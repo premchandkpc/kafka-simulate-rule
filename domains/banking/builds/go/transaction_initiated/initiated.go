@@ -2,15 +2,17 @@
 
 package transaction_initiated
 
-// Event emitted when a financial transaction is initiated
-// Initiated represents the transaction.initiated contract v1.0
+// Customer-initiated money movement entering the platform
+// Initiated represents the transaction.initiated contract v2.0
 type Initiated struct {
-	AccountId           string  `json:"account_id"`
-	Amount              float64 `json:"amount"`
-	CounterpartyAccount string  `json:"counterparty_account"`
-	Currency            string  `json:"currency"`
-	Description         string  `json:"description"`
-	InitiatedAt         string  `json:"initiated_at"`
-	TransactionId       string  `json:"transaction_id"`
-	TransactionType     string  `json:"transaction_type"`
+	AccountId string `json:"account_id"`
+	Amount float64 `json:"amount"`
+	Channel string `json:"channel"`
+	CounterpartyAccount string `json:"counterparty_account,omitempty"`
+	CounterpartyCountry string `json:"counterparty_country,omitempty"`
+	Currency string `json:"currency"`
+	Description string `json:"description,omitempty"`
+	InitiatedAt string `json:"initiated_at"`
+	TransactionId string `json:"transaction_id"`
+	TransactionType string `json:"transaction_type"`
 }

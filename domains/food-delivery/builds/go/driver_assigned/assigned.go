@@ -5,17 +5,17 @@ package driver_assigned
 // Event emitted when a driver is assigned to an order
 // Assigned represents the driver.assigned contract v1.0
 type Assigned struct {
-	AssignedAt      string          `json:"assigned_at"`
+	AssignedAt string `json:"assigned_at"`
 	DeliveryAddress DeliveryAddress `json:"delivery_address"`
-	DriverId        string          `json:"driver_id"`
-	OrderId         string          `json:"order_id"`
-	RestaurantId    string          `json:"restaurant_id"`
+	DriverId string `json:"driver_id"`
+	OrderId string `json:"order_id"`
+	RestaurantId string `json:"restaurant_id"`
 }
 
 // DeliveryAddress represents a nested type in driver.assigned
 type DeliveryAddress struct {
-	City       string `json:"city"`
-	PostalCode string `json:"postal_code"`
-	State      string `json:"state"`
-	Street     string `json:"street"`
+	City string `json:"city,omitempty"`
+	PostalCode string `json:"postal_code,omitempty"`
+	State string `json:"state,omitempty"`
+	Street string `json:"street,omitempty"`
 }

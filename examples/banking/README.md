@@ -1,107 +1,47 @@
 # Banking Example
 
-This example demonstrates financial transaction processing with compliance checks and settlement.
+Banking is a **domain**; this folder holds the **services** that work inside it. The domain specification (contracts, rule sets, workflow, generated Go types) lives in [`domains/banking/`](../../domains/banking). The services here import `domains/banking/builds/go` and `sdk/go/flowrule`.
 
-## Architecture
+## Flow
 
 ```
-TransactionInitiated
-      │
-      ▼
-Rule: compliance check required? (amount >= $10,000 OR international)
-      │
-      ├── yes → ComplianceCheck
-      │
-      └── no  → TransactionSettled
+transaction.initiated (rule set, all_matches)
+  ├─ fraud_screen ............ → fraud.screening_requested   (fraud-screening service)
+  ├─ high_value_compliance ... → compliance.check            (compliance service)
+  ├─ international_compliance  → compliance.check
+  ├─ structuring_watch ....... → aml.alert_raised            (aml service)
+  └─ low_risk_authorize ...... → transaction.authorized
 
-ComplianceCheck
-      │
-      ▼
-ComplianceResult
-      │
-      ├── passed → TransactionSettled
-      │
-      └── failed → TransactionBlocked
+fraud.screening_result (first_match)
+  deny → transaction.blocked · review → transaction.review_required · approve → transaction.authorized
+
+compliance.result (first_match)
+  failed → transaction.blocked (+ aml.alert_raised) · risky → transaction.review_required · passed → transaction.authorized
+
+transaction.authorized (all_matches)
+  settle → transaction.settled (ledger) · notify_large → notification.requested (customer-care)
+
+transaction.blocked → notify_blocked → notification.requested
 ```
 
-## Contracts
+Services (one goroutine each in `backend/consumer`): fraud-screening, compliance, ledger, operations, customer-care, aml.
 
-| Contract | Description |
-|----------|-------------|
-| `transaction.initiated` | New transaction initiated |
-| `compliance.check` | Trigger compliance check |
-| `compliance.result` | Compliance check result |
-| `transaction.settled` | Transaction settled successfully |
-| `transaction.blocked` | Transaction blocked due to compliance |
+## Run
 
-## Rules
-
-| Rule Set | Description |
-|----------|-------------|
-| `transaction.initiated` | Determines if compliance check needed based on amount/geography |
-| `compliance.result` | Routes to settlement or blocking based on compliance result |
-
-## Workflow
-
-The `transaction-processing` workflow defines the state machine:
-- `initiated` → `compliance_pending` (on `compliance.check`)
-- `initiated` → `settled` (on `transaction.settled` for low-risk)
-- `compliance_pending` → `compliance_completed` (on `compliance.result`)
-- `compliance_completed` → `settled` (on `transaction.settled`)
-- `compliance_completed` → `blocked` (on `transaction.blocked`)
-
-## Running the Example
-
-### Prerequisites
-- NATS JetStream server running on `localhost:4222`
-- FlowRule API running on `localhost:8080`
-- FlowRule Worker running
-
-### 1. Register Contracts
-```bash
-for f in contracts/*.yaml; do
-  curl -X POST http://localhost:8080/v1/contracts \
-    -H "Content-Type: application/yaml" \
-    -d @$f
-done
+```sh
+docker compose -f docker-compose.yml up -d postgres nats redis api worker
+(cd domains/banking && FLOWRULE_API=http://localhost:18080 ./deploy.sh)   # contracts, rule sets, domain
+cd examples/banking
+FLOWRULE_TRANSPORT=nats FLOWRULE_TENANT_ID=development-tenant go run ./backend/consumer
+FLOWRULE_TRANSPORT=nats FLOWRULE_TENANT_ID=development-tenant go run ./backend/producer
 ```
 
-### 2. Deploy Rules
-```bash
-for f in rules/*.yaml; do
-  ruleSet=$(basename $f .yaml)
-  curl -X POST http://localhost:8080/v1/rules/$ruleSet/revisions \
-    -H "Content-Type: application/yaml" \
-    -d @$f
-done
+The producer sends seven scenarios (low-risk, mid-value, structuring-sized, high-value, large wire to GB, international to DE, sanctioned IR).
+
+## Regenerate builds
+
+```sh
+make generate-domain DOMAIN=banking
 ```
 
-### 3. Workflow (reference only)
-The workflow YAML under `workflows/` documents the process; the tenant API does not expose workflow mutation, so it is not deployed.
-
-### 4. Run Producer
-```bash
-cd backend/producer
-go run main.go
-```
-
-### 5. Run Consumer
-```bash
-cd backend/consumer
-go run main.go
-```
-
-## Code Generation
-
-Generate Go types from contracts:
-```bash
-flowrule-codegen -contract transaction.initiated -version 1.0 -target go -output /tmp/out  # or: make generate-domain DOMAIN=banking (writes domains/banking/builds/go)
-```
-
-## Key Benefits
-
-1. **Regulatory compliance** - Built-in audit trail for all transactions
-2. **Risk-based routing** - Automatic compliance checks for high-risk transactions
-3. **Type-safe contracts** - Generated types prevent schema drift
-4. **Duplicate-resistant processing** - Inbox deduplication reduces duplicate rule execution
-5. **Observable** - Full lineage from transaction → compliance → settlement
+Delivery is at-least-once; each hop takes a few seconds because follow-up events go through the transactional outbox.

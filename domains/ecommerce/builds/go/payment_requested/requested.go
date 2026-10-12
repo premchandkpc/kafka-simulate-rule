@@ -5,11 +5,11 @@ package payment_requested
 // Event emitted when payment is requested for an order
 // Requested represents the payment.requested contract v1.0
 type Requested struct {
-	Amount        float64 `json:"amount"`
-	CreatedAt     string  `json:"created_at"`
-	Currency      string  `json:"currency"`
-	CustomerId    string  `json:"customer_id"`
-	OrderId       string  `json:"order_id"`
-	PaymentId     string  `json:"payment_id"`
-	PaymentMethod string  `json:"payment_method"`
+	Amount float64 `json:"amount"`
+	CreatedAt string `json:"created_at"`
+	Currency string `json:"currency"`
+	CustomerId string `json:"customer_id"`
+	OrderId string `json:"order_id"`
+	PaymentId string `json:"payment_id"`
+	PaymentMethod string `json:"payment_method"`
 }

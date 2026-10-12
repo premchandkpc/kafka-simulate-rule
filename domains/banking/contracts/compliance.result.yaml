@@ -1,23 +1,35 @@
 name: compliance.result
-version: "1.0"
+version: "2.0"
 namespace: com.example.banking
-description: Event emitted with compliance check result
+description: Outcome of a compliance check
 fields:
   check_id:
     type: string
-    description: Compliance check identifier
+    description: Check identifier
     required: true
   transaction_id:
     type: string
-    description: Transaction that was checked
+    description: Transaction checked
+    required: true
+  account_id:
+    type: string
+    description: Source account
+    required: true
+  amount:
+    type: number
+    description: Amount in cents
+    required: true
+  currency:
+    type: string
+    description: ISO currency code
     required: true
   passed:
     type: boolean
-    description: Whether compliance check passed
+    description: Whether the check passed
     required: true
   risk_level:
     type: string
-    description: Risk level (low, medium, high, critical)
+    description: low, medium, high or critical
     required: true
   flags:
     type: array
@@ -27,9 +39,9 @@ fields:
       type: string
   reviewed_at:
     type: string
-    format: date-time
-    description: Review completion timestamp
+    description: Completion timestamp
     required: true
+    format: date-time
 compatibility: BACKWARD
 owner: compliance-team
 deprecated: false
