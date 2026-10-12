@@ -10,11 +10,19 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+type shardLeaseProvider interface {
+	IsOwner(shard uint32) bool
+	GetFencingToken(shard uint32) (int64, bool)
+}
+
 type Service struct {
-	batches ports.BatchRepository
-	events  ports.EventProcessor
-	clock   ports.Clock
-	cfg     domain.BatchConfig
+	batches      ports.BatchRepository
+	events       ports.EventProcessor
+	clock        ports.Clock
+	cfg          domain.BatchConfig
+	leaseProvider shardLeaseProvider
+	workerID     string
+	numShards    uint32
 }
 
 func NewService(
@@ -24,11 +32,41 @@ func NewService(
 	cfg domain.BatchConfig,
 ) *Service {
 	return &Service{
-		batches: batches,
-		events:  events,
-		clock:   clock,
-		cfg:     cfg,
+		batches:   batches,
+		events:    events,
+		clock:     clock,
+		cfg:       cfg,
+		numShards: 4096,
 	}
+}
+
+// NewServiceWithLeaseProvider wires worker-owned shard fencing into batch
+// execution. Batch-generated events must obey the same lease invariant as
+// ordinary events; a synthetic token or fencing bypass is never permitted.
+func NewServiceWithLeaseProvider(
+	batches ports.BatchRepository,
+	events ports.EventProcessor,
+	clock ports.Clock,
+	cfg domain.BatchConfig,
+	leaseProvider shardLeaseProvider,
+	workerID string,
+	numShards uint32,
+) *Service {
+	service := NewService(batches, events, clock, cfg)
+	service.leaseProvider = leaseProvider
+	service.workerID = workerID
+	if numShards > 0 {
+		service.numShards = numShards
+	}
+	return service
+}
+
+func (s *Service) ownsPartition(tenantID, partitionKey string) bool {
+	if s.leaseProvider == nil || tenantID == "" || partitionKey == "" {
+		return false
+	}
+	envelope := &domain.EventEnvelope{TenantID: tenantID, PartitionKey: partitionKey}
+	return s.leaseProvider.IsOwner(envelope.VirtualShard(s.numShards))
 }
 
 func (s *Service) Tick(ctx context.Context) (int, error) {
@@ -71,6 +109,11 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 		})
 
 		if !s.ready(members) {
+			continue
+		}
+		// A worker only processes batches for shards whose lease it currently
+		// owns. Other workers will handle those partitions on their own ticks.
+		if !s.ownsPartition(members[0].TenantID, members[0].PartitionKey) {
 			continue
 		}
 
@@ -239,7 +282,15 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		Data:         data,
 	}
 
-	exec, err := s.events.Process(ctx, envelope, 0, 0, "")
+	if s.leaseProvider == nil || s.workerID == "" {
+		return 0, fmt.Errorf("batch processing requires a configured shard lease provider and worker ID")
+	}
+	shard := envelope.VirtualShard(s.numShards)
+	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
+	if !ok || fencingToken <= 0 {
+		return 0, domain.ErrFencingTokenMismatch
+	}
+	exec, err := s.events.Process(ctx, envelope, fencingToken, shard, s.workerID)
 	if err != nil {
 		if err == domain.ErrRuleNotActive || err == domain.ErrRuleNotFound {
 			return 0, nil
