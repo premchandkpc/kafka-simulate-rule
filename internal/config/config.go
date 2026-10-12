@@ -92,7 +92,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Env:             getEnv("APP_ENV", "production"),
+			Env:             getEnvNonEmpty("APP_ENV", "production"),
 			LogLevel:        getEnv("LOG_LEVEL", "info"),
 			HTTPAddr:        getEnv("HTTP_ADDR", "127.0.0.1:8080"),
 			ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
@@ -329,6 +329,14 @@ func validateRawEnv() error {
 		}
 	}
 	return nil
+}
+
+
+func getEnvNonEmpty(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func getEnv(key, fallback string) string {
