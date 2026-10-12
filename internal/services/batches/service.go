@@ -93,27 +93,42 @@ func (s *Service) CreateBatch(ctx context.Context, tenantID, partitionKey, ruleS
 		return nil, fmt.Errorf("no event IDs provided")
 	}
 
-	// Fetch the inbox entries for these events
-	entries, err := s.batches.ListUnbatched(ctx, len(eventIDs))
-	if err != nil {
-		return nil, fmt.Errorf("list unbatched: %w", err)
+	if tenantID == "" || partitionKey == "" || ruleSet == "" {
+		return nil, fmt.Errorf("tenant, partition key, and rule set are required")
+	}
+	if s.cfg.MaxBatch > 0 && len(eventIDs) > s.cfg.MaxBatch {
+		return nil, fmt.Errorf("requested batch size %d exceeds maximum %d", len(eventIDs), s.cfg.MaxBatch)
 	}
 
-	// Filter to match the requested tenant, partition key, rule set, and event IDs
-	eventIDSet := make(map[string]bool)
+	// Reject duplicate IDs instead of silently changing batch membership or identity.
+	seen := make(map[string]struct{}, len(eventIDs))
 	for _, id := range eventIDs {
-		eventIDSet[id] = true
-	}
-
-	var members []*domain.InboxEntry
-	for _, e := range entries {
-		if e.TenantID == tenantID && e.PartitionKey == partitionKey && e.RuleSet == ruleSet && eventIDSet[e.EventID] {
-			members = append(members, e)
+		if id == "" {
+			return nil, fmt.Errorf("event IDs must not be empty")
 		}
+		if _, exists := seen[id]; exists {
+			return nil, fmt.Errorf("duplicate event ID %q", id)
+		}
+		seen[id] = struct{}{}
 	}
 
-	if len(members) == 0 {
-		return nil, fmt.Errorf("no matching unbatched entries found")
+	// Query by the exact requested IDs and business scope. A limited global
+	// listing can otherwise return unrelated rows and silently omit requested IDs.
+	members, err := s.batches.ListUnbatchedByIDs(ctx, tenantID, partitionKey, ruleSet, eventIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list requested unbatched events: %w", err)
+	}
+	if len(members) != len(seen) {
+		found := make(map[string]struct{}, len(members))
+		for _, member := range members {
+			found[member.EventID] = struct{}{}
+		}
+		for id := range seen {
+			if _, ok := found[id]; !ok {
+				return nil, fmt.Errorf("requested event %q is missing, already batched, or outside the requested scope", id)
+			}
+		}
+		return nil, fmt.Errorf("requested event set is incomplete")
 	}
 
 	sort.SliceStable(members, func(i, j int) bool {
