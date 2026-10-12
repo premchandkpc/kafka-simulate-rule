@@ -184,17 +184,6 @@ func (w *Worker) quarantineInvalidDelivery(ctx context.Context, delivery ports.D
 	}
 }
 
-func waitForRetry(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
-
 func settleNak(ctx context.Context, delivery ports.Delivery) error {
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
