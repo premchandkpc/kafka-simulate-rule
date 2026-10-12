@@ -1,4 +1,4 @@
-// Example domain definitions bundled at build time. They are only seed sources:
+// Example domain definitions bundled at build time. They are only seed sources for "Save to database":
 // the console writes them to the FlowRule database through the management API,
 // and the catalog page reads the stored copies back from the API.
 export type CatalogKind = "contract" | "rule";
@@ -21,27 +21,11 @@ export const CATALOG: CatalogItem[] = Object.entries(files).flatMap(([path, sour
 export interface FlowRuleBranch { id: string; emits: string[]; }
 export interface FlowNode { ruleSet: string; level: number; branches: FlowRuleBranch[]; viaService?: boolean; }
 
-// Derives the rule-set chain for a domain from its rule YAML: a rule set that emits
-// an event type named like another rule set hands the event on to that rule set;
-// any other emitted type leaves the domain (a registered service or terminal event).
-export function buildRuleFlow(domain: string, startRuleSet: string): FlowNode[] {
-  const parsed = new Map<string, FlowRuleBranch[]>();
-  for (const item of CATALOG) {
-    if (item.domain !== domain || item.kind !== "rule") continue;
-    const branches: FlowRuleBranch[] = [];
-    let ruleSet = item.name, current: FlowRuleBranch | undefined, expectType = false;
-    for (const raw of item.source.split("\n")) {
-      const line = raw.trim();
-      const rs = line.match(/^rule_set:\s*"?([^"\s]+)"?/);
-      if (rs) ruleSet = rs[1];
-      const id = line.match(/^-\s*id:\s*"?([^"\s]+)"?/);
-      if (id) { current = { id: id[1], emits: [] }; branches.push(current); expectType = false; }
-      if (line.startsWith("- emit_event:") || line === "emit_event:") expectType = true;
-      const type = line.match(/^type:\s*"?([^"\s]+)"?/);
-      if (type && expectType && current) { current.emits.push(type[1]); expectType = false; }
-    }
-    parsed.set(ruleSet, branches);
-  }
+// Lays out the rule-set chain from the rule sets stored in the FlowRule database: a rule
+// set that emits an event type named like another rule set hands the event on to it; any
+// other emitted type leaves the domain (a registered service or terminal event).
+export function layoutRuleFlow(parsed: Map<string, FlowRuleBranch[]>, startRuleSet: string): FlowNode[] {
+  if (!parsed.has(startRuleSet)) return [];
   const levels = new Map<string, number>([[startRuleSet, 0]]);
   const queue = [startRuleSet];
   while (queue.length) {
@@ -59,6 +43,14 @@ export function buildRuleFlow(domain: string, startRuleSet: string): FlowNode[] 
   return nodes.sort((a, b) => a.level - b.level || a.ruleSet.localeCompare(b.ruleSet));
 }
 
-export function ruleSetKnown(domain: string, ruleSet: string): boolean {
-  return CATALOG.some(item => item.domain === domain && item.kind === "rule" && item.name === ruleSet);
+// Reads the branches and emitted event types out of a stored rule revision (the API's "source" document).
+export function branchesFromRevision(revision: any): FlowRuleBranch[] {
+  const rules: any[] = revision?.source?.rules ?? revision?.compiled ?? [];
+  return rules.map(rule => ({
+    id: String(rule.id),
+    emits: (rule.then ?? []).flatMap((action: any) => {
+      const type = action?.emit_event?.type ?? action?.emit?.type;
+      return typeof type === "string" ? [type] : [];
+    }),
+  }));
 }

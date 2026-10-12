@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
-import { CATALOG, DOMAIN_LABELS, buildRuleFlow, ruleSetKnown } from "./catalog";
+import { CATALOG, DOMAIN_LABELS, branchesFromRevision, layoutRuleFlow, type FlowRuleBranch } from "./catalog";
 
 type Settings = { apiBase: string; tenant: string; token: string; workerMetrics: string; lokiBase: string; lokiQuery: string };
 type WorkerSnapshot = { url: string; name: string; online: boolean; checkedAt: number; inFlight: number | null; activeKeys: number | null; shards: number | null; executions: Array<{ ruleSet: string; status: string; count: number }> ; error?: string };
@@ -137,8 +137,24 @@ function observeTrace(node: TraceNode | undefined, seen: FlowObservation) {
   node.effects.forEach(effect => observeTrace(effect.child, seen));
 }
 
-function RuleFlowMap({ scenario, startRuleSet, events, running }: { scenario: string; startRuleSet: string; events: SimulationEvent[]; running: boolean }) {
-  const nodes = useMemo(() => buildRuleFlow(scenario, startRuleSet), [scenario, startRuleSet]);
+function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { settings: Settings; scenario: string; startRuleSet: string; events: SimulationEvent[]; running: boolean }) {
+  const [stored, setStored] = useState<Map<string, FlowRuleBranch[]>>(new Map());
+  const [loadError, setLoadError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [domains, active] = await Promise.all([apiRequest(settings, "/v1/domains"), apiRequest(settings, "/v1/rules/active")]);
+        const domain = asArray(domains).find(d => d.name === scenario);
+        const types = new Set<string>(domain?.event_types ?? []);
+        const names = asArray(active).map(r => ({ name: String(r.rule_set), revision: Number(r.revision) })).filter(r => types.has(r.name));
+        const entries = await Promise.all(names.map(async ({ name, revision }) => [name, branchesFromRevision(unwrap(await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions/${revision}`)))] as const));
+        if (!cancelled) { setStored(new Map(entries)); setLoadError(""); }
+      } catch (e) { if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e)); }
+    })();
+    return () => { cancelled = true; };
+  }, [settings, scenario]);
+  const nodes = useMemo(() => layoutRuleFlow(stored, startRuleSet), [stored, startRuleSet]);
   const seen = useMemo(() => {
     const result: FlowObservation = { ran: new Map(), types: new Set() };
     events.filter(event => event.scenario === scenario).forEach(event => observeTrace(event.trace, result));
@@ -147,6 +163,8 @@ function RuleFlowMap({ scenario, startRuleSet, events, running }: { scenario: st
   const levels = [...new Set(nodes.map(node => node.level))];
   return <section className="panel rule-flow-panel">
     <div className="panel-heading"><div><h3>{DOMAIN_LABELS[scenario] || scenario} rule-set flow</h3><p>Each column is one hop. A rule set emits an event; when that event type has its own rule set, processing continues there, otherwise it leaves for a subscribed service.</p></div></div>
+    {loadError && <div className="notice" role="alert">{loadError}</div>}
+    {!loadError && nodes.length === 0 && <Empty title="No rule sets in the database" detail={`Save the ${DOMAIN_LABELS[scenario] || scenario} domain from the Domain catalog page to see its flow.`} />}
     <div className="rule-flow-map">{levels.map(level => <div className="rule-flow-column" key={level}>
       <div className="rule-flow-level">{level === 0 ? "Entry" : nodes.some(n => n.level === level && n.viaService) ? "Resumed by a service reply" : `Hop ${level}`}</div>
       {nodes.filter(node => node.level === level).map(node => {
@@ -156,7 +174,7 @@ function RuleFlowMap({ scenario, startRuleSet, events, running }: { scenario: st
           {node.branches.map(branch => <div className="rule-flow-branch" key={branch.id}>
             <span className="rule-flow-branch-id">{branch.id}</span>
             {branch.emits.map(type => {
-              const next = ruleSetKnown(scenario, type);
+              const next = stored.has(type);
               const taken = emitted?.has(type) ?? false;
               return <span className={`rule-flow-emit ${next ? "to-rule" : "to-service"}${taken ? " taken" : ""}`} key={type} title={next ? "Continues in the next rule set" : "Leaves for a subscribed service or ends here"}>→ {type}<em>{next ? "next rule set" : "service / end"}</em></span>;
             })}
@@ -651,7 +669,7 @@ export default function App() {
           <MetricCard label="Worker processed" value={simulationProcessed} hint="Completed executions in current event list" icon="⚙"/>
           <MetricCard label="Effects delivered" value={simulationDelivered} hint="Outbox deliveries in observed traces" icon="⇢"/>
         </div>
-        {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
+        {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} settings={settings} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
         <section className="panel source-rules-panel">
           <div className="panel-heading"><div><h3>Source rule sets for this tenant</h3><p>Events are still published when a source rule is missing, but no rule execution can be shown for that event.</p></div><button className="text-button" onClick={() => void refresh()}>Refresh rules ↻</button></div>
           <div className="source-rule-list">{selectedSourceRules.map(({ label, rule }) => {
