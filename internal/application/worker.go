@@ -28,6 +28,23 @@ type WorkerConfig struct {
 	RequireSharded         bool // If true, worker requires a sharded consumer and lease manager
 }
 
+// Worker owns the runtime loop for a broker-backed rules worker.
+// It separates transport bootstrap from business orchestration so the main
+// entrypoint stays thin and the runtime behavior remains testable.
+type Worker struct {
+	events          ports.EventProcessor
+	effects         ports.EffectPublisher
+	batches         ports.BatchProcessor
+	batchInterval   time.Duration
+	clock           ports.Clock
+	leaseManager    *shard.LeaseManager
+	keyQueue        *keyqueue.KeyQueue
+	workerID        string
+	numShards       uint32
+	config          WorkerConfig
+	shardedConsumer ports.ShardedConsumer
+}
+
 // DefaultWorkerConfig returns sensible defaults.
 func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{

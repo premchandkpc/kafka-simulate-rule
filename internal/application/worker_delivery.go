@@ -12,6 +12,8 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+const maxDeliveryRetryDelay = 5 * time.Minute
+
 func retryDelayForDelivery(base time.Duration, delivery ports.Delivery) time.Duration {
 	if base <= 0 {
 		base = 5 * time.Second
