@@ -695,8 +695,21 @@ export default function App() {
 
   const runApi = async () => {
     setApiBusy(true); setApiResult("");
-    try { const body = apiMethod === "GET" || apiMethod === "DELETE" ? undefined : JSON.stringify(JSON.parse(apiBody)); const result = await apiRequest(settings, apiPath.startsWith("/") ? apiPath : "/" + apiPath, { method: apiMethod, body }); setApiResult(JSON.stringify(result, null, 2)); }
-    catch (e) { setApiResult(e instanceof Error ? e.message : String(e)); } finally { setApiBusy(false); }
+    try {
+      let requestPath = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
+      const parameters = [...requestPath.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)];
+      for (const [, name] of parameters) {
+        const value = window.prompt(`Value for path parameter "${name}"`);
+        if (value === null) return;
+        if (!value.trim()) throw new Error(`Path parameter "${name}" cannot be empty.`);
+        requestPath = requestPath.replace(`{${name}}`, encodeURIComponent(value.trim()));
+      }
+      const body = apiMethod === "GET" || apiMethod === "DELETE" ? undefined : JSON.stringify(JSON.parse(apiBody));
+      const result = await apiRequest(settings, requestPath, { method: apiMethod, body });
+      setApiResult(JSON.stringify(result, null, 2));
+    } catch (e) {
+      setApiResult(e instanceof Error ? e.message : String(e));
+    } finally { setApiBusy(false); }
   };
   const createContract = async () => {
     setCodegenBusy(true); setGenerated(null);
