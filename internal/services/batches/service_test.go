@@ -424,3 +424,52 @@ func TestBatchService_CreateBatchFailsWhenProcessorIsNotConfigured(t *testing.T)
 		t.Fatalf("CreateBatch() error = %v, want ErrBatchProcessingUnavailable", err)
 	}
 }
+
+
+func TestCreateBatchRequiresEveryRequestedEvent(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	now := time.Now().UTC()
+	batches.entries["tenant-1|evt-1"] = &domain.InboxEntry{
+		TenantID: "tenant-1", EventID: "evt-1", PartitionKey: "pk-1",
+		RuleSet: "order.created", Status: domain.InboxStatusCommitted,
+		FirstSeenAt: now, Payload: []byte(`{"id":"evt-1"}`),
+	}
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 10})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1", "evt-missing"})
+	if err == nil {
+		t.Fatal("CreateBatch accepted a partial set of requested events")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes before validating membership", len(events.envelopes))
+	}
+}
+
+func TestCreateBatchRejectsDuplicateEventIDs(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 10})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1", "evt-1"})
+	if err == nil {
+		t.Fatal("CreateBatch accepted duplicate event IDs")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes for duplicate IDs", len(events.envelopes))
+	}
+}
+
+func TestCreateBatchRejectsBatchAboveConfiguredMaximum(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 1})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1", "evt-2"})
+	if err == nil {
+		t.Fatal("CreateBatch accepted a request larger than MaxBatch")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes for an oversized request", len(events.envelopes))
+	}
+}
