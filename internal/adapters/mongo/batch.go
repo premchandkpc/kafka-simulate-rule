@@ -52,6 +52,9 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		}
 		entries = append(entries, doc.ToDomain())
 	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unbatched: %w", err)
+	}
 
 	return entries, nil
 }
