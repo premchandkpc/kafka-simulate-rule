@@ -73,6 +73,7 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 		{Key: "status", Value: "committed"},
 		{Key: "batch_id", Value: bson.D{{Key: "$exists", Value: false}}},
 	}
+	// codeql[go/sql-injection] The query is structured BSON: field names and operators are constants, and eventIDs is []string data, not query syntax.
 	cursor, err := r.collection(collectionInbox).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "first_seen_at", Value: 1}, {Key: "tenant_id", Value: 1}, {Key: "event_id", Value: 1}}))
 	if err != nil {
