@@ -304,6 +304,17 @@ func (c *Consumer) ShardCount() uint32 {
 	return c.numShards
 }
 
+// Ping reports whether the broker connection is up and the event stream exists.
+func (c *Consumer) Ping(ctx context.Context) error {
+	if c.conn == nil || c.conn.Status() != natslib.CONNECTED {
+		return errors.New("nats connection is not established")
+	}
+	if _, err := c.js.Stream(ctx, c.stream); err != nil {
+		return fmt.Errorf("look up stream %q: %w", c.stream, err)
+	}
+	return nil
+}
+
 func (c *Consumer) Close() error {
 	c.conn.Close()
 	return nil

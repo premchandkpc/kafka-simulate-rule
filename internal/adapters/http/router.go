@@ -22,6 +22,8 @@ type RouterConfig struct {
 	ExecutionRepo  ports.ExecutionRepository
 	OutboxRepo     ports.OutboxRepository
 	DomainServices ports.DomainServiceUseCase
+	// ReadinessChecks are named dependency probes served by GET /ready.
+	ReadinessChecks map[string]func(context.Context) error
 }
 
 // Router holds all HTTP handlers and middleware
@@ -72,6 +74,8 @@ func NewRouterWithPublisher(
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		responses.WriteOK(w, map[string]string{"status": "ok"})
 	})
+
+	mux.HandleFunc("GET /ready", readinessHandler(config.ReadinessChecks))
 
 	// Rule handlers
 	ruleHandler := handlers.NewRuleHandler(ruleSvc)

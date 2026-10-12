@@ -65,6 +65,7 @@ const NAV: Array<{ id: NavKey; label: string; icon: string }> = [
 ];
 const ROUTES = [
   { method: "GET", path: "/health", description: "API liveness" },
+  { method: "GET", path: "/ready", description: "Dependency readiness (database, NATS)" },
   { method: "GET", path: "/v1/contracts", description: "List registered contracts" },
   { method: "POST", path: "/v1/contracts", description: "Register a contract" },
   { method: "GET", path: "/v1/rules/active", description: "List active rules for the tenant" },
@@ -465,6 +466,8 @@ async function apiRequest(settings: Settings, path: string, init: RequestInit = 
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   return readResponse(await fetch(normalizeBase(settings.apiBase) + path, { ...init, headers }));
 }
+const TERMINAL_EFFECT = new Set(["delivered", "quarantined"]);
+const isTerminalTrace = (node?: TraceNode): boolean => !!node?.execution && node.execution.status === "completed" && node.effects.every(e => TERMINAL_EFFECT.has(e.status.toLowerCase()) && (!e.child || isTerminalTrace(e.child)));
 function Status({ value }: { value: string }) { const key = value.toLowerCase().replace(/[^a-z0-9]+/g, "-"); return <span className={`status status-${key}`}><i />{value}</span>; }
 function MetricCard({ label, value, hint, icon }: { label: string; value: string | number; hint: string; icon: string }) { return <article className="metric-card"><div className="metric-top"><span>{label}</span><span className="metric-icon">{icon}</span></div><strong>{value}</strong><small>{hint}</small></article>; }
 function Empty({ title, detail }: { title: string; detail: string }) { return <div className="empty-state"><div className="empty-icon">⌁</div><strong>{title}</strong><p>{detail}</p></div>; }
@@ -489,6 +492,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [dependencies, setDependencies] = useState<Record<string, { status: string }> | null>(null);
   const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
   const [activeRules, setActiveRules] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
@@ -597,6 +601,11 @@ export default function App() {
     if (checks[0].status === "fulfilled") setHealth("online"); else { setHealth("offline"); setError(String(checks[0].reason)); }
     if (checks[1].status === "fulfilled") setActiveRules(asArray(checks[1].value));
     if (checks[2].status === "fulfilled") setContracts(asArray(checks[2].value));
+    try {
+      const ready = await fetch(normalizeBase(settings.apiBase) + "/ready", { headers: { "X-Tenant-ID": settings.tenant.trim() } });
+      const body = await ready.json();
+      setDependencies(body?.data?.dependencies ?? null);
+    } catch { setDependencies(null); }
     const endpoints = settings.workerMetrics.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
     const workerData = await Promise.all(endpoints.map(async (url, index): Promise<WorkerSnapshot> => {
       try {
@@ -729,7 +738,7 @@ export default function App() {
   useEffect(() => {
     let stopped = false;
     const poll = async () => {
-      const latest = simulationEventsRef.current.slice(0, 8);
+      const latest = simulationEventsRef.current.slice(0, 8).filter(event => !isTerminalTrace(event.trace));
       await Promise.all(latest.map(async event => {
         try {
           const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
@@ -850,7 +859,7 @@ export default function App() {
       {error && <div className="alert error"><strong>API connection issue</strong><span>{error}</span><button onClick={() => setError("")}>×</button></div>}
       {nav === "overview" && <section className="page-content">
         <div className="welcome-row"><div><div className="eyebrow">SYSTEM SNAPSHOT</div><h2>Runtime at a glance</h2><p>Rules, workers, and contract generation in one place.</p></div><div className="updated">Last refreshed <strong>{lastRefresh?.toLocaleTimeString() || "—"}</strong></div></div>
-        <div className="metric-grid"><MetricCard label="API status" value={health === "online" ? "Online" : health === "offline" ? "Offline" : "Checking"} hint={normalizeBase(settings.apiBase)} icon="⌘"/><MetricCard label="Active rules" value={ruleCount} hint="From the tenant-scoped rules API" icon="◎"/><MetricCard label="Workers online" value={workers.length ? `${onlineWorkers}/${workers.length}` : "Not configured"} hint="Worker Prometheus endpoints" icon="▦"/><MetricCard label="Rule executions" value={workers.length ? executionTotal.toLocaleString() : "—"} hint="Cumulative counters from configured workers" icon="↗"/></div>
+        <div className="metric-grid"><MetricCard label="API status" value={health === "online" ? "Online" : health === "offline" ? "Offline" : "Checking"} hint={dependencies ? Object.entries(dependencies).map(([k, v]) => `${k} ${v.status}`).join(" · ") : `${normalizeBase(settings.apiBase)} · dependency state unknown`} icon="⌘"/><MetricCard label="Active rules" value={ruleCount} hint="From the tenant-scoped rules API" icon="◎"/><MetricCard label="Workers online" value={workers.length ? `${onlineWorkers}/${workers.length}` : "Not configured"} hint="Worker Prometheus endpoints" icon="▦"/><MetricCard label="Rule executions" value={workers.length ? executionTotal.toLocaleString() : "—"} hint="Cumulative counters from configured workers" icon="↗"/></div>
         <div className="content-grid"><section className="panel"><div className="panel-heading"><div><h3>Worker fleet</h3><p>Process-level telemetry, refreshed every 10 seconds</p></div><button className="text-button" onClick={() => setNav("workers")}>View workers ↗</button></div>{workers.length === 0 ? <Empty title="No worker endpoints configured" detail="Open Settings and add one private /metrics URL per worker process. The UI does not invent worker health."/> : <div className="worker-list">{workers.slice(0,4).map(worker => <div className="worker-row" key={worker.url}><div className="worker-symbol">▦</div><div className="worker-main"><strong>{worker.name}</strong><small>{worker.url}</small></div><Status value={worker.online ? "Online" : "Unreachable"}/><div className="worker-stat"><strong>{worker.inFlight ?? "—"}</strong><small>in flight</small></div><div className="worker-stat"><strong>{worker.shards ?? "—"}</strong><small>shards owned</small></div></div>)}</div>}</section>
         <section className="panel"><div className="panel-heading"><div><h3>Active rule sets</h3><p>Current activation state from the API</p></div><button className="text-button" onClick={() => setNav("rules")}>Manage ↗</button></div>{activeRules.length === 0 ? <Empty title="No active rules returned" detail={health === "online" ? "No active rules were found for this tenant." : "Connect to the API to load active rules."}/> : <div className="rule-mini-list">{activeRules.slice(0,6).map((rule,i) => <div className="rule-mini" key={rule.rule_id || rule.rule_set || rule.id || i}><div className="rule-symbol">R</div><div className="rule-main"><strong>{rule.rule_id || rule.rule_set || rule.ruleSet || rule.id || `Rule set ${i+1}`}</strong><small>{tenantDomains.find(d => (d.event_types ?? []).includes(rule.rule_set || rule.rule_id))?.name ?? "no domain"} · revision {rule.revision ?? rule.active_revision ?? "—"}</small></div><Status value={rule.status || "Active"}/></div>)}</div>}</section></div>
         <section className="panel"><div className="panel-heading"><div><h3>Quick actions</h3><p>Jump directly to a common operation</p></div></div><div className="quick-grid"><button onClick={() => setNav("api")}><span>⌘</span><strong>Explore API</strong><small>Inspect routes and send requests</small><b>→</b></button><button onClick={() => setNav("codegen")}><span>⟐</span><strong>Generate a client</strong><small>Go, Java, Protobuf, JSON Schema</small><b>→</b></button><button onClick={() => setNav("rules")}><span>◎</span><strong>Deploy a rule</strong><small>Validate and activate a revision</small><b>→</b></button><button onClick={() => setNav("logs")}><span>≋</span><strong>Inspect logs</strong><small>Query your configured Loki source</small><b>→</b></button></div></section>

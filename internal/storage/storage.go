@@ -36,6 +36,7 @@ type Storage struct {
 	repositories Repositories
 	initialize   func(context.Context) error
 	close        func()
+	ping         func(context.Context) error
 }
 
 // Backend returns the storage backend name
@@ -51,6 +52,11 @@ func (s *Storage) Repositories() Repositories {
 // Initialize initializes the storage (runs migrations, etc.)
 func (s *Storage) Initialize(ctx context.Context) error {
 	return s.initialize(ctx)
+}
+
+// Ping verifies the backing database is reachable.
+func (s *Storage) Ping(ctx context.Context) error {
+	return s.ping(ctx)
 }
 
 // Close closes the storage connection
@@ -76,6 +82,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 			repositories: buildPostgresRepos(pool),
 			initialize:   db.RunMigrations,
 			close:        db.Close,
+			ping:         pool.Ping,
 		}, nil
 
 	case "mongodb":
@@ -93,6 +100,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 			repositories: repositories,
 			initialize:   initialize,
 			close:        db.Close,
+			ping:         func(ctx context.Context) error { return db.Client().Ping(ctx, nil) },
 		}, nil
 
 	default:

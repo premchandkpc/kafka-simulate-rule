@@ -110,7 +110,7 @@ Start with docs/README.md for the documentation index.
 ## Important limitations
 
 - Production tenant resolution requires validated JWT identity or a trusted proxy token and authenticated-tenant header. The proxy boundary is not first-party authentication; do not expose the API directly to untrusted networks.
-- /health is a liveness endpoint only; it does not prove the database or NATS is healthy.
+- /health is a liveness endpoint only. Use /ready for database and NATS reachability; neither endpoint proves workers are processing.
 - The API starts HTTP only. No gRPC server is implemented; the SDK's gRPC transport requires a compatible server deployed separately.
 - Migration rollback/status commands and live infrastructure-backed chaos tests are not implemented.
 - Tests under tests/integration use mocks/in-memory repositories, not live PostgreSQL and NATS. Validate storage atomicity, redelivery, lease expiry, and crash recovery against real infrastructure before making production guarantees.

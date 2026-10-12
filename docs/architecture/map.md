@@ -43,7 +43,7 @@ flowchart LR
 4. Create the HTTP router and register rule, workflow, contract, batch, quarantine, scheduled-event and health handlers.
 5. Serve HTTP and shut down when the process context is cancelled.
 
-The API starts HTTP only. No gRPC listener/configuration exists. The default HTTP bind is loopback; Compose publishes host ports on 127.0.0.1. The /health route is liveness only and does not check storage or NATS readiness.
+The API starts HTTP only. No gRPC listener/configuration exists. The default HTTP bind is loopback; Compose publishes host ports on 127.0.0.1. The /health route is liveness only. GET /ready probes the database and the NATS stream (2s timeout) and returns 503 with per-dependency status when either is down; it does not probe workers.
 
 Security contract:
 - In development/test, tenant context may be supplied using X-Tenant-ID or tenant_id for local use only.

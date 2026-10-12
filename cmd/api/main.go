@@ -125,7 +125,8 @@ func run() (runErr error) {
 		http.RouterConfig{
 			AuthValidator: authValidator, RequireAuth: cfg.Auth.RequireAuth, RequiredScopes: cfg.Auth.RequiredScopes,
 			InboxRepo: repositories.Inbox, ExecutionRepo: repositories.Executions, OutboxRepo: repositories.Outbox,
-			DomainServices: domainServicesSvc,
+			DomainServices:  domainServicesSvc,
+			ReadinessChecks: map[string]func(context.Context) error{"database": db.Ping, "nats": publisher.Ping},
 		},
 	)
 
