@@ -54,7 +54,7 @@ Security contract:
 ### Worker — cmd/worker/main.go
 
 1. Load config, start observability, and open/initialize storage.
-2. Construct a NATS JetStream consumer with base subject events and the configured shard count. The adapter declares filters for events.shard.N.
+2. Construct a NATS JetStream consumer and a separate publisher adapter. The stream accepts legacy events.shard.N subjects plus events.ruleset.<sha256(event-type)>.shard.N subjects. When NATS_RULESETS is configured consistently across API, worker, and SDK producers, the adapter maintains one durable consumer per configured ruleset and owned shard; unlisted types keep legacy routing.
 3. Construct the compiler/evaluator, transactional event service, domain subscription repository, external sender and effect router.
 4. Construct batch service, shard lease manager, scheduler and application.Worker.
 5. Start scheduler/worker loops; on shutdown stop loops and close consumer, storage, and observability.
@@ -103,7 +103,11 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 ## Child-event routing contract
 
 - Broker base subject is events.
-- NATS subjects are events.shard.N, where N is EventEnvelope.VirtualShard(NUM_SHARDS).
+- Legacy subjects remain events.shard.N for unlisted rule sets and older producers.
+- Configured rule sets use events.ruleset.<sha256(event-type)>.shard.N. Hashing keeps arbitrary event types inside one NATS subject token.
+- Set the same comma-separated NATS_RULESETS in API, worker, and SDK producer environments. Each configured rule set gets a distinct durable consumer per owned shard. Filters do not overlap, which is required by WorkQueue retention.
+- Publisher and consumer adapters are composed separately; application services depend on EventPublisher and ShardedConsumer ports rather than a combined broker implementation.
+- N is EventEnvelope.VirtualShard(NUM_SHARDS).
 - EventEnvelope.Type carries business event type such as payment.requested; it is not part of the configured broker subject.
 - The effect router and scheduler must use the same base subject and shard count as the stream/consumer. A publish to a different topic does not reach consumers if it is outside the stream subject filter.
 - External command effects go to the configured HTTP destination. Forward the stable idempotency key and keep outbound timeouts/destination validation in scope.
