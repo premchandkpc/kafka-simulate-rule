@@ -342,7 +342,7 @@ func (w *Worker) processDelivery(ctx context.Context, env *domain.EventEnvelope,
 			}
 			return nil
 		}
-		if retryErr := delivery.Retry(settleCtx, w.config.RetryDelay); retryErr != nil {
+		if retryErr := delivery.Retry(settleCtx, retryDelayForDelivery(w.config.RetryDelay, delivery)); retryErr != nil {
 			return errors.Join(fmt.Errorf("process event %s: %w", env.ID, err), fmt.Errorf("retry event %s: %w", env.ID, retryErr))
 		}
 		return err
@@ -512,7 +512,7 @@ func (w *Worker) quarantineInvalidDelivery(ctx context.Context, delivery ports.D
 	}
 	if err := w.events.QuarantineEvent(settleCtx, sourceID, "", "", domain.ErrorClassValidation, message); err != nil {
 		log.Printf("quarantine invalid event %s: %v", sourceID, err)
-		if retryErr := delivery.Retry(settleCtx, w.config.RetryDelay); retryErr != nil {
+		if retryErr := delivery.Retry(settleCtx, retryDelayForDelivery(w.config.RetryDelay, delivery)); retryErr != nil {
 			log.Printf("retry invalid event %s: %v", sourceID, retryErr)
 		}
 		return
