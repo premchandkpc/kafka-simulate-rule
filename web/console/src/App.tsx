@@ -733,6 +733,7 @@ export default function App() {
     simulationStopRequestedRef.current = true;
     simulationWaitRef.current?.abort();
   }, []);
+  const [simulationTraceRefreshedAt, setSimulationTraceRefreshedAt] = useState("");
   const refreshSimulationTrace = useCallback(async (event: SimulationEvent) => {
     try {
       const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
@@ -748,8 +749,11 @@ export default function App() {
   }, [settings]);
   useEffect(() => {
     let stopped = false;
+    let failures = 0;
+    let timer = 0;
     const poll = async () => {
       const latest = simulationEventsRef.current.slice(0, 8).filter(event => !isTerminalTrace(event.trace));
+      let failed = false;
       await Promise.all(latest.map(async event => {
         try {
           const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
@@ -760,14 +764,23 @@ export default function App() {
               trace: { ...trace, effects: trace.effects || [], type: trace.type || event.type, partition_key: trace.partition_key || event.partitionKey, shard: event.shard },
             } : item));
             setSimulationTraceError("");
+            setSimulationTraceRefreshedAt(new Date().toLocaleTimeString());
           }
         } catch (e) {
-          if (!stopped) setSimulationTraceError(e instanceof Error ? e.message : String(e));
+          failed = true;
+          if (!stopped) setSimulationTraceError(`${e instanceof Error ? e.message : String(e)} — showing the last known trace; retrying with backoff`);
         }
       }));
+      failures = failed ? Math.min(failures + 1, 5) : 0;
     };
-    const interval = window.setInterval(() => void poll(), 3000);
-    return () => { stopped = true; window.clearInterval(interval); };
+    const loop = async () => {
+      await poll();
+      if (stopped) return;
+      const delay = Math.min(3000 * 2 ** failures, 60000) * (1 + Math.random() * 0.2);
+      timer = window.setTimeout(() => void loop(), delay);
+    };
+    timer = window.setTimeout(() => void loop(), 3000);
+    return () => { stopped = true; window.clearTimeout(timer); };
   }, [settings]);
   const startSimulation = async () => {
     if (simulationActiveRef.current) return;
@@ -853,7 +866,7 @@ export default function App() {
       url.searchParams.set("query", settings.lokiQuery || '{service_name="flowrule-worker"}'); url.searchParams.set("start", String(start)); url.searchParams.set("end", String(end)); url.searchParams.set("limit", "200"); url.searchParams.set("direction", "backward");
       const result = await readResponse(await fetch(url.toString(), { headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {} }));
       const streams = result?.data?.result || [];
-      setLogs(streams.flatMap((stream: any) => (stream.values || []).map((entry: any[]) => ({ timestamp: new Date(Number(entry[0]) / 1_000_000).toLocaleString(), labels: stream.stream, line: entry[1] }))).sort((a: any,b: any) => b.timestamp.localeCompare(a.timestamp)));
+      setLogs(streams.flatMap((stream: any) => (stream.values || []).map((entry: any[]) => ({ ts: Number(entry[0]), timestamp: new Date(Number(entry[0]) / 1_000_000).toLocaleString(), labels: stream.stream, line: entry[1] }))).sort((a: any,b: any) => b.ts - a.ts));
     } catch (e) { setLogsError(e instanceof Error ? e.message : String(e)); } finally { setLogsBusy(false); }
   };
 
@@ -888,6 +901,7 @@ export default function App() {
         </div>
         {simulationNotice && <div className="alert warning"><strong>Rule availability</strong><span>{simulationNotice}</span></div>}
         {simulationError && <div className="alert error"><strong>Simulation stopped</strong><span>{simulationError}</span><button onClick={() => setSimulationError("")}>×</button></div>}
+        {simulationTraceRefreshedAt && !simulationTraceError && <small className="trace-refreshed">Traces last refreshed {simulationTraceRefreshedAt}</small>}
         {simulationTraceError && <div className="alert warning"><strong>Trace temporarily unavailable</strong><span>{simulationTraceError}</span></div>}
         <div className="simulation-flow" aria-label="Live event processing path">
           <div className={`simulation-flow-step flow-${flowStepState(0)}`}><span className="flow-step-icon">A</span><span><strong>Source service</strong><small>{latestSimulationEvent ? `${latestSimulationEvent.scenario} · ${latestSimulationEvent.type}` : "Example producer sends the event"}</small></span></div><span className={`flow-connector flow-${flowConnectorState(0)}`}>→</span>
