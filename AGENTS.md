@@ -124,7 +124,8 @@ This map explains responsibility; it is not a requirement to make the directory 
 | `internal/adapters/cache/` | Cache implementation |
 | `internal/adapters/effects/` | External effect delivery and development/test destinations |
 | `sdk/go/`, `sdk/go/flowrule/` | Separate Go SDK modules |
-| `examples/ecommerce/`, `examples/banking/`, `examples/food-delivery/` | Domain-specific contracts, definitions, scripts and tests |
+| `domains/<domain>/` (`banking`, `ecommerce`, `food-delivery`) | Domain specification: `contracts/`, `rules/`, `workflows/` YAML, `deploy.sh`, and generated per-language code in `builds/<lang>/` (currently `builds/go`, a separate Go module) |
+| `examples/ecommerce/`, `examples/banking/`, `examples/food-delivery/` | Sample producer/consumer services that import `domains/<domain>/builds/go` and `sdk/go/flowrule` |
 | `examples/random-producer/` | Opt-in producer using existing domain contracts |
 | `tests/` | Root test suites; inspect whether each uses mocks, in-memory storage or live services |
 
@@ -232,9 +233,9 @@ A typical local workflow, after checking the current README and Compose configur
 ```sh
 cp .env.example .env
 docker compose up -d postgres nats redis api worker
-(cd examples/ecommerce && ./deploy.sh)
-(cd examples/banking && ./deploy.sh)
-(cd examples/food-delivery && ./deploy.sh)
+(cd domains/ecommerce && ./deploy.sh)
+(cd domains/banking && ./deploy.sh)
+(cd domains/food-delivery && ./deploy.sh)
 docker compose --profile examples run --rm random-producer
 ```
 

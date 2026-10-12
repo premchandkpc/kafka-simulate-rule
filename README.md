@@ -99,7 +99,7 @@ Environment variable names and local defaults are documented in .env.example. AP
 - internal/storage selects and wires the configured persistence backend.
 - sdk/go/runtime is the original standalone producer/consumer SDK module.
 - sdk/go/flowrule is a separate client SDK module with local/HTTP/gRPC/NATS transports and a basic client example.
-- examples contains banking, e-commerce, and food-delivery contracts, rules, workflows, and sample applications. Typed domain code lives in `domain-builds/<domain>` (separate Go modules) and is produced by `make generate-domain DOMAIN=<domain>` from the contracts stored in the database; example services import it from there and the SDK from `sdk/go/flowrule`.
+- examples contains banking, e-commerce, and food-delivery contracts, rules, workflows, and sample applications. Typed domain code lives in `domains/<domain>/builds/go` (separate Go modules) and is produced by `make generate-domain DOMAIN=<domain>` from the contracts stored in the database; example services import it from there and the SDK from `sdk/go/flowrule`.
 - migrations contains numbered PostgreSQL migrations.
 - docs contains architecture diagrams, rules, operations, roadmap, and dated audit notes.
 - AGENTS.md is the engineering guide and source-backed file map.

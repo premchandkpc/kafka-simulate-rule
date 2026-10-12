@@ -101,7 +101,7 @@ go run main.go
 
 Generate Go types from contracts:
 ```bash
-flowrule-codegen -contract order.placed -version 1.0 -target go -output /tmp/out  # or: make generate-domain DOMAIN=food-delivery (writes domain-builds/food-delivery)
+flowrule-codegen -contract order.placed -version 1.0 -target go -output /tmp/out  # or: make generate-domain DOMAIN=food-delivery (writes domains/food-delivery/builds/go)
 ```
 
 ## Key Benefits

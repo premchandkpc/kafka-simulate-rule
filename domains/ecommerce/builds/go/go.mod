@@ -1,4 +1,4 @@
-module github.com/flowrule/domain-builds/food-delivery
+module github.com/flowrule/domains/ecommerce/builds/go
 
 go 1.26.0
 
@@ -14,4 +14,4 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-replace github.com/flowrule/flowrule-sdk/go/flowrule => ../../sdk/go/flowrule
+replace github.com/flowrule/flowrule-sdk/go/flowrule => ../../../../sdk/go/flowrule

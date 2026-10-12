@@ -8,7 +8,7 @@ import (
 
 	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
-	ordercreated "github.com/flowrule/domain-builds/ecommerce/order_created"
+	ordercreated "github.com/flowrule/domains/ecommerce/builds/go/order_created"
 )
 
 func main() {

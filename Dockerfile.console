@@ -4,7 +4,7 @@ WORKDIR /repo/web/console
 COPY web/console/package.json ./
 RUN npm install --no-audit --no-fund
 COPY web/console/ ./
-COPY examples/ /repo/examples/
+COPY domains/ /repo/domains/
 RUN npm run build
 
 FROM nginx:1.28-alpine

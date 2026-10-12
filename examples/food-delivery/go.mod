@@ -16,6 +16,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-require github.com/flowrule/domain-builds/food-delivery v0.0.0
+require github.com/flowrule/domains/food-delivery/builds/go v0.0.0
 
-replace github.com/flowrule/domain-builds/food-delivery => ../../domain-builds/food-delivery
+replace github.com/flowrule/domains/food-delivery/builds/go => ../../domains/food-delivery/builds/go

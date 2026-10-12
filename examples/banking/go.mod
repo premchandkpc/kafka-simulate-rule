@@ -16,6 +16,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-require github.com/flowrule/domain-builds/banking v0.0.0
+require github.com/flowrule/domains/banking/builds/go v0.0.0
 
-replace github.com/flowrule/domain-builds/banking => ../../domain-builds/banking
+replace github.com/flowrule/domains/banking/builds/go => ../../domains/banking/builds/go

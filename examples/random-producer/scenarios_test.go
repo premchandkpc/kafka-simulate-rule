@@ -28,9 +28,9 @@ func TestScenarioPayloadsMatchExistingExampleContracts(t *testing.T) {
 		scenario Scenario
 		contract string
 	}{
-		{ScenarioEcommerce, "../ecommerce/contracts/order.created.yaml"},
-		{ScenarioBanking, "../banking/contracts/transaction.initiated.yaml"},
-		{ScenarioFoodDelivery, "../food-delivery/contracts/order.placed.yaml"},
+		{ScenarioEcommerce, "../../domains/ecommerce/contracts/order.created.yaml"},
+		{ScenarioBanking, "../../domains/banking/contracts/transaction.initiated.yaml"},
+		{ScenarioFoodDelivery, "../../domains/food-delivery/contracts/order.placed.yaml"},
 	}
 
 	for _, tt := range tests {

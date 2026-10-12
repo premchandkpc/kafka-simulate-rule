@@ -9,7 +9,6 @@ bin/
 
 # Generated code
 generated/
-examples/*/generated/
 *.pb.go
 *_grpc.pb.go
 

@@ -11,7 +11,7 @@ import (
 
 	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
-	transactioninitiated "github.com/flowrule/domain-builds/banking/transaction_initiated"
+	transactioninitiated "github.com/flowrule/domains/banking/builds/go/transaction_initiated"
 )
 
 func main() {

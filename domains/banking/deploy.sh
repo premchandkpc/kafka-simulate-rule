@@ -1,14 +1,14 @@
 #!/bin/bash
-# Deploy e-commerce example contracts, rules
+# Deploy banking domain contracts and rules
 
 set -e
 
 API_URL="${FLOWRULE_API:-http://localhost:8080}"
 TENANT_ID="${FLOWRULE_TENANT:-development-tenant}"
 
-echo "Deploying e-commerce example to $API_URL"
+echo "Deploying banking example to $API_URL"
 
-# Generated code lives in ../../domain-builds (make generate-domain); deploy only registers contracts and rules.
+# Generated code lives in ./builds/go (make generate-domain); deploy only registers contracts and rules.
 
 echo "Registering contracts..."
 for f in contracts/*.yaml; do
@@ -29,4 +29,4 @@ done
 
 # Workflow definitions (workflows/*.yaml) are reference files: the tenant API does not expose workflow mutation.
 
-echo "E-commerce deployment complete!"
+echo "Banking deployment complete!"

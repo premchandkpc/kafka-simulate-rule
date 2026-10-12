@@ -54,15 +54,15 @@ go run ./cmd/worker
 ### 4. Deploy Example Contracts & Rules
 ```bash
 # E-commerce
-cd examples/ecommerce
+cd domains/ecommerce
 ./deploy.sh
 
 # Food Delivery
-cd examples/food-delivery
+cd domains/food-delivery
 ./deploy.sh
 
 # Banking
-cd examples/banking
+cd domains/banking
 ./deploy.sh
 ```
 
@@ -136,7 +136,7 @@ The FlowRule **Worker runtime** handles:
 
 ## Generated Types
 
-Generated domain code lives in the repository-level `domain-builds/<domain>/` modules (`make generate-domain DOMAIN=<domain>`), not inside each example. Examples import it together with the SDK from `sdk/go/flowrule`.
+Generated domain code lives in the repository-level `domains/<domain>/builds/go/` modules (`make generate-domain DOMAIN=<domain>`), not inside each example. Examples import it together with the SDK from `sdk/go/flowrule`.
 
 Generating a Go target also emits a typed client with default-rule-set and explicit-rule-set send/subscribe methods. Generated Go clients import the separate FlowRule client SDK module.
 

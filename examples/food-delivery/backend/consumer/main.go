@@ -11,7 +11,7 @@ import (
 
 	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
-	orderplaced "github.com/flowrule/domain-builds/food-delivery/order_placed"
+	orderplaced "github.com/flowrule/domains/food-delivery/builds/go/order_placed"
 )
 
 func main() {

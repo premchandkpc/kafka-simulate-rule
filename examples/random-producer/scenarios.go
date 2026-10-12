@@ -47,7 +47,7 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 
 	switch scenario {
 	case ScenarioEcommerce:
-		// Mirrors examples/ecommerce/contracts/order.created.yaml.
+		// Mirrors domains/ecommerce/contracts/order.created.yaml.
 		eventType = "order.created"
 		partitionKey = clientID
 		data = map[string]any{
@@ -65,7 +65,7 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 			"created_at": now.Format(time.RFC3339Nano),
 		}
 	case ScenarioBanking:
-		// Mirrors examples/banking/contracts/transaction.initiated.yaml.
+		// Mirrors domains/banking/contracts/transaction.initiated.yaml.
 		eventType = "transaction.initiated"
 		accountID := fmt.Sprintf("account-%04d", clientNumber(clientID))
 		partitionKey = accountID
@@ -84,7 +84,7 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 			"initiated_at":         now.Format(time.RFC3339Nano),
 		}
 	case ScenarioFoodDelivery:
-		// Mirrors examples/food-delivery/contracts/order.placed.yaml.
+		// Mirrors domains/food-delivery/contracts/order.placed.yaml.
 		eventType = "order.placed"
 		postalCode := []string{"94102", "94103", "94107", "94110"}[(clientNumber(clientID)-1)%4]
 		partitionKey = postalCode

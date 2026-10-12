@@ -29,7 +29,7 @@ jobs:
         run: |
           python -m json.tool api/envelope-schema.json > /dev/null
           python -m json.tool api/rule-schema.json > /dev/null
-          bash -n examples/*/deploy.sh
+          bash -n domains/*/deploy.sh
           cp .env.example .env
           docker compose config --quiet
 

@@ -16,6 +16,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-require github.com/flowrule/domain-builds/ecommerce v0.0.0
+require github.com/flowrule/domains/ecommerce/builds/go v0.0.0
 
-replace github.com/flowrule/domain-builds/ecommerce => ../../domain-builds/ecommerce
+replace github.com/flowrule/domains/ecommerce/builds/go => ../../domains/ecommerce/builds/go

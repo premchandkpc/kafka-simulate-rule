@@ -1,15 +1,15 @@
 #!/bin/bash
-# Generate typed Go code for a domain from its contracts stored in the database into domain-builds/<domain>.
+# Generate typed Go code for a domain from its contracts stored in the database into domains/<domain>/builds/go.
 # Usage: scripts/generate-domain.sh <banking|ecommerce|food-delivery>
 set -euo pipefail
 
 domain="${1:?usage: $0 <banking|ecommerce|food-delivery>}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-dir="$root/examples/$domain"
+dir="$root/domains/$domain"
 [ -d "$dir/contracts" ] || { echo "unknown domain: $domain" >&2; exit 2; }
 
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/flowrule?sslmode=disable}"
-out="$root/domain-builds/$domain"
+out="$root/domains/$domain/builds/go"
 mkdir -p "$out"
 cd "$root"
 go build -o /tmp/flowrule-codegen ./cmd/codegen
@@ -26,4 +26,4 @@ for f in "$dir"/contracts/*.yaml; do
   cp "$tmp"/go/*.go "$out/$pkg/"
   rm -rf "$tmp"
 done
-echo "Generated code for $domain in domain-builds/$domain"
+echo "Generated code for $domain in domains/$domain/builds/go"

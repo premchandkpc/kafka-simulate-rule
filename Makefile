@@ -141,7 +141,7 @@ generate:
 	@echo "Generating $(CONTRACT)@$(CONTRACT_VERSION) as $(TARGET)..."
 	$(GO) run ./cmd/codegen -contract "$(CONTRACT)" -version "$(CONTRACT_VERSION)" -target "$(TARGET)" -output "$(OUTPUT_DIR)"
 
-# Generate typed Go code for every stored contract of a domain into domain-builds/<domain> (DOMAIN=banking|ecommerce|food-delivery)
+# Generate typed Go code for every stored contract of a domain into domains/<domain>/builds/go (DOMAIN=banking|ecommerce|food-delivery)
 generate-domain:
 	@test -n "$(DOMAIN)" || (echo "Set DOMAIN" && exit 2)
 	./scripts/generate-domain.sh $(DOMAIN)
@@ -189,7 +189,7 @@ tools:
 # Verify generated code compiles
 verify-generated:
 	@echo "Verifying generated code compiles..."
-	@for dir in domain-builds/*; do \
+	@for dir in domains/*/builds/go; do \
 		if [ -f "$$dir/go.mod" ]; then \
 			echo "Checking $$dir..."; \
 			(cd $$dir && go build ./...) || exit 1; \

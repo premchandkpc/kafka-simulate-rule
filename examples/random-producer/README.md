@@ -9,9 +9,9 @@ From the repository root, start the stack and register the existing domain defin
 ```sh
 cp .env.example .env
 docker compose up -d postgres nats redis api worker
-(cd examples/ecommerce && ./deploy.sh)
-(cd examples/banking && ./deploy.sh)
-(cd examples/food-delivery && ./deploy.sh)
+(cd domains/ecommerce && ./deploy.sh)
+(cd domains/banking && ./deploy.sh)
+(cd domains/food-delivery && ./deploy.sh)
 docker compose --profile examples run --rm random-producer
 ```
 
@@ -37,7 +37,7 @@ The example emits contract-shaped `order.created`, `transaction.initiated`, and/
 - `main.go` parses options, configures shutdown/deadline handling, and wires the NATS adapter.
 - `producer.go` owns example-specific generation and the narrow publisher contract.
 - `producer_test.go` verifies generated envelopes, domain-computed shard subjects, invalid settings, cancellation and publisher failures without requiring a live broker.
-- The example reuses `internal/domain.EventEnvelope` and `VirtualShard`; its scenario tests read the existing YAML contracts from `examples/ecommerce`, `examples/banking`, and `examples/food-delivery` and verify generated payloads against their required fields and types. It does not reimplement the production envelope or shard hash algorithm.
+- The example reuses `internal/domain.EventEnvelope` and `VirtualShard`; its scenario tests read the existing YAML contracts from `domains/ecommerce`, `domains/banking`, and `domains/food-delivery` and verify generated payloads against their required fields and types. It does not reimplement the production envelope or shard hash algorithm.
 - The transport implementation remains in `internal/adapters/nats`. No NATS types leak into the producer use case.
 
 This is an example/load tool, not production runtime functionality. If a future reusable production use case needs load generation, promote it into an internal package only after a concrete non-example caller exists.

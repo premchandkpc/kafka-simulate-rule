@@ -83,7 +83,7 @@ Deploy a single JSON or YAML rule document:
 curl --fail-with-body -sS \
   -H 'Content-Type: application/yaml' \
   -H 'X-Tenant-ID: development-tenant' \
-  --data-binary @examples/banking/rules/transaction-initiated.yaml \
+  --data-binary @domains/banking/rules/transaction-initiated.yaml \
   http://localhost:8080/v1/rules/transaction.initiated/revisions
 ~~~
 

@@ -207,4 +207,4 @@ Do not turn this table into claims of completion without changes and tests. A fo
 
 ## Domain builds
 
-`domain-builds/<domain>/` holds typed Go code generated from contracts stored in the database (`make generate-domain DOMAIN=<domain>`). Each is a separate Go module depending on `sdk/go/flowrule`; example services depend on it through `replace` directives. Run `make verify-generated` to compile them.
+`domains/<domain>/builds/go/` holds typed Go code generated from contracts stored in the database (`make generate-domain DOMAIN=<domain>`). Each is a separate Go module depending on `sdk/go/flowrule`; example services depend on it through `replace` directives. Run `make verify-generated` to compile them.

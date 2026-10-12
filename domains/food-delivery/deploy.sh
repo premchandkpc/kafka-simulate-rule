@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy food-delivery example contracts, rules
+# Deploy food-delivery domain contracts and rules
 
 set -e
 
@@ -8,7 +8,7 @@ TENANT_ID="${FLOWRULE_TENANT:-development-tenant}"
 
 echo "Deploying food-delivery example to $API_URL"
 
-# Generated code lives in ../../domain-builds (make generate-domain); deploy only registers contracts and rules.
+# Generated code lives in ./builds/go (make generate-domain); deploy only registers contracts and rules.
 
 echo "Registering contracts..."
 for f in contracts/*.yaml; do
