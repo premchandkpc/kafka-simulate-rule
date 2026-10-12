@@ -154,10 +154,7 @@ func (t *natsTransport) Subscribe(ctx context.Context, ruleSet string, handler E
 	}()
 
 	for _, subject := range cfg.NATSSubjects {
-		for _, filter := range []string{
-			fmt.Sprintf("%s.shard.*", subject),
-			fmt.Sprintf("%s.ruleset.*.shard.*", subject),
-		} {
+		for _, filter := range natsSubscriptionFilters(subject, ruleSet, cfg.NATSRuleSets) {
 			subscription, err := conn.ChanSubscribe(filter, messages)
 			if err != nil {
 				return fmt.Errorf("subscribe to NATS subject %q: %w", filter, err)
@@ -205,6 +202,24 @@ func natsSubjectForEnvelope(baseSubject string, shard uint32, eventType string, 
 		}
 	}
 	return fmt.Sprintf("%s.shard.%d", baseSubject, shard)
+}
+
+// natsSubscriptionFilters limits a ruleset subscriber to its hashed route and the
+// legacy route used by producers that have not configured ruleset-specific routing.
+func natsSubscriptionFilters(baseSubject, ruleSet string, configuredRuleSets []string) []string {
+	filters := []string{fmt.Sprintf("%s.shard.*", baseSubject)}
+	if ruleSet == "" {
+		return filters
+	}
+	for _, configured := range configuredRuleSets {
+		if configured != ruleSet {
+			continue
+		}
+		sum := sha256.Sum256([]byte(ruleSet))
+		filters = append(filters, fmt.Sprintf("%s.ruleset.%s.shard.*", baseSubject, hex.EncodeToString(sum[:])))
+		break
+	}
+	return filters
 }
 
 func (t *natsTransport) Close() error {

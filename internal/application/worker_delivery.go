@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"time"
+
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 )

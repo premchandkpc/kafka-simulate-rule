@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 )
-
 
 // WorkerConfig holds configuration for the worker.
 type WorkerConfig struct {
