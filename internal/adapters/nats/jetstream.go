@@ -59,10 +59,10 @@ func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 		cfg.AckWait = 30 * time.Second
 	}
 	if cfg.MaxDeliver == 0 {
-		// Never strand an unacknowledged work-queue message after a finite
-		// delivery count. The runtime requires an explicit durable recovery
-		// workflow before finite MaxDeliver values can be enabled.
 		cfg.MaxDeliver = -1
+	}
+	if cfg.MaxDeliver != -1 {
+		return nil, fmt.Errorf("NATS MaxDeliver must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
 	}
 
 	conn, err := connect(cfg)
