@@ -230,7 +230,7 @@ func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	var version int64 = 0
+	var version int64
 	if versionStr != "" {
 		var err error
 		version, err = strconv.ParseInt(versionStr, 10, 64)

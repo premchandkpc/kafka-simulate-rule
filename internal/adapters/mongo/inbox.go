@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -45,7 +46,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 		"event_id":  eventID,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get inbox: %w", err)

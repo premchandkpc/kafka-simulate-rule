@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,7 +42,7 @@ func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID strin
 		&w.CurrentRevision, &w.Context, &w.CreatedAt, &w.UpdatedAt, &completedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow: %w", err)
@@ -169,7 +170,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 		&def.WorkflowType, &def.Version, &def.States, &def.Transitions, &def.Rules, &def.CreatedAt, &def.UpdatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow definition: %w", err)

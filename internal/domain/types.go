@@ -332,7 +332,7 @@ const (
 )
 
 // Claim transitions effect from pending to claimed. Only valid from pending.
-func (e *OutboxEffect) Claim(owner string, now time.Time) error {
+func (e *OutboxEffect) Claim(_ string, now time.Time) error {
 	if e.Status != OutboxStatusPending {
 		return fmt.Errorf("cannot claim effect in state %s", e.Status)
 	}

@@ -71,7 +71,7 @@ func NewRouterWithPublisher(
 	}
 
 	// Health endpoint
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		responses.WriteOK(w, map[string]string{"status": "ok"})
 	})
 
@@ -138,7 +138,7 @@ func (r *Router) Run(ctx context.Context, addr string) error {
 	// Wait for context cancellation or server error
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
 	case err := <-serverErr:

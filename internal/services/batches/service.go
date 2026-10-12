@@ -3,6 +3,7 @@ package batches
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -287,7 +288,7 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 	}
 	exec, err := s.events.Process(ctx, envelope, fencingToken, shard, s.workerID)
 	if err != nil {
-		if err == domain.ErrRuleNotActive || err == domain.ErrRuleNotFound {
+		if errors.Is(err, domain.ErrRuleNotActive) || errors.Is(err, domain.ErrRuleNotFound) {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("process batch: %w", err)

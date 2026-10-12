@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -53,7 +54,7 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 		if err := r.collection(collectionOutboxEffects).FindOne(ctx, bson.D{
 			{Key: "effect_id", Value: entry.SourceID},
 		}).Decode(&effect); err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
 			}
 			return fmt.Errorf("find outbox effect %s: %w", entry.SourceID, err)
@@ -64,7 +65,7 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 		if err := r.collection(collectionExecutions).FindOne(ctx, bson.D{
 			{Key: "execution_id", Value: effect.ExecutionID},
 		}).Decode(&execution); err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
 			}
 			return fmt.Errorf("find execution %s: %w", effect.ExecutionID, err)
@@ -117,7 +118,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 		{Key: "tenant_id", Value: tenantID},
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get quarantine entry: %w", err)

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -21,7 +22,7 @@ func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID
 		&run.WindowFrom, &run.WindowTo, &run.CreatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get batch run for tenant: %w", err)
@@ -199,7 +200,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 		&run.WindowFrom, &run.WindowTo, &run.CreatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get batch run: %w", err)

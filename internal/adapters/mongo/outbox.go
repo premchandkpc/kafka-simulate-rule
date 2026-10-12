@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -86,7 +87,7 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 		var doc OutboxDoc
 		err := coll.FindOneAndUpdate(ctx, filter, bson.M{"$set": update["$set"]}, opts).Decode(&doc)
 		if err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				break
 			}
 			return nil, fmt.Errorf("claim pending: %w", err)
