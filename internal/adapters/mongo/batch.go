@@ -56,6 +56,40 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 	return entries, nil
 }
 
+// ListUnbatchedByIDs returns only requested eligible events in one tenant partition.
+func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
+	if len(eventIDs) == 0 {
+		return []*domain.InboxEntry{}, nil
+	}
+	filter := bson.M{
+		"tenant_id": tenantID,
+		"partition_key": partitionKey,
+		"rule_set": ruleSet,
+		"event_id": bson.M{"$in": eventIDs},
+		"status": "committed",
+		"batch_id": bson.M{"$exists": false},
+	}
+	cursor, err := r.collection(collectionInbox).Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "first_seen_at", Value: 1}, {Key: "tenant_id", Value: 1}, {Key: "event_id", Value: 1}}))
+	if err != nil {
+		return nil, fmt.Errorf("list requested unbatched events: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var entries []*domain.InboxEntry
+	for cursor.Next(ctx) {
+		var doc InboxDoc
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode requested unbatched event: %w", err)
+		}
+		entries = append(entries, doc.ToDomain())
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate requested unbatched events: %w", err)
+	}
+	return entries, nil
+}
+
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	coll := r.collection(collectionInbox)
 
