@@ -7,16 +7,13 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
-	"github.com/flowrule/flowrule/internal/adapters/effects"
 	"github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/observability"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
@@ -90,16 +87,7 @@ func run() (runErr error) {
 	}
 	repositories := db.Repositories()
 
-	natsCfg := nats.Config{
-		NatsURL:    cfg.NATS.URL,
-		Stream:     cfg.NATS.Stream,
-		Consumer:   cfg.NATS.Consumer,
-		Subjects:   []string{eventSubject},
-		RuleSets:   cfg.NATS.RuleSets,
-		AckWait:    cfg.NATSAckWait(),
-		MaxDeliver: cfg.Worker.NATSMaxDeliver,
-		NumShards:  cfg.Worker.NumShards,
-	}
+	natsCfg := newNATSConfig(cfg)
 	consumer, err := nats.NewConsumer(ctx, natsCfg)
 	if err != nil {
 		return fmt.Errorf("initialize NATS JetStream consumer: %w", err)
@@ -123,14 +111,9 @@ func run() (runErr error) {
 	clock := domain.SystemClock{}
 	evaluator := rules.NewEvaluator(clock)
 
-	var externalSender ports.EffectSender
-	switch {
-	case cfg.Worker.EffectDestinationURL != "":
-		externalSender = effects.NewHTTPDestination(cfg.Worker.EffectDestinationURL)
-	case cfg.App.Env == "development" || cfg.App.Env == "test":
-		externalSender = effects.NewFakeDestination()
-	default:
-		return fmt.Errorf("EFFECT_DESTINATION_URL is required when APP_ENV=%q", cfg.App.Env)
+	externalSender, err := newExternalSender(cfg)
+	if err != nil {
+		return err
 	}
 
 	// Route emitted child events back into the same subject family consumed by
@@ -182,16 +165,7 @@ func run() (runErr error) {
 		workerID,
 		cfg.Worker.NumShards,
 	)
-	workerConfig := application.DefaultWorkerConfig()
-	workerConfig.MaxGlobalInFlight = cfg.Worker.MaxGlobalInFlight
-	workerConfig.FetchBatchSize = cfg.Worker.FetchBatchSize
-	workerConfig.EffectPublishInterval = cfg.EffectPublishInterval()
-	workerConfig.EffectPublishBatchSize = cfg.Worker.EffectPublishBatchSize
-	workerConfig.RetryDelay = cfg.EventRetryDelay()
-	workerConfig.MaxPerKeyQueue = cfg.Worker.MaxPerKeyQueue
-	workerConfig.KeyQueueWorkers = cfg.Worker.KeyQueueWorkers
-	workerConfig.HotKeyThreshold = cfg.Worker.HotKeyThreshold
-	workerConfig.HotKeyCheckInterval = cfg.HotKeyCheckInterval()
+	workerConfig := newWorkerConfig(cfg)
 
 	worker, err := application.NewWorker(
 		consumer,
