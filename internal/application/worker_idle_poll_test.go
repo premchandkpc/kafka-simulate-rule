@@ -14,8 +14,8 @@ type idlePollShardService struct {
 
 func (s idlePollShardService) Start(context.Context) error { return nil }
 func (s idlePollShardService) Stop(context.Context) error  { return nil }
-func (s idlePollShardService) OwnedShards() []uint32      { return s.owned }
-func (s idlePollShardService) IsOwner(uint32) bool        { return false }
+func (s idlePollShardService) OwnedShards() []uint32       { return s.owned }
+func (s idlePollShardService) IsOwner(uint32) bool         { return false }
 func (s idlePollShardService) GetFencingToken(uint32) (int64, bool) {
 	return 0, false
 }
@@ -30,7 +30,7 @@ type idlePollConsumer struct {
 
 func (c *idlePollConsumer) EnsureShardConsumer(context.Context, uint32) error { return nil }
 func (c *idlePollConsumer) RemoveShardConsumer(context.Context, uint32) error { return nil }
-func (c *idlePollConsumer) OwnedShards() []uint32                            { return nil }
+func (c *idlePollConsumer) OwnedShards() []uint32                             { return nil }
 func (c *idlePollConsumer) FetchShards(context.Context, int, []uint32) ([]ports.Delivery, error) {
 	c.fetchCalls++
 	return c.deliveries, nil
