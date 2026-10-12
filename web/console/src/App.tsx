@@ -357,6 +357,11 @@ function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { se
   const [loadError, setLoadError] = useState("");
   useEffect(() => {
     let cancelled = false;
+    // Clear tenant-scoped graph data immediately so a settings change cannot briefly show
+    // the previous tenant's graph or service subscriptions while the new request is pending.
+    setStored(new Map());
+    setServiceEventTypes(new Set());
+    setLoadError("");
     (async () => {
       try {
         const [domainsResponse, activeResponse, servicesResponse] = await Promise.all([
@@ -647,9 +652,13 @@ export default function App() {
       apiRequest(settings, "/v1/rules/active"),
       apiRequest(settings, "/v1/contracts"),
     ]);
-    if (checks[0].status === "fulfilled") setHealth("online"); else { setHealth("offline"); setError(String(checks[0].reason)); }
-    if (checks[1].status === "fulfilled") setActiveRules(asArray(checks[1].value));
-    if (checks[2].status === "fulfilled") setContracts(asArray(checks[2].value));
+    if (checks[0].status === "fulfilled") setHealth("online"); else setHealth("offline");
+    const failures = checks.flatMap((check, index) => check.status === "rejected"
+      ? [[ "API health", "Active rules", "Contracts" ][index] + ": " + (check.reason instanceof Error ? check.reason.message : String(check.reason))]
+      : []);
+    setError(failures.join(" · "));
+    if (checks[1].status === "fulfilled") setActiveRules(asArray(checks[1].value)); else setActiveRules([]);
+    if (checks[2].status === "fulfilled") setContracts(asArray(checks[2].value)); else setContracts([]);
     try {
       const body = await apiRequest(settings, "/ready");
       setDependencies(body?.data?.dependencies ?? null);
