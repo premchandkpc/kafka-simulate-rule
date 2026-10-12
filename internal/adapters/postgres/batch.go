@@ -187,7 +187,7 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO batch_runs (batch_id, tenant_id, partition_key, rule_set, status, member_count,
 		                        execution_id, decision_hash, window_from, window_to, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -206,6 +206,9 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 		run.WindowFrom, run.WindowTo, run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert batch run: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("batch ID %q already belongs to a different tenant or scope", run.BatchID)
 	}
 
 	tag, err := tx.Exec(ctx, `
