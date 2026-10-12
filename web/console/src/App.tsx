@@ -678,13 +678,7 @@ export default function App() {
   const selectedContractVersion = selectedContractParts[1] || "";
   const simulationProcessed = simulationEvents.filter(event => event.trace?.execution?.status === "completed").length;
   const simulationDelivered = simulationEvents.reduce((total, event) => total + countDeliveredEffects(event.trace), 0);
-  const [entryRuleChoice, setEntryRuleChoice] = useState<Record<string, string>>({});
-  const entryRuleFor = (scenario: Exclude<SimulationScenario, "all">) => entryRuleChoice[scenario] || SOURCE_RULE_BY_SCENARIO[scenario];
-  const entryRuleOptions = (scenario: Exclude<SimulationScenario, "all">) => {
-    // Scenario payloads have a fixed schema. Do not offer another event type unless the
-    // simulator can generate a contract-specific payload for it.
-    return [SOURCE_RULE_BY_SCENARIO[scenario]];
-  };
+  const entryRuleFor = (scenario: Exclude<SimulationScenario, "all">) => SOURCE_RULE_BY_SCENARIO[scenario];
   const selectedSourceRules = EXAMPLE_SOURCE_RULES.filter(item => simulationScenario === "all" || item.scenario === simulationScenario).map(item => ({ ...item, rule: entryRuleFor(item.scenario) }));
   const latestSimulationEvent = simulationEvents[0];
   const liveFlowStage = !latestSimulationEvent ? -1
@@ -963,7 +957,7 @@ export default function App() {
           <MetricCard label="Worker processed" value={simulationProcessed} hint="Completed executions in current event list" icon="⚙"/>
           <MetricCard label="Effects delivered" value={simulationDelivered} hint="Outbox deliveries in observed traces" icon="⇢"/>
         </div>
-        {selectedSourceRules.map(({ scenario, label, rule }) => <label className="entry-rule-picker" key={`pick-${scenario}`}>{label} entry rule set <select value={rule} onChange={e => setEntryRuleChoice(c => ({ ...c, [scenario]: e.target.value }))}>{entryRuleOptions(scenario).map(t => <option key={t} value={t}>{t}</option>)}</select></label>)}
+        {selectedSourceRules.map(({ scenario, label, rule }) => <div className="entry-rule-picker" key={`pick-${scenario}`}><span>{label} source event type</span><code>{rule}</code></div>)}
         {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} settings={settings} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
         <section className="panel source-rules-panel">
           <div className="panel-heading"><div><h3>Source rule sets for this tenant</h3><p>Events are still published when a source rule is missing, but no rule execution can be shown for that event.</p></div><button className="text-button" onClick={() => void refresh()}>Refresh rules ↻</button></div>
