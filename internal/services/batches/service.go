@@ -1,8 +1,8 @@
 package batches
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"sort"
