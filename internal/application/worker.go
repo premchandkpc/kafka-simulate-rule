@@ -46,14 +46,6 @@ func DefaultWorkerConfig() WorkerConfig {
 	}
 }
 
-// shardedConsumer is an internal interface for consumers that support shard management
-type shardedConsumer interface {
-	EnsureShardConsumer(ctx context.Context, shard uint32) error
-	RemoveShardConsumer(ctx context.Context, shard uint32) error
-	FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error)
-	OwnedShards() []uint32
-}
-
 // Worker owns the runtime loop for a broker-backed rules worker.
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
@@ -69,7 +61,7 @@ type Worker struct {
 	workerID        string
 	numShards       uint32
 	config          WorkerConfig
-	shardedConsumer shardedConsumer
+	shardedConsumer ports.ShardedConsumer
 }
 
 func NewWorker(
@@ -141,7 +133,7 @@ func NewWorker(
 	}
 
 	var sc shardedConsumer
-	if candidate, ok := consumer.(shardedConsumer); ok {
+	if candidate, ok := consumer.(ports.ShardedConsumer); ok {
 		sc = candidate
 	}
 	if config.RequireSharded {
