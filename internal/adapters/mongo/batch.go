@@ -122,7 +122,12 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 		runs := r.collection(collectionBatchRuns)
 		doc := BatchRunDocFromDomain(run)
 		_, err := runs.UpdateOne(sc,
-			bson.M{"batch_id": run.BatchID},
+			bson.M{
+				"batch_id": run.BatchID,
+				"tenant_id": run.TenantID,
+				"partition_key": run.PartitionKey,
+				"rule_set": run.RuleSet,
+			},
 			bson.M{"$set": doc},
 			options.Update().SetUpsert(true),
 		)
