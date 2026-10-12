@@ -16,13 +16,13 @@ type shardLeaseProvider interface {
 }
 
 type Service struct {
-	batches      ports.BatchRepository
-	events       ports.EventProcessor
-	clock        ports.Clock
-	cfg          domain.BatchConfig
+	batches       ports.BatchRepository
+	events        ports.EventProcessor
+	clock         ports.Clock
+	cfg           domain.BatchConfig
 	leaseProvider shardLeaseProvider
-	workerID     string
-	numShards    uint32
+	workerID      string
+	numShards     uint32
 }
 
 func NewService(
