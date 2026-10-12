@@ -1,0 +1,113 @@
+package application
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
+	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
+)
+
+func (w *Worker) Run(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("worker context is required")
+	}
+	if err := w.shardService.Start(ctx); err != nil {
+		return fmt.Errorf("start shard service: %w", err)
+	}
+	defer w.stopShardService(ctx)
+
+	w.startKeyQueue(ctx)
+	defer w.keyQueue.Stop()
+
+	var background sync.WaitGroup
+	w.startBackgroundLoops(ctx, &background)
+	defer background.Wait()
+
+	w.runSharded(ctx)
+	return nil
+}
+
+func (w *Worker) stopShardService(ctx context.Context) {
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := w.shardService.Stop(shutdownCtx); err != nil {
+		log.Printf("stop shard service: %v", err)
+	}
+}
+
+func (w *Worker) startKeyQueue(ctx context.Context) {
+	w.keyQueue = keyqueue.NewKeyQueue(
+		w.config.MaxGlobalInFlight,
+		w.config.MaxPerKeyQueue,
+		w.config.KeyQueueWorkers,
+		func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+			return w.processDelivery(ctx, env, delivery, fencingToken, vshard, workerID)
+		},
+		w.clock.Now,
+		w.config.HotKeyThreshold,
+		w.config.HotKeyCheckInterval,
+		w.config.HotKeyCallback,
+	)
+	w.keyQueue.Start(ctx)
+}
+
+func (w *Worker) startBackgroundLoops(ctx context.Context, background *sync.WaitGroup) {
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		w.publishLoop(ctx)
+	}()
+
+	if w.batches == nil || w.batchInterval <= 0 {
+		return
+	}
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		w.batchLoop(ctx)
+	}()
+}
+
+func (w *Worker) publishLoop(ctx context.Context) {
+	ticker := time.NewTicker(w.config.EffectPublishInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.effects.PublishBatch(ctx, w.config.EffectPublishBatchSize); err != nil {
+				log.Printf("publish effects: %v", err)
+			}
+		}
+	}
+}
+
+func (w *Worker) batchLoop(ctx context.Context) {
+	interval := w.batchInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if n, err := w.batches.Tick(ctx); err != nil {
+				log.Printf("batch tick: %v", err)
+			} else if n > 0 {
+				log.Printf("batch tick formed %d batch runs", n)
+			}
+		}
+	}
+}
