@@ -3,12 +3,14 @@ package redis
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/redis/go-redis/v9"
 )
 
+// RateLimiter implements a sliding-window limit using a Redis sorted set.
 type RateLimiter struct {
 	client *redis.Client
 }
@@ -18,28 +20,47 @@ func NewRateLimiter(client *Client) *RateLimiter {
 }
 
 func (r *RateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
-	key = "ratelimit:" + key
-	now := time.Now().UnixMilli()
-	windowStart := now - window.Milliseconds()
-
-	pipe := r.client.TxPipeline()
-	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart))
-	pipe.ZAdd(ctx, key, redis.Z{Score: float64(now), Member: fmt.Sprintf("%d", now)})
-	pipe.ZCard(ctx, key)
-	pipe.Expire(ctx, key, window)
-
-	results, err := pipe.Exec(ctx)
-	if err != nil {
-		return false, fmt.Errorf("rate limit check: %w", err)
+	if key == "" {
+		return false, fmt.Errorf("rate limit: key is required")
+	}
+	if limit <= 0 {
+		return false, fmt.Errorf("rate limit: limit must be positive")
+	}
+	if window <= 0 {
+		return false, fmt.Errorf("rate limit: window must be positive")
 	}
 
-	count := results[2].(*redis.IntCmd).Val()
+	now := time.Now()
+	nowMS := now.UnixMilli()
+	windowStart := nowMS - window.Milliseconds()
+	key = "ratelimit:" + key
+
+	pipe := r.client.TxPipeline()
+	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(windowStart, 10))
+	pipe.ZAdd(ctx, key, redis.Z{
+		Score:  float64(nowMS),
+		Member: strconv.FormatInt(now.UnixNano(), 10),
+	})
+	countCmd := pipe.ZCard(ctx, key)
+	pipe.PExpire(ctx, key, window)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return false, fmt.Errorf("rate limit check: %w", err)
+	}
+	count, err := countCmd.Result()
+	if err != nil {
+		return false, fmt.Errorf("read rate limit count: %w", err)
+	}
 	return count <= int64(limit), nil
 }
 
 func (r *RateLimiter) Reset(ctx context.Context, key string) error {
-	key = "ratelimit:" + key
-	return r.client.Del(ctx, key).Err()
+	if key == "" {
+		return fmt.Errorf("rate limit reset: key is required")
+	}
+	if err := r.client.Del(ctx, "ratelimit:"+key).Err(); err != nil {
+		return fmt.Errorf("rate limit reset: %w", err)
+	}
+	return nil
 }
 
 var _ ports.RateLimiter = (*RateLimiter)(nil)
