@@ -548,15 +548,7 @@ func (p *Publisher) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *Publisher) Ping(ctx context.Context) error {
-	if p.conn == nil || p.conn.Status() != natslib.CONNECTED {
-		return errors.New("nats publisher connection is not established")
-	}
-	if _, err := p.js.Stream(ctx, p.stream); err != nil {
-		return fmt.Errorf("look up stream %q: %w", p.stream, err)
-	}
-	return nil
-}
+
 
 func (p *Publisher) Close() error {
 	if p.conn != nil {
