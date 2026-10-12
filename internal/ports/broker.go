@@ -15,6 +15,13 @@ type BrokerConsumer interface {
 	Close() error
 }
 
+// DeliveryAttempt is an optional capability implemented by adapters that can
+// report the broker's delivery count. Application retry policy uses it only
+// as a hint; correctness must not depend on the metadata being available.
+type DeliveryAttempt interface {
+	Attempt() uint64
+}
+
 // Delivery represents a message delivery from the broker
 type Delivery interface {
 	Event() (*domain.EventEnvelope, error)
