@@ -163,19 +163,9 @@ func (s *Service) SaveService(ctx context.Context, tenantID string, item *domain
 		if existing == nil {
 			return nil, ErrNotFound
 		}
-		if existing.Name != item.Name {
-			existingServices, err := s.repository.ListServices(ctx, tenantID)
-			if err != nil {
-				return nil, fmt.Errorf("check tenant service names: %w", err)
-			}
-			for _, candidate := range existingServices {
-				if candidate.ID != item.ID && candidate.Name == item.Name {
-					return nil, fmt.Errorf("%w: service name %q already exists", ErrInvalidInput, item.Name)
-				}
-			}
-		}
 		item.CreatedAt = existing.CreatedAt
-		item.Active = true
+		// Ordinary updates must not silently reactivate a disabled service.
+		item.Active = existing.Active
 	}
 	now := s.clock.Now()
 	if item.CreatedAt.IsZero() {
