@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/flowrule/flowrule/internal/ports"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -39,7 +40,7 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int, window t
 	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(windowStart, 10))
 	pipe.ZAdd(ctx, key, redis.Z{
 		Score:  float64(nowMS),
-		Member: strconv.FormatInt(now.UnixNano(), 10),
+		Member: uuid.NewString(),
 	})
 	countCmd := pipe.ZCard(ctx, key)
 	pipe.PExpire(ctx, key, window)
