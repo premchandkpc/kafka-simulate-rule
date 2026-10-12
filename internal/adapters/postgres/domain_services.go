@@ -108,7 +108,7 @@ func (r *DomainServiceRepository) saveService(ctx context.Context, item *domain.
 		INSERT INTO tenant_domain_services (tenant_id, service_id, name, endpoint_url, active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (tenant_id, service_id) DO UPDATE SET
-			name = EXCLUDED.name, endpoint_url = EXCLUDED.endpoint_url, active = TRUE, updated_at = EXCLUDED.updated_at
+			name = EXCLUDED.name, endpoint_url = EXCLUDED.endpoint_url, active = EXCLUDED.active, updated_at = EXCLUDED.updated_at
 	`, item.TenantID, item.ID, item.Name, item.EndpointURL, item.Active, item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {

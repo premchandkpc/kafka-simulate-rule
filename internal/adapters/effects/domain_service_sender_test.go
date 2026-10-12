@@ -100,22 +100,56 @@ func TestDomainServiceSenderDoesNotFollowRedirects(t *testing.T) {
 }
 
 func TestDomainServiceSenderHonorsCallerDeadline(t *testing.T) {
+	handlerStarted := make(chan struct{})
+	handlerExited := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
+		close(handlerStarted)
+		defer close(handlerExited)
+
+		// The handler must never hold httptest.Server.Close hostage. Client
+		// cancellation should cancel the request context, but a bounded
+		// fallback also keeps the test deterministic if transport behavior
+		// changes.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(time.Second):
+		}
 	}))
 	defer server.Close()
 
 	sender := NewDomainServiceSender(domainServiceRepositoryStub{service: &domain.DomainService{
 		ID: "service-a", TenantID: "tenant-a", Active: true, EndpointURL: server.URL,
 	}}, true)
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	err := sender.Send(ctx, &domain.Effect{
-		ID: "effect-1", TenantID: "tenant-a", Destination: "service-a",
-		Name: "orders.created", EffectType: domain.EffectTypeServiceEvent, Payload: serviceEventPayload(t),
-	}, "effect-effect-1")
-	if err == nil {
-		t.Fatal("Send() error = nil, want deadline error")
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- sender.Send(ctx, &domain.Effect{
+			ID: "effect-1", TenantID: "tenant-a", Destination: "service-a",
+			Name: "orders.created", EffectType: domain.EffectTypeServiceEvent, Payload: serviceEventPayload(t),
+		}, "effect-effect-1")
+	}()
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP handler did not start before timeout")
+	}
+
+	select {
+	case err := <-sendDone:
+		if err == nil {
+			t.Fatal("Send() error = nil, want caller deadline error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Send() did not return promptly after caller deadline")
+	}
+
+	select {
+	case <-handlerExited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("HTTP handler did not exit after cancellation")
 	}
 }
 
