@@ -29,6 +29,7 @@ type Config struct {
 	NATSURL      string        `env:"NATS_URL,default=nats://localhost:4222"`
 	NATSStream   string        `env:"NATS_STREAM,default=flowrule"`
 	NATSSubjects []string      `env:"NATS_SUBJECTS,default=events"`
+	NATSRuleSets []string      `env:"NATS_RULESETS"`
 	NATSAckWait  time.Duration `env:"NATS_ACK_WAIT,default=30s"`
 	NATSMaxDeliv int           `env:"NATS_MAX_DELIVER,default=10"`
 
@@ -92,11 +93,14 @@ func LoadConfig() (*Config, error) {
 		ServiceName:           getEnv("FLOWRULE_SERVICE_NAME", "flowrule-client"),
 	}
 
-	// Parse NATS subjects
+	// Parse NATS subjects and optional ruleset-specific routing.
 	if subjects := getEnv("NATS_SUBJECTS", ""); subjects != "" {
 		cfg.NATSSubjects = splitCSV(subjects)
 	} else {
 		cfg.NATSSubjects = []string{"events"}
+	}
+	if ruleSets := getEnv("NATS_RULESETS", ""); ruleSets != "" {
+		cfg.NATSRuleSets = splitCSV(ruleSets)
 	}
 
 	// Validate required fields

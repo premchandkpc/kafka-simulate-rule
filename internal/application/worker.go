@@ -57,17 +57,17 @@ type shardedConsumer interface {
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
 type Worker struct {
-	consumer     ports.BrokerConsumer
-	events       ports.EventProcessor
-	effects      ports.EffectPublisher
-	batches      ports.BatchProcessor
-	batchInterval time.Duration
-	clock        ports.Clock
-	shardService ports.ShardService
-	keyQueue     *keyqueue.KeyQueue
-	workerID     string
-	numShards    uint32
-	config       WorkerConfig
+	consumer        ports.BrokerConsumer
+	events          ports.EventProcessor
+	effects         ports.EffectPublisher
+	batches         ports.BatchProcessor
+	batchInterval   time.Duration
+	clock           ports.Clock
+	shardService    ports.ShardService
+	keyQueue        *keyqueue.KeyQueue
+	workerID        string
+	numShards       uint32
+	config          WorkerConfig
 	shardedConsumer shardedConsumer
 }
 
@@ -156,16 +156,16 @@ func NewWorker(
 	}
 
 	return &Worker{
-		consumer:     consumer,
-		events:       events,
-		effects:      effects,
-		batches:      batches,
-		batchInterval: batchInterval,
-		clock:        clock,
-		shardService: shardService,
-		workerID:     workerID,
-		numShards:    numShards,
-		config:       config,
+		consumer:        consumer,
+		events:          events,
+		effects:         effects,
+		batches:         batches,
+		batchInterval:   batchInterval,
+		clock:           clock,
+		shardService:    shardService,
+		workerID:        workerID,
+		numShards:       numShards,
+		config:          config,
 		shardedConsumer: sc,
 	}, nil
 }

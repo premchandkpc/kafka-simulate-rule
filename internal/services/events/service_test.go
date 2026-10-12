@@ -178,3 +178,30 @@ func TestProcessWritesSubscriberEffectsToEventTransactionOutbox(t *testing.T) {
 		t.Fatalf("callback payload event identity = %#v", payload)
 	}
 }
+
+type quarantineSaveStub struct {
+	ports.QuarantineRepository
+	entries []*domain.QuarantineEntry
+}
+
+func (q *quarantineSaveStub) Save(_ context.Context, entry *domain.QuarantineEntry) error {
+	copyEntry := *entry
+	q.entries = append(q.entries, &copyEntry)
+	return nil
+}
+
+func TestQuarantineEventUsesStableIDForRedelivery(t *testing.T) {
+	quarantine := &quarantineSaveStub{}
+	service := NewService(nil, nil, quarantine, domain.SystemClock{}, nil, nil)
+	for i := 0; i < 2; i++ {
+		if err := service.QuarantineEvent(context.Background(), "source-1", "event-1", "tenant-a", domain.ErrorClass("permanent"), "invalid event"); err != nil {
+			t.Fatalf("QuarantineEvent() error = %v", err)
+		}
+	}
+	if len(quarantine.entries) != 2 {
+		t.Fatalf("saved %d quarantine entries, want 2 attempts", len(quarantine.entries))
+	}
+	if quarantine.entries[0].ID == "" || quarantine.entries[0].ID != quarantine.entries[1].ID {
+		t.Fatalf("quarantine IDs differ across redelivery: %q vs %q", quarantine.entries[0].ID, quarantine.entries[1].ID)
+	}
+}

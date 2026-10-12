@@ -19,10 +19,10 @@ func (d retryTestDelivery) Nak(context.Context) error             { return nil }
 func (d retryTestDelivery) Retry(context.Context, time.Duration) error {
 	return nil
 }
-func (d retryTestDelivery) Raw() []byte                 { return nil }
+func (d retryTestDelivery) Raw() []byte                { return nil }
 func (d retryTestDelivery) Headers() map[string]string { return nil }
-func (d retryTestDelivery) Subject() string             { return "" }
-func (d retryTestDelivery) Attempt() uint64             { return d.attempt }
+func (d retryTestDelivery) Subject() string            { return "" }
+func (d retryTestDelivery) Attempt() uint64            { return d.attempt }
 
 var _ ports.Delivery = retryTestDelivery{}
 var _ ports.DeliveryAttempt = retryTestDelivery{}

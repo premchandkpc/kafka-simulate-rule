@@ -84,13 +84,18 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	groups := make(map[string][]*domain.InboxEntry)
-	order := make([]string, 0)
+	type groupKey struct {
+		tenantID     string
+		partitionKey string
+		ruleSet      string
+	}
+	groups := make(map[groupKey][]*domain.InboxEntry)
+	order := make([]groupKey, 0)
 	for _, e := range entries {
 		if e.TenantID == "" || e.PartitionKey == "" || e.RuleSet == "" {
 			continue
 		}
-		key := e.TenantID + "|" + e.PartitionKey + "|" + e.RuleSet
+		key := groupKey{tenantID: e.TenantID, partitionKey: e.PartitionKey, ruleSet: e.RuleSet}
 		if _, ok := groups[key]; !ok {
 			order = append(order, key)
 		}
@@ -197,7 +202,7 @@ func (s *Service) ListBatches(ctx context.Context, tenantID, ruleSet string, lim
 func (s *Service) ready(members []*domain.InboxEntry) bool {
 	switch s.cfg.Mode {
 	case domain.BatchModeAccumulate:
-		return len(members) >= s.cfg.MaxBatch
+		return s.cfg.MaxBatch > 0 && len(members) >= s.cfg.MaxBatch
 	case domain.BatchModeWindow:
 		oldest := members[0].FirstSeenAt
 		return !s.clock.Now().Before(oldest.Add(s.cfg.Window))
@@ -242,10 +247,10 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		return 0, fmt.Errorf("check existing batch: %w", err)
 	}
 	if existing != nil && existing.Status == domain.BatchRunStatusCompleted {
-		for _, m := range members {
-			if err := s.batches.MarkBatched(ctx, m.TenantID, m.EventID, batchID); err != nil {
-				return 0, fmt.Errorf("mark batched idempotent: %w", err)
-			}
+		// A previous attempt may have committed event processing but failed while
+		// finalizing membership. CompleteBatch is idempotent for the same batch ID.
+		if err := s.batches.CompleteBatch(ctx, existing, eventIDs); err != nil {
+			return 0, fmt.Errorf("recover completed batch: %w", err)
 		}
 		return 0, nil
 	}
@@ -282,6 +287,9 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		return 0, fmt.Errorf("batch processing requires a configured shard lease provider and worker ID")
 	}
 	shard := envelope.VirtualShard(s.numShards)
+	if !s.leaseProvider.IsOwner(shard) {
+		return 0, domain.ErrFencingTokenMismatch
+	}
 	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
 	if !ok || fencingToken <= 0 {
 		return 0, domain.ErrFencingTokenMismatch
@@ -308,14 +316,11 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		CreatedAt:    now,
 	}
 
-	if err := s.batches.SaveRun(ctx, run); err != nil {
-		return 0, fmt.Errorf("save batch run: %w", err)
-	}
-
-	for _, m := range members {
-		if err := s.batches.MarkBatched(ctx, m.TenantID, m.EventID, batchID); err != nil {
-			return 0, fmt.Errorf("mark batched: %w", err)
-		}
+	// Persist the run and all member associations atomically. If this fails
+	// after event processing committed, the deterministic batch event can be
+	// replayed safely and finalization retried.
+	if err := s.batches.CompleteBatch(ctx, run, eventIDs); err != nil {
+		return 0, fmt.Errorf("complete batch: %w", err)
 	}
 
 	return 1, nil

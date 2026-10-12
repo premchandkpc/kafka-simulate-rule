@@ -2,6 +2,8 @@ package flowrule
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,11 +42,9 @@ func newNATSTransport(cfg *TransportConfig) (Transport, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	subjects := make([]string, 0, len(cfg.Config.NATSSubjects)*int(cfg.Config.NumShards))
+	subjects := make([]string, 0, len(cfg.Config.NATSSubjects)*2)
 	for _, s := range cfg.Config.NATSSubjects {
-		for shard := uint32(0); shard < cfg.Config.NumShards; shard++ {
-			subjects = append(subjects, fmt.Sprintf("%s.shard.%d", s, shard))
-		}
+		subjects = append(subjects, s+".shard.*", s+".ruleset.*.shard.*")
 	}
 
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
@@ -85,7 +85,7 @@ func (t *natsTransport) Send(ctx context.Context, env *Envelope) error {
 
 	// Use first subject as base
 	baseSubject := t.cfg.Config.NATSSubjects[0]
-	subject := fmt.Sprintf("%s.shard.%d", baseSubject, shard)
+	subject := natsSubjectForEnvelope(baseSubject, shard, env.Type, t.cfg.Config.NATSRuleSets)
 
 	// Create context with timeout
 	sendCtx, cancel := context.WithTimeout(ctx, t.cfg.Config.SendTimeout)
@@ -122,7 +122,7 @@ func (t *natsTransport) SendBatch(ctx context.Context, envs []*Envelope) error {
 
 		shard := computeShard(env.TenantID, env.PartitionKey, t.cfg.Config.NumShards)
 		baseSubject := t.cfg.Config.NATSSubjects[0]
-		subject := fmt.Sprintf("%s.shard.%d", baseSubject, shard)
+		subject := natsSubjectForEnvelope(baseSubject, shard, env.Type, t.cfg.Config.NATSRuleSets)
 
 		_, err = t.js.Publish(sendCtx, subject, data)
 		if err != nil {
@@ -154,11 +154,13 @@ func (t *natsTransport) Subscribe(ctx context.Context, ruleSet string, handler E
 	}()
 
 	for _, subject := range cfg.NATSSubjects {
-		subscription, err := conn.ChanSubscribe(fmt.Sprintf("%s.shard.*", subject), messages)
-		if err != nil {
-			return fmt.Errorf("subscribe to NATS subject %q: %w", subject, err)
+		for _, filter := range natsSubscriptionFilters(subject, ruleSet, cfg.NATSRuleSets) {
+			subscription, err := conn.ChanSubscribe(filter, messages)
+			if err != nil {
+				return fmt.Errorf("subscribe to NATS subject %q: %w", filter, err)
+			}
+			subscriptions = append(subscriptions, subscription)
 		}
-		subscriptions = append(subscriptions, subscription)
 	}
 	flushCtx, cancel := context.WithTimeout(ctx, cfg.SendTimeout)
 	defer cancel()
@@ -190,6 +192,34 @@ func (t *natsTransport) Subscribe(ctx context.Context, ruleSet string, handler E
 			}
 		}
 	}
+}
+
+func natsSubjectForEnvelope(baseSubject string, shard uint32, eventType string, configuredRuleSets []string) string {
+	for _, ruleSet := range configuredRuleSets {
+		if ruleSet == eventType {
+			sum := sha256.Sum256([]byte(eventType))
+			return fmt.Sprintf("%s.ruleset.%s.shard.%d", baseSubject, hex.EncodeToString(sum[:]), shard)
+		}
+	}
+	return fmt.Sprintf("%s.shard.%d", baseSubject, shard)
+}
+
+// natsSubscriptionFilters limits a ruleset subscriber to its hashed route and the
+// legacy route used by producers that have not configured ruleset-specific routing.
+func natsSubscriptionFilters(baseSubject, ruleSet string, configuredRuleSets []string) []string {
+	filters := []string{fmt.Sprintf("%s.shard.*", baseSubject)}
+	if ruleSet == "" {
+		return filters
+	}
+	for _, configured := range configuredRuleSets {
+		if configured != ruleSet {
+			continue
+		}
+		sum := sha256.Sum256([]byte(ruleSet))
+		filters = append(filters, fmt.Sprintf("%s.ruleset.%s.shard.*", baseSubject, hex.EncodeToString(sum[:])))
+		break
+	}
+	return filters
 }
 
 func (t *natsTransport) Close() error {

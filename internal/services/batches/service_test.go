@@ -74,6 +74,32 @@ func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID
 	return nil
 }
 
+func (m *memBatches) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if run == nil || len(eventIDs) == 0 || len(eventIDs) != run.MemberCount {
+		return errors.New("batch run and exact member IDs are required")
+	}
+	members := make([]*domain.InboxEntry, 0, len(eventIDs))
+	for _, id := range eventIDs {
+		key := run.TenantID + "|" + id
+		entry := m.entries[key]
+		if entry == nil || entry.Status != domain.InboxStatusCommitted {
+			return errors.New("batch member missing or not committed")
+		}
+		if entry.BatchID != "" && entry.BatchID != run.BatchID {
+			return errors.New("batch member already assigned to another batch")
+		}
+		members = append(members, entry)
+	}
+	copyRun := *run
+	m.runs[run.BatchID] = &copyRun
+	for _, entry := range members {
+		entry.BatchID = run.BatchID
+	}
+	return nil
+}
+
 func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -248,7 +274,7 @@ func TestBatchService_AccumulateBelowThreshold(t *testing.T) {
 
 	for i := 1; i <= 2; i++ {
 		id := "evt-" + string(rune('0'+i))
-		batches.entries[id] = &domain.InboxEntry{
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 			TenantID:     "tenant-1",
 			EventID:      id,
 			PartitionKey: "pk-1",
@@ -288,7 +314,7 @@ func TestBatchService_Window(t *testing.T) {
 	now := time.Now().UTC()
 
 	id := "evt-1"
-	batches.entries[id] = &domain.InboxEntry{
+	batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 		TenantID:     "tenant-1",
 		EventID:      id,
 		PartitionKey: "pk-1",
@@ -327,7 +353,7 @@ func TestBatchService_WindowNotElapsed(t *testing.T) {
 	now := time.Now().UTC()
 
 	id := "evt-1"
-	batches.entries[id] = &domain.InboxEntry{
+	batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 		TenantID:     "tenant-1",
 		EventID:      id,
 		PartitionKey: "pk-1",
@@ -363,7 +389,7 @@ func TestBatchService_NoneMode(t *testing.T) {
 	now := time.Now().UTC()
 
 	id := "evt-1"
-	batches.entries[id] = &domain.InboxEntry{
+	batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 		TenantID:     "tenant-1",
 		EventID:      id,
 		PartitionKey: "pk-1",
@@ -507,5 +533,58 @@ func TestCreateBatchRequiresLeaseProvider(t *testing.T) {
 	}
 	if len(events.envelopes) != 0 {
 		t.Fatalf("processed %d batch envelopes without lease context", len(events.envelopes))
+	}
+}
+
+func TestCompleteBatchRejectsConflictingMembershipWithoutPartialWrites(t *testing.T) {
+	batches := newMemBatches()
+	now := time.Now().UTC()
+	for _, id := range []string{"evt-1", "evt-2"} {
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
+			TenantID: "tenant-1", EventID: id, PartitionKey: "pk-1",
+			RuleSet: "orders", Status: domain.InboxStatusCommitted, FirstSeenAt: now,
+		}
+	}
+	batches.entries["tenant-1|evt-2"].BatchID = "another-batch"
+	run := &domain.BatchRun{
+		BatchID: "batch-1", TenantID: "tenant-1", PartitionKey: "pk-1",
+		RuleSet: "orders", Status: domain.BatchRunStatusCompleted, MemberCount: 2,
+	}
+
+	if err := batches.CompleteBatch(context.Background(), run, []string{"evt-1", "evt-2"}); err == nil {
+		t.Fatal("CompleteBatch accepted a member already assigned to another batch")
+	}
+	if got := batches.entries["tenant-1|evt-1"].BatchID; got != "" {
+		t.Fatalf("first member partially updated to %q after transaction failure", got)
+	}
+	if batches.runs["batch-1"] != nil {
+		t.Fatal("batch run was persisted despite membership conflict")
+	}
+}
+
+func TestCompleteBatchIsIdempotentForSameBatch(t *testing.T) {
+	batches := newMemBatches()
+	now := time.Now().UTC()
+	for _, id := range []string{"evt-1", "evt-2"} {
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
+			TenantID: "tenant-1", EventID: id, PartitionKey: "pk-1",
+			RuleSet: "orders", Status: domain.InboxStatusCommitted, FirstSeenAt: now,
+		}
+	}
+	run := &domain.BatchRun{
+		BatchID: "batch-1", TenantID: "tenant-1", PartitionKey: "pk-1",
+		RuleSet: "orders", Status: domain.BatchRunStatusCompleted, MemberCount: 2,
+	}
+	ctx := context.Background()
+	if err := batches.CompleteBatch(ctx, run, []string{"evt-1", "evt-2"}); err != nil {
+		t.Fatalf("first CompleteBatch() error = %v", err)
+	}
+	if err := batches.CompleteBatch(ctx, run, []string{"evt-1", "evt-2"}); err != nil {
+		t.Fatalf("idempotent CompleteBatch() error = %v", err)
+	}
+	for _, id := range []string{"evt-1", "evt-2"} {
+		if got := batches.entries["tenant-1|"+id].BatchID; got != run.BatchID {
+			t.Errorf("member %s batch ID = %q, want %q", id, got, run.BatchID)
+		}
 	}
 }

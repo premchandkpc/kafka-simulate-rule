@@ -32,9 +32,9 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		limit = 400
 	}
 
-	filter := bson.D{
-		{Key: "status", Value: "committed"},
-		{Key: "batch_id", Value: bson.D{{Key: "$exists", Value: false}}},
+	filter := bson.M{
+		"status":   "committed",
+		"batch_id": bson.M{"$exists": false},
 	}
 
 	cursor, err := coll.Find(ctx, filter, options.Find().
@@ -65,13 +65,13 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	if len(eventIDs) == 0 {
 		return []*domain.InboxEntry{}, nil
 	}
-	filter := bson.M{
-		"tenant_id":     tenantID,
-		"partition_key": partitionKey,
-		"rule_set":      ruleSet,
-		"event_id":      bson.M{"$in": eventIDs},
-		"status":        "committed",
-		"batch_id":      bson.M{"$exists": false},
+	filter := bson.D{
+		{Key: "tenant_id", Value: tenantID},
+		{Key: "partition_key", Value: partitionKey},
+		{Key: "rule_set", Value: ruleSet},
+		{Key: "event_id", Value: bson.D{{Key: "$in", Value: eventIDs}}},
+		{Key: "status", Value: "committed"},
+		{Key: "batch_id", Value: bson.D{{Key: "$exists", Value: false}}},
 	}
 	cursor, err := r.collection(collectionInbox).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "first_seen_at", Value: 1}, {Key: "tenant_id", Value: 1}, {Key: "event_id", Value: 1}}))
@@ -94,16 +94,92 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	return entries, nil
 }
 
+// CompleteBatch atomically persists the completed run and all member associations
+// using a MongoDB transaction. The deployment must support replica-set transactions.
+func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
+	if run == nil || run.BatchID == "" || run.TenantID == "" || run.PartitionKey == "" || run.RuleSet == "" {
+		return fmt.Errorf("batch run identity is required")
+	}
+	if len(eventIDs) == 0 || len(eventIDs) != run.MemberCount {
+		return fmt.Errorf("batch member count does not match run")
+	}
+	seen := make(map[string]struct{}, len(eventIDs))
+	for _, id := range eventIDs {
+		if id == "" {
+			return fmt.Errorf("batch event ID must not be empty")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate batch event ID %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	client := r.collection(collectionInbox).Database().Client()
+	session, err := client.StartSession()
+	if err != nil {
+		return fmt.Errorf("start batch completion session: %w", err)
+	}
+	defer session.EndSession(context.Background())
+
+	_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+		runs := r.collection(collectionBatchRuns)
+		doc := BatchRunDocFromDomain(run)
+		_, err := runs.UpdateOne(sc,
+			bson.M{
+				"batch_id":      run.BatchID,
+				"tenant_id":     run.TenantID,
+				"partition_key": run.PartitionKey,
+				"rule_set":      run.RuleSet,
+			},
+			bson.M{"$set": doc},
+			options.Update().SetUpsert(true),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("upsert batch run: %w", err)
+		}
+
+		filter := bson.M{
+			"tenant_id":     run.TenantID,
+			"partition_key": run.PartitionKey,
+			"rule_set":      run.RuleSet,
+			"event_id":      bson.M{"$in": eventIDs},
+			"status":        "committed",
+			"$or": []bson.M{
+				{"batch_id": bson.M{"$exists": false}},
+				{"batch_id": run.BatchID},
+			},
+		}
+		result, err := r.collection(collectionInbox).UpdateMany(sc, filter,
+			bson.M{"$set": bson.M{"batch_id": run.BatchID}},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("associate batch members: %w", err)
+		}
+		if result.MatchedCount != int64(len(eventIDs)) {
+			return nil, fmt.Errorf("batch membership conflict: matched %d of %d requested events", result.MatchedCount, len(eventIDs))
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return fmt.Errorf("complete batch transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	coll := r.collection(collectionInbox)
 
 	_, err := coll.UpdateOne(ctx,
-		bson.D{
-			{Key: "tenant_id", Value: tenantID},
-			{Key: "event_id", Value: eventID},
-			{Key: "batch_id", Value: bson.D{{Key: "$exists", Value: false}}},
+		bson.M{
+			"tenant_id": tenantID,
+			"event_id":  eventID,
+			"batch_id":  bson.M{"$exists": false},
 		},
-		bson.D{{Key: "$set", Value: bson.D{{Key: "batch_id", Value: batchID}}}},
+		bson.M{
+			"$set": bson.M{
+				"batch_id": batchID,
+			},
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("mark batched: %w", err)
@@ -116,8 +192,8 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 	doc := BatchRunDocFromDomain(run)
 
 	_, err := coll.UpdateOne(ctx,
-		bson.D{{Key: "batch_id", Value: run.BatchID}},
-		bson.D{{Key: "$set", Value: doc}},
+		bson.M{"batch_id": run.BatchID},
+		bson.M{"$set": doc},
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
@@ -129,7 +205,7 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
-	err := coll.FindOne(ctx, bson.D{{Key: "batch_id", Value: batchID}}).Decode(&doc)
+	err := coll.FindOne(ctx, bson.M{"batch_id": batchID}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
@@ -142,7 +218,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
-	err := coll.FindOne(ctx, bson.D{{Key: "tenant_id", Value: tenantID}, {Key: "batch_id", Value: batchID}}).Decode(&doc)
+	err := coll.FindOne(ctx, bson.M{"tenant_id": tenantID, "batch_id": batchID}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
@@ -162,11 +238,12 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if offset < 0 {
 		offset = 0
 	}
-	filter := bson.D{{Key: "tenant_id", Value: tenantID}}
+	filter := bson.M{"tenant_id": tenantID}
 	if ruleSet != "" {
-		filter = append(filter, bson.E{Key: "rule_set", Value: ruleSet})
+		filter["rule_set"] = ruleSet
 	}
 
+	// lgtm[go/sql-injection] Filter values are BSON scalars under fixed keys; no query syntax is interpolated.
 	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "batch_id", Value: -1}}).
 		SetSkip(int64(offset)).

@@ -63,11 +63,10 @@ type ShardLeaseView interface {
 // ShardService manages shard ownership and leases for a worker.
 // It abstracts the lease lifecycle and ownership queries.
 type ShardService interface {
+	ShardLeaseView
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	OwnedShards() []uint32
-	IsOwner(shard uint32) bool
-	GetFencingToken(shard uint32) (int64, bool)
 	VirtualShardForEvent(*domain.EventEnvelope) uint32
 }
 

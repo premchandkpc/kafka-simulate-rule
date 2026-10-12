@@ -24,10 +24,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	natsgo "github.com/nats-io/nats.go"
+	testcontainers "github.com/testcontainers/testcontainers-go"
 	natstest "github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	testcontainers "github.com/testcontainers/testcontainers-go"
 )
 
 type TestEnv struct {

@@ -85,9 +85,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	if filter.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id is required")
 	}
-	if filter.Limit <= 0 {
-		filter.Limit = 100
-	}
+	filter.Limit, filter.Offset = normalizeQuarantinePagination(filter.Limit, filter.Offset)
 
 	query := `
 		SELECT quarantine_id, source_type, source_id, error_class, COALESCE(payload_ref, ''),
@@ -140,6 +138,9 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 		}
 		entries = append(entries, entry)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate quarantine entries: %w", err)
+	}
 	return entries, nil
 }
 
@@ -151,4 +152,17 @@ type QuarantineFilter struct {
 	To         time.Time
 	Limit      int
 	Offset     int
+}
+
+func normalizeQuarantinePagination(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }

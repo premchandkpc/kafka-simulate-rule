@@ -37,3 +37,21 @@ The scheduled-event subsystem has its own persisted retry count, next retry time
 - Test destination-side idempotency and ambiguous external outcomes.
 
 Do not claim production readiness based on unit tests alone. State the exact commit and checks that were run.
+
+## Batch completion
+
+Batch processing uses the same transport-neutral application contracts as ordinary
+events. The application worker depends on `ports.ShardedConsumer`; NATS and JetStream
+client types remain inside the NATS adapter.
+
+A completed batch run and its inbox member assignments are finalized in one repository
+transaction. Replaying the same deterministic batch ID is idempotent. A member already
+assigned to a different batch, a missing member, a non-committed member, or a mismatched
+member count rejects the entire finalization rather than partially assigning rows.
+
+This transaction protects batch metadata and membership. It does not combine the
+separate event-processing transaction with batch finalization. If processing commits
+but finalization fails, the deterministic synthetic batch event must be replayed so
+the event processor can return its idempotent result before finalization is retried.
+Live PostgreSQL and MongoDB transaction tests, plus crash-boundary tests, remain
+necessary before claiming end-to-end crash recovery.
