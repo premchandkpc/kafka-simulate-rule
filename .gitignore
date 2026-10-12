@@ -46,11 +46,3 @@ data/
 examples/*/generated/
 # Invalid/temporary code-generator output directories
 examples/*/.generated/
-
-# Keep generated typed SDK clients used by the checked-in examples.
-!examples/*/generated/
-examples/*/generated/**
-!examples/*/generated/go/
-examples/*/generated/go/**
-!examples/*/generated/go/**/
-!examples/*/generated/go/**/*_client.go

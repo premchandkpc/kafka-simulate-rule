@@ -204,3 +204,7 @@ Rules:
 | P2 | Batch API reads are now tenant-scoped, but batch processing is not integrated with leases/key queue | Keep non-none worker batch modes rejected until a safe processing path exists |
 
 Do not turn this table into claims of completion without changes and tests. A follow-up audit should identify the reviewed main SHA and workflow runs, and label each old finding fixed/partial/open against current source.
+
+## Domain builds
+
+`domain-builds/<domain>/` holds typed Go code generated from contracts stored in the database (`make generate-domain DOMAIN=<domain>`). Each is a separate Go module depending on `sdk/go/flowrule`; example services depend on it through `replace` directives. Run `make verify-generated` to compile them.

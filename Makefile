@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-worker build-codegen build-random-producer test test-unit test-examples test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
+.PHONY: generate-domain help build build-api build-worker build-codegen build-random-producer test test-unit test-examples test-integration lint vet fmt check-fmt generate clean run-api run-worker run-all docker-build docker-up docker-down docker-logs migrate-up deps tools verify-generated ci release
 
 # Default target
 help:
@@ -141,6 +141,11 @@ generate:
 	@echo "Generating $(CONTRACT)@$(CONTRACT_VERSION) as $(TARGET)..."
 	$(GO) run ./cmd/codegen -contract "$(CONTRACT)" -version "$(CONTRACT_VERSION)" -target "$(TARGET)" -output "$(OUTPUT_DIR)"
 
+# Generate typed Go code for every stored contract of a domain into domain-builds/<domain> (DOMAIN=banking|ecommerce|food-delivery)
+generate-domain:
+	@test -n "$(DOMAIN)" || (echo "Set DOMAIN" && exit 2)
+	./scripts/generate-domain.sh $(DOMAIN)
+
 # Docker targets
 docker-build:
 	@echo "Building Docker images..."
@@ -184,11 +189,10 @@ tools:
 # Verify generated code compiles
 verify-generated:
 	@echo "Verifying generated code compiles..."
-	@for dir in examples/*/generated/go; do \
-		if [ -d "$$dir" ]; then \
+	@for dir in domain-builds/*; do \
+		if [ -f "$$dir/go.mod" ]; then \
 			echo "Checking $$dir..."; \
-			cd $$dir && go build ./... || exit 1; \
-			cd - > /dev/null; \
+			(cd $$dir && go build ./...) || exit 1; \
 		fi; \
 	done
 

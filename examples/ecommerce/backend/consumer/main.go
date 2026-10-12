@@ -11,7 +11,7 @@ import (
 
 	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
-	ordercreated "examples/ecommerce/generated/go/order_created"
+	ordercreated "github.com/flowrule/domain-builds/ecommerce/order_created"
 )
 
 func main() {

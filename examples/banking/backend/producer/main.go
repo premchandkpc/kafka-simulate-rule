@@ -8,7 +8,7 @@ import (
 
 	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 
-	transactioninitiated "examples/banking/generated/go/transaction_initiated"
+	transactioninitiated "github.com/flowrule/domain-builds/banking/transaction_initiated"
 )
 
 func main() {

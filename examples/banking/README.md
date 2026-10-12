@@ -99,7 +99,7 @@ go run main.go
 
 Generate Go types from contracts:
 ```bash
-flowrule-codegen -contract transaction.initiated -version 1.0 -target go -output generated/go/transaction_initiated.go
+flowrule-codegen -contract transaction.initiated -version 1.0 -target go -output /tmp/out  # or: make generate-domain DOMAIN=banking (writes domain-builds/banking)
 ```
 
 ## Key Benefits

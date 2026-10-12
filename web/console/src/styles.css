@@ -208,3 +208,22 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 @media (prefers-reduced-motion: reduce) {
   .flow-connector.flow-live,.simulation-flow-step.flow-live .flow-step-icon,.simulation-flow-status i.flow-status-live { animation:none !important; }
 }
+
+.rule-flow-map { display: flex; gap: 28px; overflow-x: auto; padding: 4px 2px 12px; align-items: flex-start; }
+.rule-flow-column { display: flex; flex-direction: column; gap: 12px; min-width: 300px; flex-shrink: 0; position: relative; }
+.rule-flow-column + .rule-flow-column::before { content: "→"; position: absolute; left: -22px; top: 36px; color: var(--muted, #7a8699); font-size: 18px; }
+.rule-flow-level { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #7a8699); }
+.rule-flow-node { border: 1px solid var(--line, #d9dee7); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface, #fff); }
+.rule-flow-node header strong { overflow-wrap: anywhere; }
+.rule-flow-node header { display: flex; align-items: center; gap: 8px; }
+.rule-flow-node header small { margin-left: auto; color: var(--muted, #7a8699); }
+.rule-flow-node.flow-complete { border-color: #2f9e6b; }
+.rule-flow-node.flow-live { box-shadow: 0 0 0 3px rgba(47,158,107,.18); }
+.rule-flow-branch { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; border-left: 2px solid var(--line, #d9dee7); }
+.rule-flow-branch-id { font-size: 12px; font-weight: 600; }
+.rule-flow-emit { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(120,130,150,.1); }
+.rule-flow-emit em { font-style: normal; opacity: .65; }
+.rule-flow-emit.to-rule { background: rgba(60,110,220,.12); }
+.rule-flow-emit.taken { background: rgba(47,158,107,.22); font-weight: 600; }
+.notice { padding: 10px 14px; border-radius: 8px; background: rgba(60,110,220,.1); margin-bottom: 12px; }
+@media (max-width: 760px) { .rule-flow-column { min-width: 220px; } }

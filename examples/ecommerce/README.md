@@ -127,7 +127,7 @@ Generate Go types from contracts:
 
 ```bash
 # Generate Go types
-flowrule-codegen -contract order.created -version 1.0 -target go -output generated/go/order_created.go
+flowrule-codegen -contract order.created -version 1.0 -target go -output /tmp/out  # or: make generate-domain DOMAIN=ecommerce (writes domain-builds/ecommerce)
 
 # Generate Java classes
 flowrule-codegen -contract order.created -version 1.0 -target java -output generated/java/OrderCreated.java

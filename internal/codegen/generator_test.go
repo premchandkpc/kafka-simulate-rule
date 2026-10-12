@@ -201,3 +201,48 @@ func TestValidateGeneratedTypeName(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateGoEmitsNestedTypes(t *testing.T) {
+	outputDir := t.TempDir()
+	generator := NewGenerator(&domain.ContractSchema{
+		Name:    "order.created",
+		Version: "1.0",
+		Fields: map[string]domain.ContractField{
+			"items": {Type: "array", Items: &domain.ContractField{Type: "object", Properties: map[string]domain.ContractField{
+				"product_id": {Type: "string"},
+				"quantity":   {Type: "integer"},
+			}}},
+			"shipping_address": {Type: "object", Properties: map[string]domain.ContractField{
+				"city": {Type: "string"},
+			}},
+			"tags": {Type: "array", Items: &domain.ContractField{Type: "string"}},
+		},
+	})
+
+	files, err := generator.GenerateGo(outputDir)
+	if err != nil {
+		t.Fatalf("GenerateGo() error = %v", err)
+	}
+	for _, path := range files {
+		if _, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.AllErrors); err != nil {
+			t.Fatalf("generated Go file %s does not parse: %v", path, err)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join(outputDir, TargetGo, "created.go"))
+	if err != nil {
+		t.Fatalf("read generated contract: %v", err)
+	}
+	for _, expected := range []string{
+		"Items []Item `json:\"items\"`",
+		"ShippingAddress ShippingAddress `json:\"shipping_address\"`",
+		"Tags []string `json:\"tags\"`",
+		"type Item struct",
+		"ProductId string `json:\"product_id\"`",
+		"Quantity int64 `json:\"quantity\"`",
+		"type ShippingAddress struct",
+	} {
+		if !strings.Contains(string(content), expected) {
+			t.Errorf("generated contract missing %q:\n%s", expected, content)
+		}
+	}
+}
