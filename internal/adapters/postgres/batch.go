@@ -114,6 +114,46 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 	return entries, nil
 }
 
+// ListUnbatchedByIDs returns only requested eligible events in one tenant partition.
+func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
+	if len(eventIDs) == 0 {
+		return []*domain.InboxEntry{}, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT tenant_id, event_id, status, execution_id, first_seen_at, committed_at,
+		       COALESCE(partition_key, ''), COALESCE(rule_set, ''), payload, COALESCE(batch_id, '')
+		FROM inbox
+		WHERE tenant_id = $1
+		  AND COALESCE(partition_key, '') = $2
+		  AND COALESCE(rule_set, '') = $3
+		  AND event_id = ANY($4::text[])
+		  AND status = 'committed'
+		  AND batch_id IS NULL
+		ORDER BY first_seen_at, tenant_id, event_id
+	`, tenantID, partitionKey, ruleSet, eventIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list requested unbatched events: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*domain.InboxEntry
+	for rows.Next() {
+		var e domain.InboxEntry
+		if err := rows.Scan(
+			&e.TenantID, &e.EventID, &e.Status, &e.ExecutionID,
+			&e.FirstSeenAt, &e.CommittedAt,
+			&e.PartitionKey, &e.RuleSet, &e.Payload, &e.BatchID,
+		); err != nil {
+			return nil, fmt.Errorf("scan requested unbatched event: %w", err)
+		}
+		entries = append(entries, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate requested unbatched events: %w", err)
+	}
+	return entries, nil
+}
+
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE inbox SET batch_id = $3
