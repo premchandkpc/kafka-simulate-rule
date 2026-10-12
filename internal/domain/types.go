@@ -108,6 +108,7 @@ type TenantDomain struct {
 }
 
 // DomainService is a tenant-owned HTTP consumer and its domain subscriptions.
+// nolint:revive // type name stutters with package name but is a domain concept
 type DomainService struct {
 	ID          string    `json:"id"`
 	TenantID    string    `json:"tenant_id"`

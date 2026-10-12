@@ -641,11 +641,6 @@ type NestedType struct {
 	Fields []FieldInfo
 }
 
-func (g *Generator) buildFields() []FieldInfo {
-	fields, _ := g.buildFieldsAndNestedTypes()
-	return fields
-}
-
 func (g *Generator) buildFieldsAndNestedTypes() ([]FieldInfo, []NestedType) {
 	var nested []NestedType
 	fields := g.fieldInfos(g.schema.Fields, &nested)

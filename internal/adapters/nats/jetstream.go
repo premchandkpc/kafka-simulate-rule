@@ -317,14 +317,14 @@ func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []ui
 	if selectedCount > maxMessages {
 		selectedCount = maxMessages
 	}
-	start := int(c.fetchCursor % uint64(len(keys)))
+	start := int(c.fetchCursor % uint64(len(keys))) //nolint:gosec // bounded by len(keys)
 	selected := make([]consumerKey, selectedCount)
 	durables := make(map[consumerKey]string, selectedCount)
 	for i := 0; i < selectedCount; i++ {
 		selected[i] = keys[(start+i)%len(keys)]
 		durables[selected[i]] = c.consumers[selected[i]]
 	}
-	c.fetchCursor = uint64((start + selectedCount) % len(keys))
+	c.fetchCursor = uint64((start + selectedCount) % len(keys)) //nolint:gosec // bounded by len(keys)
 	c.mu.Unlock()
 
 	type fetchResult struct {
@@ -340,7 +340,7 @@ func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []ui
 			budget++
 		}
 		wg.Add(1)
-		go func(key consumerKey, durable string, budget int) {
+		go func(_ consumerKey, durable string, budget int) {
 			defer wg.Done()
 			consumer, err := c.js.Consumer(ctx, c.stream, durable)
 			if err != nil {
