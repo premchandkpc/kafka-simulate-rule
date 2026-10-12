@@ -1,8 +1,7 @@
 // Example domain definitions bundled at build time. They are only seed sources for "Save to database":
 // the console writes them to the FlowRule database through the management API,
 // and the catalog page reads the stored copies back from the API.
-import { branchesFromRevision, layoutRuleFlow } from "./flow-layout";
-export { branchesFromRevision, layoutRuleFlow };
+export { branchesFromRevision, layoutRuleFlow } from "./flow-layout";
 export type { FlowNode, FlowReachability, FlowRuleBranch } from "./flow-layout";
 
 export type CatalogKind = "contract" | "rule";
