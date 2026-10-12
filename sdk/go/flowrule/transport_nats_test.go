@@ -16,7 +16,9 @@ func TestNATSSubjectRoutingUsesConfiguredRuleSet(t *testing.T) {
 }
 
 func TestNATSSubjectRoutingKeepsLegacyForUnconfiguredRuleSet(t *testing.T) {
-	if got, want := natsSubjectForEnvelope("events", 2, "payments.created", []string{"orders.created"}); got != want {
+	want := "events.shard.2"
+	got := natsSubjectForEnvelope("events", 2, "payments.created", []string{"orders.created"})
+	if got != want {
 		t.Fatalf("natsSubjectForEnvelope() = %q, want %q", got, want)
 	}
 }
