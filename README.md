@@ -28,7 +28,7 @@ NATS delivery is at-least-once. The inbox prevents duplicate event execution whe
 
 ## Tenant domains and receiving services
 
-The console's **Domains & services** page manages tenant-owned event domains and HTTP callback services. A domain groups event type names; a service subscribes to one or more domains. After a matching event commits a successful active-rule execution, the worker adds one service delivery per active subscriber to the same transaction's outbox. Events that have no active rule do not trigger service callbacks.
+Tenant-owned event domains and HTTP callback services are managed through the `/v1/domains` and `/v1/services` APIs (the console no longer has a page for them; example services consume from NATS directly). A domain groups event type names; a service subscribes to one or more domains. After a matching event commits a successful active-rule execution, the worker adds one service delivery per active subscriber to the same transaction's outbox. Events that have no active rule do not trigger service callbacks.
 
 Callbacks are delivered as the original JSON event envelope using `POST` with `Content-Type: application/json`, `Idempotency-Key`, `X-FlowRule-Tenant-ID`, `X-FlowRule-Service-ID`, `X-FlowRule-Effect-ID`, and `X-FlowRule-Event-ID` headers. The effect ID identifies the durable outbox delivery and remains stable across retries; the event ID identifies the source event and is also present in the envelope. Respond with a 2xx status; other statuses and transport failures are retried by the outbox. Receivers must deduplicate because delivery is at-least-once.
 

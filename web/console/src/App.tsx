@@ -4,7 +4,7 @@ import { CATALOG, DOMAIN_LABELS, branchesFromRevision, layoutRuleFlow, type Flow
 
 type Settings = { apiBase: string; tenant: string; token: string; workerMetrics: string; lokiBase: string; lokiQuery: string };
 type WorkerSnapshot = { url: string; name: string; online: boolean; checkedAt: number; inFlight: number | null; activeKeys: number | null; shards: number | null; executions: Array<{ ruleSet: string; status: string; count: number }> ; error?: string };
-type NavKey = "overview" | "simulations" | "services" | "catalog" | "api" | "codegen" | "workers" | "rules" | "logs";
+type NavKey = "overview" | "simulations" | "catalog" | "api" | "codegen" | "workers" | "rules" | "logs";
 type SimulationScenario = "all" | "ecommerce" | "banking" | "food-delivery";
 type TenantDomain = { id: string; name: string; event_types: string[] };
 type DomainService = { id: string; name: string; endpoint_url: string; domain_ids: string[]; active: boolean };
@@ -67,7 +67,6 @@ const coverageHint = (workers: WorkerSnapshot[], pick: (w: WorkerSnapshot) => nu
 const DEFAULT_SETTINGS: Settings = { apiBase: "/api", tenant: "development-tenant", token: "", workerMetrics: "/worker-metrics/metrics", lokiBase: "/", lokiQuery: '{service_name=~"api|worker|console|postgres|nats|redis|loki|promtail"}' };
 const NAV: Array<{ id: NavKey; label: string; icon: string }> = [
   { id: "overview", label: "Overview", icon: "◫" }, { id: "simulations", label: "Simulations", icon: "⇢" },
-  { id: "services", label: "Domains & services", icon: "⌁" },
   { id: "catalog", label: "Domain catalog", icon: "▤" },
   { id: "api", label: "API explorer", icon: "⌘" },
   { id: "codegen", label: "Code generation", icon: "⟐" }, { id: "workers", label: "Workers & rules", icon: "▦" },
@@ -315,7 +314,7 @@ function RuleStudio({ settings, activeRules, contracts: allContracts, onChanged 
     <div className="page-intro"><h2>Rule studio</h2><p>Rules belong to a domain. Pick a domain, open one of its rule sets, check it against sample event data, then activate it as a new revision. Nothing is saved until you activate.</p></div>
     <div className="studio-domains" role="tablist" aria-label="Domain">
       {domains.map(d => { const n = activeRules.filter(r => (d.event_types ?? []).includes(r.rule_set || r.rule_id)).length; return <button key={d.id} role="tab" aria-selected={d.name === domainName} className={d.name === domainName ? "active" : ""} onClick={() => setDomainName(d.name)}><strong>{d.name}</strong><small>{n} rule sets · {(d.event_types ?? []).length} event types</small></button>; })}
-      {domains.length === 0 && <p className="studio-muted">No domains yet. Create one under Domains &amp; services or save an example domain from the Domain catalog.</p>}
+      {domains.length === 0 && <p className="studio-muted">No domains yet. Save an example domain from the Domain catalog.</p>}
     </div>
     {message && <div className={`notice ${message.tone === "error" ? "notice-error" : ""}`} role="status">{message.text}</div>}
     <div className="studio-grid">
@@ -565,17 +564,11 @@ export default function App() {
   const [simulationLogsBusy, setSimulationLogsBusy] = useState(false);
   const [simulationLogsError, setSimulationLogsError] = useState("");
   const [tenantDomains, setTenantDomains] = useState<TenantDomain[]>([]);
-  const [tenantServices, setTenantServices] = useState<DomainService[]>([]);
-  const [registryBusy, setRegistryBusy] = useState(false);
   const [storedContracts, setStoredContracts] = useState<any[]>([]);
   const [storedRules, setStoredRules] = useState<any[]>([]);
   const [catalogBusy, setCatalogBusy] = useState("");
   const [catalogMessage, setCatalogMessage] = useState("");
   const [catalogView, setCatalogView] = useState<{ title: string; body: string } | null>(null);
-  const [registryError, setRegistryError] = useState("");
-  const [domainDraft, setDomainDraft] = useState<TenantDomain>({ id: "", name: "", event_types: [] });
-  const [domainEventsInput, setDomainEventsInput] = useState("");
-  const [serviceDraft, setServiceDraft] = useState<DomainService>({ id: "", name: "", endpoint_url: "", domain_ids: [], active: true });
   const [simulationScenario, setSimulationScenario] = useState<SimulationScenario>("all");
   const [simulationPace, setSimulationPace] = useState(4000);
   const [simulationEvents, setSimulationEvents] = useState<SimulationEvent[]>([]);
@@ -592,23 +585,9 @@ export default function App() {
 
   const saveSettings = (next: Settings) => { setSettings(next); localStorage.setItem("flowrule-console-settings", JSON.stringify(next)); setSettingsOpen(false); setHealth("checking"); };
   const loadDomainServices = useCallback(async () => {
-    setRegistryBusy(true);
-    setRegistryError("");
-    try {
-      const [domainsResponse, servicesResponse] = await Promise.all([
-        apiRequest(settings, "/v1/domains"),
-        apiRequest(settings, "/v1/services"),
-      ]);
-      setTenantDomains(asArray(domainsResponse) as TenantDomain[]);
-      setTenantServices(asArray(servicesResponse) as DomainService[]);
-    } catch (e) {
-      setRegistryError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRegistryBusy(false);
-    }
+    try { setTenantDomains(asArray(await apiRequest(settings, "/v1/domains")) as TenantDomain[]); } catch { /* domains are optional context */ }
   }, [settings]);
   useEffect(() => {
-    if (nav === "services") void loadDomainServices();
   }, [nav, loadDomainServices]);
   const loadCatalog = useCallback(async () => {
     setCatalogBusy("load");
@@ -761,49 +740,6 @@ export default function App() {
     if (!window.confirm(`Deactivate rule set "${id}"?`)) return;
     try { await apiRequest(settings, `/v1/rules/${encodeURIComponent(id)}/revisions/${encodeURIComponent(String(revision || 1))}`, { method: "DELETE" }); await refresh(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  };
-  const saveDomain = async () => {
-    setRegistryError("");
-    try {
-      const eventTypes = [...new Set(domainEventsInput.split(/[,\n]+/).map(value => value.trim()).filter(Boolean))];
-      const body = { name: domainDraft.name, event_types: eventTypes };
-      const path = domainDraft.id ? `/v1/domains/${encodeURIComponent(domainDraft.id)}` : "/v1/domains";
-      await apiRequest(settings, path, { method: domainDraft.id ? "PUT" : "POST", body: JSON.stringify(body) });
-      setDomainDraft({ id: "", name: "", event_types: [] });
-      setDomainEventsInput("");
-      await loadDomainServices();
-    } catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
-  };
-  const editDomain = (item: TenantDomain) => {
-    setDomainDraft(item);
-    setDomainEventsInput(item.event_types.join(", "));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-  const deleteDomain = async (item: TenantDomain) => {
-    if (!window.confirm(`Delete domain "${item.name}"? Services will lose this subscription.`)) return;
-    setRegistryError("");
-    try { await apiRequest(settings, `/v1/domains/${encodeURIComponent(item.id)}`, { method: "DELETE" }); await loadDomainServices(); }
-    catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
-  };
-  const saveDomainService = async () => {
-    setRegistryError("");
-    try {
-      const body = { name: serviceDraft.name, endpoint_url: serviceDraft.endpoint_url, domain_ids: serviceDraft.domain_ids };
-      const path = serviceDraft.id ? `/v1/services/${encodeURIComponent(serviceDraft.id)}` : "/v1/services";
-      await apiRequest(settings, path, { method: serviceDraft.id ? "PUT" : "POST", body: JSON.stringify(body) });
-      setServiceDraft({ id: "", name: "", endpoint_url: "", domain_ids: [], active: true });
-      await loadDomainServices();
-    } catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
-  };
-  const editDomainService = (item: DomainService) => {
-    setServiceDraft(item);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-  const deleteDomainService = async (item: DomainService) => {
-    if (!window.confirm(`Deactivate service "${item.name}"? It will stop receiving new events.`)) return;
-    setRegistryError("");
-    try { await apiRequest(settings, `/v1/services/${encodeURIComponent(item.id)}`, { method: "DELETE" }); await loadDomainServices(); }
-    catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
   };
   useEffect(() => { simulationEventsRef.current = simulationEvents; }, [simulationEvents]);
   useEffect(() => () => {
@@ -1678,7 +1614,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="connection-line"><span className={health === "online" ? "dot green" : health === "offline" ? "dot red" : "dot amber"} />API {health}</div><button className="settings-link" onClick={() => setSettingsOpen(true)}>⚙ Settings</button><div className="version-label">FlowRule Console · React</div></div>
     </aside>
     <main className="main-area">
-      <header className="topbar"><div><div className="breadcrumbs">FlowRule <span>/</span> {NAV.find(item => item.id === nav)?.label}</div><h1>{({ overview: "Runtime overview", simulations: "Domain simulations", services: "Domains & services", api: "API explorer", codegen: "Contract code generation", workers: "Workers & rules", rules: "Rule management", logs: "Runtime logs" } as Record<NavKey,string>)[nav]}</h1></div><div className="top-actions"><span className="live-indicator"><i /> AUTO REFRESH · 10S</span><button className="icon-button" title="Refresh data" onClick={() => void refresh()} disabled={loading}>↻</button><button className="button secondary" onClick={() => setSettingsOpen(true)}>⚙ Settings</button><div className="avatar">FR</div></div></header>
+      <header className="topbar"><div><div className="breadcrumbs">FlowRule <span>/</span> {NAV.find(item => item.id === nav)?.label}</div><h1>{({ overview: "Runtime overview", simulations: "Domain simulations", api: "API explorer", codegen: "Contract code generation", workers: "Workers & rules", rules: "Rule management", logs: "Runtime logs" } as Record<NavKey,string>)[nav]}</h1></div><div className="top-actions"><span className="live-indicator"><i /> AUTO REFRESH · 10S</span><button className="icon-button" title="Refresh data" onClick={() => void refresh()} disabled={loading}>↻</button><button className="button secondary" onClick={() => setSettingsOpen(true)}>⚙ Settings</button><div className="avatar">FR</div></div></header>
       {error && <div className="alert error"><strong>API connection issue</strong><span>{error}</span><button onClick={() => setError("")}>×</button></div>}
       {nav === "overview" && <section className="page-content">
         <div className="welcome-row"><div><div className="eyebrow">SYSTEM SNAPSHOT</div><h2>Runtime at a glance</h2><p>Rules, workers, and contract generation in one place.</p></div><div className="updated">Last refreshed <strong>{lastRefresh?.toLocaleTimeString() || "—"}</strong></div></div>
@@ -1773,34 +1709,6 @@ export default function App() {
             </details>)}</div>}
         </section>
         <p className="simulation-footnote">Outbox destinations are shown exactly as configured. Emitted child events are followed to their next worker/rule-set execution; external service commands appear with their configured destination.</p>
-      </section>}
-      {nav === "services" && <section className="page-content registry-page">
-        <div className="page-intro"><h2>Tenant domains and receiving services</h2><p>Group event types into domains, then subscribe services to those domains. Matching events are delivered from the worker’s durable outbox.</p></div>
-        {registryError && <div className="alert error"><strong>Registry request failed</strong><span>{registryError}</span><button onClick={() => setRegistryError("")}>×</button></div>}
-        <div className="registry-grid">
-          <section className="panel">
-            <div className="panel-heading"><div><h3>{domainDraft.id ? "Update domain" : "Create a domain"}</h3><p>A domain names the event types a service can subscribe to.</p></div></div>
-            <label>Domain name<input value={domainDraft.name} onChange={event => setDomainDraft({ ...domainDraft, name: event.target.value })} placeholder="commerce"/></label>
-            <label>Event types <span className="muted">(comma or newline separated)</span><textarea value={domainEventsInput} onChange={event => setDomainEventsInput(event.target.value)} placeholder={"order.created, order.cancelled\nshipment.delivered"} rows={4}/></label>
-            <div className="registry-actions"><button className="button primary" onClick={() => void saveDomain()} disabled={registryBusy || !domainDraft.name.trim() || !domainEventsInput.trim()}>{domainDraft.id ? "Save domain changes" : "＋ Create domain"}</button>{domainDraft.id && <button className="button secondary" onClick={() => {setDomainDraft({id:"",name:"",event_types:[]});setDomainEventsInput("");}}>Cancel edit</button>}</div>
-          </section>
-          <section className="panel">
-            <div className="panel-heading"><div><h3>{serviceDraft.id ? "Update service" : "Connect a service"}</h3><p>HTTP callbacks are retried from the durable outbox; receivers should deduplicate by Idempotency-Key.</p></div></div>
-            <label>Service name<input value={serviceDraft.name} onChange={event => setServiceDraft({ ...serviceDraft, name: event.target.value })} placeholder="order-fulfillment"/></label>
-            <label>Callback URL<input type="url" value={serviceDraft.endpoint_url} onChange={event => setServiceDraft({ ...serviceDraft, endpoint_url: event.target.value })} placeholder="https://service.example.com/events"/></label>
-            <label>Subscribed domains<select multiple value={serviceDraft.domain_ids} onChange={event => setServiceDraft({ ...serviceDraft, domain_ids: Array.from(event.target.selectedOptions, option => option.value) })}>{tenantDomains.map(item => <option key={item.id} value={item.id}>{item.name} · {item.event_types.join(", ")}</option>)}</select></label>
-            <div className="registry-actions"><button className="button primary" onClick={() => void saveDomainService()} disabled={registryBusy || !serviceDraft.name.trim() || !serviceDraft.endpoint_url.trim() || serviceDraft.domain_ids.length === 0}>{serviceDraft.id ? "Save service changes" : "＋ Create service"}</button>{serviceDraft.id && <button className="button secondary" onClick={() => setServiceDraft({id:"",name:"",endpoint_url:"",domain_ids:[],active:true})}>Cancel edit</button>}</div>
-            <div className="info-callout"><strong>Callback safety</strong><p>Production endpoints must use HTTPS and resolve to public addresses. HTTP and private destinations are allowed only in development. Redirects are not followed.</p></div>
-          </section>
-        </div>
-        <section className="panel registry-list-panel">
-          <div className="panel-heading"><div><h3>Event domains</h3><p>Tenant · {settings.tenant || "not configured"}</p></div><button className="text-button" onClick={() => void loadDomainServices()} disabled={registryBusy}>{registryBusy ? "Refreshing…" : "↻ Refresh"}</button></div>
-          {tenantDomains.length === 0 ? <Empty title={registryBusy ? "Loading domains" : "No domains yet"} detail="Create a domain above with the event types that receiving services should consume."/> : <div className="registry-list">{tenantDomains.map(item => <article className="registry-row" key={item.id}><div className="registry-symbol">D</div><div className="registry-main"><strong>{item.name}</strong><small>{item.event_types.join(" · ")}</small><code>{item.id}</code></div><button className="button secondary" onClick={() => editDomain(item)}>Edit</button><button className="button danger-outline" onClick={() => void deleteDomain(item)}>Delete</button></article>)}</div>}
-        </section>
-        <section className="panel registry-list-panel">
-          <div className="panel-heading"><div><h3>Receiving services</h3><p>Subscribed services receive matching events only after the worker commits a successful rule execution.</p></div><span className="tracked-count">{tenantServices.length} registered</span></div>
-          {tenantServices.length === 0 ? <Empty title="No receiving services yet" detail="Connect a callback URL and choose one or more domains to subscribe."/> : <div className="registry-list">{tenantServices.map(item => <article className="registry-row" key={item.id}><div className="registry-symbol service-symbol">S</div><div className="registry-main"><strong>{item.name} <Status value={item.active ? "Active" : "Inactive"}/></strong><small>{item.endpoint_url}</small><span className="subscription-tags">{item.domain_ids.map(id => <span key={id}>{tenantDomains.find(domain => domain.id === id)?.name || id}</span>)}</span></div><button className="button secondary" onClick={() => editDomainService(item)}>Edit</button><button className="button danger-outline" onClick={() => void deleteDomainService(item)} disabled={!item.active}>{item.active ? "Deactivate" : "Inactive"}</button></article>)}</div>}
-        </section>
       </section>}
       {nav === "catalog" && <section className="page-content registry-page">
         <div className="page-intro page-intro-row"><div><h2>Domain catalog</h2><p>Contracts and rules for each example domain, as stored in the FlowRule database for tenant {settings.tenant}.</p></div><button className="button" onClick={() => void loadCatalog()} disabled={catalogBusy !== ""}>{catalogBusy === "load" ? "Refreshing…" : "Refresh"}</button></div>
