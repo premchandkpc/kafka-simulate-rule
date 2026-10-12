@@ -535,3 +535,56 @@ func TestCreateBatchRequiresLeaseProvider(t *testing.T) {
 		t.Fatalf("processed %d batch envelopes without lease context", len(events.envelopes))
 	}
 }
+
+func TestCompleteBatchRejectsConflictingMembershipWithoutPartialWrites(t *testing.T) {
+	batches := newMemBatches()
+	now := time.Now().UTC()
+	for _, id := range []string{"evt-1", "evt-2"} {
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
+			TenantID: "tenant-1", EventID: id, PartitionKey: "pk-1",
+			RuleSet: "orders", Status: domain.InboxStatusCommitted, FirstSeenAt: now,
+		}
+	}
+	batches.entries["tenant-1|evt-2"].BatchID = "another-batch"
+	run := &domain.BatchRun{
+		BatchID: "batch-1", TenantID: "tenant-1", PartitionKey: "pk-1",
+		RuleSet: "orders", Status: domain.BatchRunStatusCompleted, MemberCount: 2,
+	}
+
+	if err := batches.CompleteBatch(context.Background(), run, []string{"evt-1", "evt-2"}); err == nil {
+		t.Fatal("CompleteBatch accepted a member already assigned to another batch")
+	}
+	if got := batches.entries["tenant-1|evt-1"].BatchID; got != "" {
+		t.Fatalf("first member partially updated to %q after transaction failure", got)
+	}
+	if batches.runs["batch-1"] != nil {
+		t.Fatal("batch run was persisted despite membership conflict")
+	}
+}
+
+func TestCompleteBatchIsIdempotentForSameBatch(t *testing.T) {
+	batches := newMemBatches()
+	now := time.Now().UTC()
+	for _, id := range []string{"evt-1", "evt-2"} {
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
+			TenantID: "tenant-1", EventID: id, PartitionKey: "pk-1",
+			RuleSet: "orders", Status: domain.InboxStatusCommitted, FirstSeenAt: now,
+		}
+	}
+	run := &domain.BatchRun{
+		BatchID: "batch-1", TenantID: "tenant-1", PartitionKey: "pk-1",
+		RuleSet: "orders", Status: domain.BatchRunStatusCompleted, MemberCount: 2,
+	}
+	ctx := context.Background()
+	if err := batches.CompleteBatch(ctx, run, []string{"evt-1", "evt-2"}); err != nil {
+		t.Fatalf("first CompleteBatch() error = %v", err)
+	}
+	if err := batches.CompleteBatch(ctx, run, []string{"evt-1", "evt-2"}); err != nil {
+		t.Fatalf("idempotent CompleteBatch() error = %v", err)
+	}
+	for _, id := range []string{"evt-1", "evt-2"} {
+		if got := batches.entries["tenant-1|"+id].BatchID; got != run.BatchID {
+			t.Errorf("member %s batch ID = %q, want %q", id, got, run.BatchID)
+		}
+	}
+}
