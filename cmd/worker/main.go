@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/flowrule/flowrule/internal/adapters/effects"
 	"github.com/flowrule/flowrule/internal/adapters/nats"
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/config"
