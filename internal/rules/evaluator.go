@@ -30,7 +30,7 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 	for _, rule := range revision.Compiled {
 		ok, err := e.evalPredicate(rule.When, event.Data, facts)
 		if err != nil {
-			return nil, fmt.Errorf("rule %s: %w", rule.ID, err)
+			return nil, fmt.Errorf("rule %s: %w: %w", rule.ID, domain.ErrEvaluationError, err)
 		}
 
 		explanation := domain.RuleExplanation{
@@ -46,7 +46,7 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 			for i, action := range rule.Then {
 				effect, err := e.buildEffect(revision, event, rule.ID, i, action)
 				if err != nil {
-					return nil, fmt.Errorf("rule %s action %d: %w", rule.ID, i, err)
+					return nil, fmt.Errorf("rule %s action %d: %w: %w", rule.ID, i, domain.ErrEvaluationError, err)
 				}
 				effects = append(effects, effect)
 				actions = append(actions, describeAction(action))
@@ -62,7 +62,7 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 			for i, action := range rule.Otherwise {
 				effect, err := e.buildEffect(revision, event, rule.ID, i, action)
 				if err != nil {
-					return nil, fmt.Errorf("rule %s otherwise action %d: %w", rule.ID, i, err)
+					return nil, fmt.Errorf("rule %s otherwise action %d: %w: %w", rule.ID, i, domain.ErrEvaluationError, err)
 				}
 				effects = append(effects, effect)
 				actions = append(actions, describeAction(action))
@@ -133,13 +133,7 @@ func (e *Evaluator) evalPredicate(p domain.Predicate, data json.RawMessage, fact
 func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
 	val, err := resolvePath(p.Path, data, facts)
 	if err != nil {
-		if p.Op == domain.OpExists {
-			return false, nil
-		}
-		if p.Op == domain.OpNotExists {
-			return true, nil
-		}
-		return false, nil
+		return false, fmt.Errorf("%w: resolve predicate path %q: %w", domain.ErrEvaluationError, p.Path, err)
 	}
 
 	if p.Op == domain.OpExists {
