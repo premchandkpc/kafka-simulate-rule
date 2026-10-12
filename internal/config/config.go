@@ -92,7 +92,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Env:             getEnv("APP_ENV", "development"),
+			Env:             getEnv("APP_ENV", "production"),
 			LogLevel:        getEnv("LOG_LEVEL", "info"),
 			HTTPAddr:        getEnv("HTTP_ADDR", "127.0.0.1:8080"),
 			ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
@@ -202,7 +202,7 @@ func (c *Config) Validate() error {
 	// first-party JWT authentication or an explicitly configured trusted proxy.
 	// TenantExtractor independently validates the proxy token on every request.
 	env := strings.ToLower(strings.TrimSpace(c.App.Env))
-	localEnv := env == "" || env == "development" || env == "dev" || env == "test"
+	localEnv := env == "development" || env == "dev" || env == "test"
 	if !localEnv && !c.Auth.RequireAuth && strings.TrimSpace(os.Getenv("FLOWRULE_TRUSTED_PROXY_TOKEN")) == "" {
 		return fmt.Errorf("production authentication is not configured: set REQUIRE_AUTH=true with JWT_SECRET or configure FLOWRULE_TRUSTED_PROXY_TOKEN for a trusted proxy")
 	}
