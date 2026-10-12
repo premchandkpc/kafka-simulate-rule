@@ -20,6 +20,7 @@ func NewRuleHandler(ruleSvc ports.RuleService) *RuleHandler {
 }
 
 func (h *RuleHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/rules/check", h.CheckRule)
 	mux.HandleFunc("POST /v1/rules/{ruleSet}/revisions", h.CreateRevision)
 	mux.HandleFunc("GET /v1/rules/{ruleSet}/revisions", h.ListRevisions)
 	mux.HandleFunc("GET /v1/rules/{ruleSet}/revisions/{revision}", h.GetRevision)
@@ -145,4 +146,39 @@ func (h *RuleHandler) ListActiveRules(w http.ResponseWriter, r *http.Request) {
 		"active_rules": active,
 		"total":        len(active),
 	})
+}
+
+// CheckRule validates a rule source and optionally evaluates it against sample event
+// data. The body is JSON: {"source": "<YAML or JSON rule document>", "event_type": "...", "event": {...}}.
+func (h *RuleHandler) CheckRule(w http.ResponseWriter, r *http.Request) {
+	checker, ok := h.ruleSvc.(ports.RuleChecker)
+	if !ok {
+		responses.WriteError(w, http.StatusNotImplemented, "rule checking is not available", responses.CodeInternalError)
+		return
+	}
+	body, err := readRequestBody(r)
+	if err != nil {
+		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		return
+	}
+	var req struct {
+		Source    string          `json:"source"`
+		EventType string          `json:"event_type"`
+		Event     json.RawMessage `json:"event"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || req.Source == "" {
+		responses.WriteError(w, http.StatusBadRequest, "body must be JSON with a non-empty source", responses.CodeValidationFailed)
+		return
+	}
+	var document any
+	if err := decodeSingleYAMLDocument([]byte(req.Source), &document); err != nil {
+		responses.WriteOK(w, &ports.RuleCheckResult{Error: "source is not valid YAML or JSON: " + err.Error()})
+		return
+	}
+	source, err := json.Marshal(document)
+	if err != nil {
+		responses.WriteOK(w, &ports.RuleCheckResult{Error: err.Error()})
+		return
+	}
+	responses.WriteOK(w, checker.CheckRule(r.Context(), middleware.GetTenantID(r.Context()), req.EventType, source, req.Event))
 }

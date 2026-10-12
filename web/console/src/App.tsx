@@ -137,6 +137,166 @@ function observeTrace(node: TraceNode | undefined, seen: FlowObservation) {
   node.effects.forEach(effect => observeTrace(effect.child, seen));
 }
 
+
+const RULE_TEMPLATE = {
+  rule_set: "transaction.initiated", revision: 1, mode: "all_matches",
+  rules: [{
+    id: "high_value", name: "High value", priority: 100,
+    when: { path: "$.amount", op: "gte", value: 1000000 },
+    then: [{ emit_event: { type: "compliance.check", partition_key_policy: "inherit", data: { transaction_id: "{{$.transaction_id}}", amount: "{{$.amount}}", requested_at: "{{now}}" } } }],
+  }],
+};
+function sampleForContract(contract: any): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const build = (fields: Record<string, any>) => {
+    const obj: Record<string, unknown> = {};
+    for (const [name, field] of Object.entries(fields ?? {})) {
+      if (field.type === "number" || field.type === "integer") obj[name] = 1000;
+      else if (field.type === "boolean") obj[name] = true;
+      else if (field.type === "array") obj[name] = [];
+      else if (field.type === "object") obj[name] = field.fields ? build(field.fields) : {};
+      else if (field.format === "date-time") obj[name] = new Date().toISOString();
+      else obj[name] = `${name}-1`;
+    }
+    return obj;
+  };
+  return Object.assign(out, build(contract?.fields ?? {}));
+}
+type RuleCheck = { valid: boolean; error?: string; rule_set?: string; revision?: number; match_mode?: string; rule_count: number; evaluation_error?: string;
+  decision?: { matched_rules: string[]; effects: Array<{ name: string; destination: string; effect_type: string; payload: any }>; explanations?: Array<{ rule_id: string; rule_name?: string; matched: boolean; priority: number; reason: string; actions?: string[] }> } };
+
+function RuleStudio({ settings, activeRules, contracts, onChanged }: { settings: Settings; activeRules: any[]; contracts: any[]; onChanged: () => Promise<void> }) {
+  const [ruleSet, setRuleSet] = useState("");
+  const [source, setSource] = useState(JSON.stringify(RULE_TEMPLATE, null, 2));
+  const [sample, setSample] = useState('{\n  "transaction_id": "txn-1",\n  "amount": 2500000\n}');
+  const [check, setCheck] = useState<RuleCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkedSource, setCheckedSource] = useState("");
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [revisions, setRevisions] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const sourceDoc = useMemo(() => { try { return JSON.parse(source); } catch { return null; } }, [source]);
+  const sampleError = useMemo(() => { try { JSON.parse(sample); return ""; } catch (e) { return e instanceof Error ? e.message : "Invalid JSON"; } }, [sample]);
+
+  const runCheck = useCallback(async () => {
+    setChecking(true); setMessage(null);
+    try {
+      const body: Record<string, unknown> = { source, event_type: ruleSet.trim() || sourceDoc?.rule_set };
+      if (!sampleError && sample.trim()) body.event = JSON.parse(sample);
+      const result = unwrap(await apiRequest(settings, "/v1/rules/check", { method: "POST", body: JSON.stringify(body) })) as RuleCheck;
+      setCheck(result); setCheckedSource(source);
+    } catch (e) { setCheck(null); setMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) }); }
+    finally { setChecking(false); }
+  }, [settings, source, sample, sampleError, ruleSet, sourceDoc]);
+
+  useEffect(() => {
+    if (!source.trim()) return;
+    const timer = setTimeout(() => void runCheck(), 700);
+    return () => clearTimeout(timer);
+  }, [source, sample]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadRevisions = useCallback(async (name: string) => {
+    try { setRevisions(asArray(await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions`)).sort((a, b) => b.revision - a.revision)); } catch { setRevisions([]); }
+  }, [settings]);
+
+  const openRevision = async (name: string, revision: number, asNext: boolean) => {
+    setMessage(null);
+    try {
+      const rev = unwrap(await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions/${revision}`));
+      const doc = { ...(rev.source ?? {}) };
+      if (asNext) {
+        const latest = Math.max(revision, ...revisions.map(r => r.revision), 0);
+        doc.revision = latest + 1;
+      }
+      setRuleSet(name); setSource(JSON.stringify(doc, null, 2));
+      const contract = contracts.find(c => c.name === name);
+      if (contract) setSample(JSON.stringify(sampleForContract(contract), null, 2));
+      await loadRevisions(name);
+      setMessage({ tone: "ok", text: asNext ? `Loaded ${name} revision ${revision} as the base for revision ${doc.revision}.` : `Loaded ${name} revision ${revision}.` });
+    } catch (e) { setMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) }); }
+  };
+
+  const format = () => { if (sourceDoc) setSource(JSON.stringify(sourceDoc, null, 2)); };
+  const fillSample = () => {
+    const name = ruleSet.trim() || sourceDoc?.rule_set;
+    const contract = contracts.find(c => c.name === name);
+    if (!contract) { setMessage({ tone: "error", text: `No contract named "${name}" is stored. Save the domain from the Domain catalog first.` }); return; }
+    setSample(JSON.stringify(sampleForContract(contract), null, 2));
+  };
+  const deploy = async () => {
+    const name = ruleSet.trim() || sourceDoc?.rule_set;
+    setBusy(true); setMessage(null);
+    try {
+      await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions`, { method: "POST", headers: { "Content-Type": "application/yaml" }, body: source });
+      setMessage({ tone: "ok", text: `${name} revision ${sourceDoc?.revision} is compiled and active.` });
+      await onChanged(); await loadRevisions(name);
+    } catch (e) { setMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) }); }
+    finally { setBusy(false); }
+  };
+  const deactivate = async (name: string, revision: number) => {
+    if (!window.confirm(`Deactivate ${name} revision ${revision}?`)) return;
+    try { await apiRequest(settings, `/v1/rules/${encodeURIComponent(name)}/revisions/${revision}`, { method: "DELETE" }); await onChanged(); setMessage({ tone: "ok", text: `${name} deactivated.` }); }
+    catch (e) { setMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) }); }
+  };
+
+  const stale = check !== null && checkedSource !== source;
+  const jsonProblem = source.trim() && !sourceDoc ? "The editor holds JSON. Fix the syntax before checking." : "";
+  const canDeploy = !!check?.valid && !stale && !busy && !jsonProblem && !!(ruleSet.trim() || sourceDoc?.rule_set);
+  const pathWarnings = useMemo(() => {
+    const warnings: string[] = [];
+    const name = ruleSet.trim() || sourceDoc?.rule_set;
+    const contract = contracts.find(c => c.name === name);
+    if (!contract || !sourceDoc?.rules) return warnings;
+    const known = new Set(Object.keys(contract.fields ?? {}));
+    const visit = (p: any) => { if (!p) return; if (p.path) { const top = String(p.path).replace(/^\$\./, "").split(".")[0]; if (!known.has(top)) warnings.push(`${p.path} is not a field of contract ${contract.name} ${contract.version}`); } (p.all ?? p.any ?? []).forEach(visit); if (p.not) visit(p.not); };
+    sourceDoc.rules.forEach((r: any) => visit(r.when));
+    return [...new Set(warnings)];
+  }, [sourceDoc, ruleSet, contracts]);
+
+  return <section className="page-content rule-studio">
+    <div className="page-intro"><h2>Rule studio</h2><p>Open a stored rule set, edit it, check it against sample event data, then activate it as a new revision. Nothing is saved until you activate.</p></div>
+    {message && <div className={`notice ${message.tone === "error" ? "notice-error" : ""}`} role="status">{message.text}</div>}
+    <div className="studio-grid">
+      <aside className="panel studio-list">
+        <div className="panel-heading"><div><h3>Stored rule sets</h3><p>{activeRules.length} active</p></div><button className="text-button" onClick={() => { setRuleSet(""); setSource(JSON.stringify(RULE_TEMPLATE, null, 2)); setRevisions([]); setCheck(null); }}>+ New</button></div>
+        {activeRules.length === 0 ? <Empty title="No active rule sets" detail="Start from the template, or save a domain from the Domain catalog."/> :
+          <ul className="studio-rules">{activeRules.map(item => { const id = item.rule_set || item.rule_id; return <li key={id} className={ruleSet === id ? "selected" : ""}>
+            <button className="studio-rule-open" onClick={() => void openRevision(id, item.revision, false)}><strong>{id}</strong><small>revision {item.revision}</small></button>
+            <button className="text-button danger-text" onClick={() => void deactivate(id, item.revision)}>Deactivate</button>
+          </li>; })}</ul>}
+        {revisions.length > 0 && <><h4 className="studio-sub">Revisions of {ruleSet}</h4><ul className="studio-rules">{revisions.map(r => <li key={r.revision}><button className="studio-rule-open" onClick={() => void openRevision(ruleSet, r.revision, false)}><strong>Revision {r.revision}</strong><small>{r.match_mode} · {(r.compiled ?? []).length} rules</small></button><button className="text-button" onClick={() => void openRevision(ruleSet, r.revision, true)}>Edit as new</button></li>)}</ul></>}
+      </aside>
+      <section className="panel studio-editor">
+        <div className="panel-heading"><div><h3>{ruleSet || sourceDoc?.rule_set || "New rule set"}</h3><p>Revision {sourceDoc?.revision ?? "—"} · {sourceDoc?.mode ?? "first_match"}</p></div>
+          <div className="studio-actions"><button className="text-button" onClick={format} disabled={!sourceDoc}>Format</button><button className="button" onClick={() => void runCheck()} disabled={checking}>{checking ? "Checking…" : "Check"}</button><button className="button primary" onClick={() => void deploy()} disabled={!canDeploy} title={canDeploy ? "" : "Check the rule successfully first"}>{busy ? "Activating…" : "Activate revision"}</button></div></div>
+        <label>Rule set<input value={ruleSet} onChange={e => setRuleSet(e.target.value)} placeholder={sourceDoc?.rule_set || "transaction.initiated"}/></label>
+        <label>Rule source (JSON)<textarea className="code-editor rule-editor" value={source} onChange={e => setSource(e.target.value)} spellCheck={false}/></label>
+        {jsonProblem && <div className="notice notice-error">{jsonProblem}</div>}
+        <div className="panel-heading studio-sample-head"><div><h3>Sample event data</h3><p>Evaluated against the rule on every check</p></div><button className="text-button" onClick={fillSample}>Fill from contract</button></div>
+        <textarea className="code-editor studio-sample" value={sample} onChange={e => setSample(e.target.value)} spellCheck={false}/>
+        {sampleError && <div className="notice notice-error">Sample is not valid JSON: {sampleError}</div>}
+      </section>
+      <section className="panel studio-result">
+        <div className="panel-heading"><div><h3>Check result</h3><p>{checking ? "Checking…" : stale ? "Out of date — edit pending" : check ? "Up to date" : "Not checked yet"}</p></div>{check && <Status value={check.valid ? "Valid" : "Invalid"}/>}</div>
+        {!check && <Empty title="Nothing checked" detail="Edit the rule or sample; the check runs automatically."/>}
+        {check && !check.valid && <div className="notice notice-error studio-error">{check.error}</div>}
+        {check?.valid && <>
+          <dl className="studio-facts"><div><dt>Rules</dt><dd>{check.rule_count}</dd></div><div><dt>Mode</dt><dd>{check.match_mode}</dd></div><div><dt>Revision</dt><dd>{check.revision}</dd></div></dl>
+          {pathWarnings.length > 0 && <div className="notice notice-warn"><strong>Contract warnings</strong><ul>{pathWarnings.map(w => <li key={w}>{w}</li>)}</ul></div>}
+          {check.evaluation_error && <div className="notice notice-error">Evaluation failed: {check.evaluation_error}</div>}
+          {check.decision && <>
+            <h4 className="studio-sub">Rule by rule</h4>
+            <ul className="studio-explain">{(check.decision.explanations ?? []).map(x => <li key={x.rule_id} className={x.matched ? "matched" : "skipped"}><span className="studio-mark">{x.matched ? "✓" : "–"}</span><div><strong>{x.rule_name || x.rule_id}</strong><small>priority {x.priority} · {x.reason}</small>{x.actions?.map(act => <code key={act}>{act}</code>)}</div></li>)}</ul>
+            <h4 className="studio-sub">Effects ({check.decision.effects.length})</h4>
+            {check.decision.effects.length === 0 ? <p className="studio-muted">No rule matched this sample, so nothing would be emitted.</p> : check.decision.effects.map((fx, i) => <div className="studio-effect" key={i}><header><strong>{fx.name}</strong><small>{fx.effect_type} → {fx.destination}</small></header><pre className="response-box">{JSON.stringify(fx.payload, null, 2)}</pre></div>)}
+          </>}
+        </>}
+      </section>
+    </div>
+  </section>;
+}
+
 function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { settings: Settings; scenario: string; startRuleSet: string; events: SimulationEvent[]; running: boolean }) {
   const [stored, setStored] = useState<Map<string, FlowRuleBranch[]>>(new Map());
   const [loadError, setLoadError] = useState("");
@@ -739,7 +899,7 @@ export default function App() {
       {nav === "api" && <section className="page-content"><div className="page-intro"><h2>Explore the management API</h2><p>Send requests against the running FlowRule API. Mutating requests use your configured tenant and token.</p></div><div className="api-layout"><section className="panel endpoint-panel"><div className="panel-heading"><div><h3>Known endpoints</h3><p>Routes registered by the current API</p></div></div>{ROUTES.map(route => <button className={apiPath === route.path ? "endpoint selected-endpoint" : "endpoint"} key={route.method+route.path} onClick={() => {setApiPath(route.path);setApiMethod(route.method);}}><span className={`method method-${route.method.toLowerCase()}`}>{route.method}</span><span><strong>{route.path}</strong><small>{route.description}</small></span></button>)}</section><section className="panel request-panel"><div className="panel-heading"><div><h3>Request builder</h3><p>Base URL: {normalizeBase(settings.apiBase)}</p></div></div><div className="form-row"><label>Method<select value={apiMethod} onChange={e=>setApiMethod(e.target.value)}>{["GET","POST","DELETE","PUT","PATCH"].map(m=><option key={m}>{m}</option>)}</select></label><label className="grow">Path<input value={apiPath} onChange={e=>setApiPath(e.target.value)} placeholder="/v1/rules/active"/></label></div><label>JSON body {apiMethod === "GET" || apiMethod === "DELETE" ? <span className="muted">(not sent for this method)</span> : null}<textarea className="code-editor request-editor" value={apiBody} onChange={e=>setApiBody(e.target.value)} spellCheck={false}/></label><div className="request-actions"><button className="button primary" onClick={() => void runApi()} disabled={apiBusy}>{apiBusy ? "Sending…" : "▶ Send request"}</button><span className="muted">X-Tenant-ID is included automatically</span></div><div className="response-heading"><h4>Response</h4>{apiResult && <button className="text-button" onClick={() => navigator.clipboard?.writeText(apiResult)}>Copy</button>}</div><pre className="response-box">{apiResult || "Send a request to inspect its response."}</pre></section></div></section>}
       {nav === "codegen" && <section className="page-content"><div className="page-intro"><h2>Contracts → generated artifacts</h2><p>Register a schema, select a stored version, and invoke the existing server-side generator.</p></div><div className="content-grid codegen-grid"><section className="panel"><div className="panel-heading"><div><h3>Register contract</h3><p>Requires contracts:admin outside local development</p></div></div><label>Contract name<input value={contractName} onChange={e=>setContractName(e.target.value)} placeholder="transaction.initiated"/></label><label>Version<input value={contractVersion} onChange={e=>setContractVersion(e.target.value)} placeholder="v1"/></label><label>Schema payload (JSON)<textarea className="code-editor schema-editor" value={contractSchema} onChange={e=>setContractSchema(e.target.value)} spellCheck={false}/></label><button className="button primary" disabled={codegenBusy} onClick={() => void createContract()}>{codegenBusy ? "Working…" : "＋ Register contract"}</button></section><section className="panel"><div className="panel-heading"><div><h3>Generate code</h3><p>Generated artifacts are written on the API server</p></div></div><label>Registered contract<select value={selectedContract} onChange={e=>setSelectedContract(e.target.value)}><option value="">Select a contract version…</option>{contracts.map((c,i)=>{const name=c.name || c.contract_name || "unnamed"; const version=c.version || "v1";return <option key={name+version+i} value={name+"@"+version}>{name} · {version}</option>;})}</select></label><label>Target language<select value={language} onChange={e=>setLanguage(e.target.value)}>{[["go","Go"],["java","Java"],["protobuf","Protocol Buffers"],["jsonschema","JSON Schema"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><div className="info-callout"><strong>Server-side output</strong><p>For safety, output stays inside the API server's managed temporary directory. This API returns generated file paths, not file contents or a download archive. To write typed code into an example, run <code>make generate-domain DOMAIN=banking</code> (or ecommerce, food-delivery); output lands in domain-builds/&lt;domain&gt;, which the example services import.</p></div><button className="button primary" disabled={codegenBusy || !selectedContract} onClick={() => void generate()}>{codegenBusy ? "Generating…" : "⚡ Generate artifacts"}</button>{generated && <div className="result-panel"><div className="result-heading"><strong>{generated.error ? "Operation failed" : generated.operation || "Generation result"}</strong><Status value={generated.error ? "Error" : "Complete"}/></div><pre className="response-box">{JSON.stringify(generated.error ? {error:generated.error} : generated, null, 2)}</pre></div>}</section></div></section>}
       {nav === "workers" && <section className="page-content"><div className="page-intro page-intro-row"><div><h2>Worker fleet & rule throughput</h2><p>Each worker is scraped independently. Rule counts are cumulative process counters, not in-flight rule executions.</p></div><button className="button secondary" onClick={() => setSettingsOpen(true)}>Configure workers</button></div>{workers.length === 0 ? <section className="panel"><Empty title="Worker telemetry is not configured" detail="Add each worker's private Prometheus /metrics endpoint in Settings. This page intentionally does not infer worker health from API liveness."/><button className="button primary centered-button" onClick={() => setSettingsOpen(true)}>Configure metrics URLs</button></section> : <><div className="metric-grid"><MetricCard label="Workers online" value={`${onlineWorkers}/${workers.length}`} hint="Successful metrics scrapes" icon="▦"/><MetricCard label="In-flight events" value={workers.reduce((n,w)=>n+(w.inFlight||0),0)} hint="Sum of current worker gauges" icon="↻"/><MetricCard label="Active partition keys" value={workers.reduce((n,w)=>n+(w.activeKeys||0),0)} hint="Process-local queue gauges" icon="⌘"/><MetricCard label="Cumulative executions" value={executionTotal.toLocaleString()} hint="Summed execution counters" icon="↗"/></div><div className="worker-cards">{workers.map(worker=><section className="panel worker-card" key={worker.url}><div className="worker-card-header"><div className="worker-symbol large">▦</div><div className="grow"><h3>{worker.name}</h3><p>{worker.url}</p></div><Status value={worker.online ? "Online" : "Unreachable"}/></div>{worker.error ? <div className="alert error">{worker.error}</div> : <><div className="worker-kpis"><div><small>In flight</small><strong>{worker.inFlight ?? "—"}</strong></div><div><small>Active keys</small><strong>{worker.activeKeys ?? "—"}</strong></div><div><small>Owned shards</small><strong>{worker.shards ?? "—"}</strong></div></div><h4>Rule execution counters</h4>{worker.executions.length ? worker.executions.map(item=><div className="throughput-row" key={item.ruleSet}><span>{item.ruleSet}</span><div className="bar-track"><i style={{width:`${Math.max(2, item.count / Math.max(...worker.executions.map(x=>x.count),1)*100)}%`}}/></div><strong>{item.count.toLocaleString()}</strong></div>) : <p className="muted">No execution series exposed by this worker yet.</p>}</> }<div className="worker-footer">Last scrape: {new Date(worker.checkedAt).toLocaleTimeString()}</div></section>)}</div></>}</section>}
-      {nav === "rules" && <section className="page-content"><div className="page-intro"><h2>Rule lifecycle</h2><p>Inspect active revisions and deploy a new rule source through the compile-and-activate endpoint.</p></div><div className="content-grid rules-layout"><section className="panel"><div className="panel-heading"><div><h3>Deploy revision</h3><p>JSON or YAML rule source, maximum 1 MiB</p></div></div><label>Rule set<input value={ruleSet} onChange={e=>setRuleSet(e.target.value)} placeholder="transaction.initiated"/></label><label>Rule source<textarea className="code-editor rule-editor" value={ruleSource} onChange={e=>setRuleSource(e.target.value)} spellCheck={false}/></label><button className="button primary" onClick={() => void deployRule()} disabled={loading}>{loading ? "Compiling…" : "▶ Compile & activate"}</button>{ruleResult && <pre className="response-box result-inline">{ruleResult}</pre>}</section><section className="panel"><div className="panel-heading"><div><h3>Active rules</h3><p>{activeRules.length} record(s) returned by the API</p></div><button className="text-button" onClick={() => void refresh()}>Refresh ↻</button></div>{activeRules.length === 0 ? <Empty title="Nothing active" detail="Check the tenant setting or deploy a rule revision."/> : <div className="table-wrap"><table><thead><tr><th>Rule set</th><th>Revision</th><th>Status</th><th>Action</th></tr></thead><tbody>{activeRules.map((item,i)=>{const id=item.rule_id || item.rule_set || item.ruleSet || item.id || "unknown";return <tr key={id+i}><td><strong>{id}</strong><small className="table-sub">{item.tenant_id || item.tenantID || ""}</small></td><td>{item.revision ?? item.active_revision ?? "—"}</td><td><Status value={item.status || "Active"}/></td><td><button className="text-button danger-text" onClick={()=>void deactivateRule(item)}>Deactivate</button></td></tr>;})}</tbody></table></div>}</section></div></section>}
+      {nav === "rules" && <RuleStudio settings={settings} activeRules={activeRules} contracts={contracts} onChanged={refresh}/>}
       {nav === "logs" && <section className="page-content"><div className="page-intro page-intro-row"><div><h2>Runtime logs</h2><p>Query recent structured logs from your configured Loki-compatible log backend.</p></div><button className="button primary" onClick={() => void loadLogs()} disabled={logsBusy}>{logsBusy ? "Querying…" : "↻ Query last hour"}</button></div>{logsError && <div className="alert info"><strong>Log source</strong><span>{logsError}</span><button onClick={() => setSettingsOpen(true)}>Configure</button></div>}<section className="panel"><div className="panel-heading"><div><h3>Log stream</h3><p>Most recent 200 entries from the last hour</p></div><span className="muted">{logs.length} entries</span></div>{logs.length === 0 ? <Empty title="No log entries loaded" detail="Set the Loki base URL and query in Settings, then query the stream. The application does not currently provide a log-tail HTTP endpoint."/> : <div className="logs-list">{logs.map((log,i)=><div className="log-row" key={i}><time>{log.timestamp}</time><span className="log-level">{String(log.line).match(/\b(ERROR|WARN|INFO|DEBUG)\b/)?.[1] || "LOG"}</span><code>{log.line}</code><button className="copy-log" onClick={()=>navigator.clipboard?.writeText(log.line)}>Copy</button></div>)}</div>}</section></section>}
       <footer className="footer"><span>FlowRule Console</span><span>Data refreshes every 10 seconds · {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Waiting for first refresh"}</span></footer>
     </main>

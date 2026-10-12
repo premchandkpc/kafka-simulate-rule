@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -70,4 +71,23 @@ type QuarantineService interface {
 	Replay(ctx context.Context, tenantID, id string) error
 	Delete(ctx context.Context, tenantID, id string) error
 	ReplayAndDelete(ctx context.Context, tenantID, id string) error
+}
+
+// RuleCheckResult is the outcome of a dry-run compile and optional evaluation.
+type RuleCheckResult struct {
+	Valid       bool             `json:"valid"`
+	Error       string           `json:"error,omitempty"`
+	RuleSet     string           `json:"rule_set,omitempty"`
+	Revision    int64            `json:"revision,omitempty"`
+	MatchMode   string           `json:"match_mode,omitempty"`
+	ContentHash string           `json:"content_hash,omitempty"`
+	RuleCount   int              `json:"rule_count"`
+	Decision    *domain.Decision `json:"decision,omitempty"`
+	EvalError   string           `json:"evaluation_error,omitempty"`
+}
+
+// RuleChecker compiles a rule source and optionally evaluates it against sample
+// event data without saving or activating anything.
+type RuleChecker interface {
+	CheckRule(ctx context.Context, tenantScope, eventType string, source []byte, sampleData json.RawMessage) *RuleCheckResult
 }

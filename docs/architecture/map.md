@@ -208,3 +208,7 @@ Do not turn this table into claims of completion without changes and tests. A fo
 ## Domain builds
 
 `domains/<domain>/builds/go/` holds typed Go code generated from contracts stored in the database (`make generate-domain DOMAIN=<domain>`). Each is a separate Go module depending on `sdk/go/flowrule`; example services depend on it through `replace` directives. Run `make verify-generated` to compile them.
+
+## Rule check API
+
+`POST /v1/rules/check` is a dry run used by the console Rule studio. Body: `{"source": "<YAML or JSON rule set>", "event_type"?: string, "event"?: object}`. It compiles the source and, when `event` is given, evaluates it against a synthetic envelope and returns the decision (rule explanations, matched rules, effects). Nothing is persisted or activated; compile errors return HTTP 200 with `valid:false`. Implemented in `internal/services/rules/check.go`; the handler returns 501 if the rule service does not implement `ports.RuleChecker`.
