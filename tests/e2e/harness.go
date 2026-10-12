@@ -130,7 +130,7 @@ func StartStack(t *testing.T) *TestEnv {
 			LeaseTTLMS:              10000,
 			LeaseRenewalIntervalMS:  3000,
 			NATSAckWaitMS:           5000,
-			NATSMaxDeliver:          5,
+			NATSMaxDeliver:          -1,
 			HotKeyThreshold:         100,
 			HotKeyCheckIntervalMS:   5000,
 		},
