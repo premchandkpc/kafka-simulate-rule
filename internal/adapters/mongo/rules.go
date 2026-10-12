@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -43,7 +44,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 		"rule_set":     ruleSet,
 	}).Decode(&activation)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)
@@ -56,7 +57,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 		"revision":     activation.Revision,
 	}).Decode(&revision)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -75,7 +76,7 @@ func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string
 		"revision":     revisionNum,
 	}).Decode(&revision)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get revision: %w", err)
@@ -203,7 +204,7 @@ func (r *ActivationRepository) Get(ctx context.Context, tenantScope string, rule
 		"rule_set":     ruleSet,
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get activation: %w", err)
@@ -253,7 +254,7 @@ func (r *ActivationRepository) SetWithVersion(ctx context.Context, activation *d
 	var result ActivationDoc
 	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return domain.ErrActivationConflict
 		}
 		return fmt.Errorf("set activation with version: %w", err)

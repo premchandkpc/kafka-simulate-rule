@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -42,7 +42,7 @@ func retryDelayForDelivery(base time.Duration, delivery ports.Delivery) time.Dur
 	if jitterRange <= 0 {
 		return ceiling
 	}
-	return lower + time.Duration(rand.Int63n(jitterRange+1))
+	return lower + time.Duration(rand.Int64N(jitterRange+1))
 }
 
 func (w *Worker) processDelivery(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {

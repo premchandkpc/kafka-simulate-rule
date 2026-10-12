@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -108,7 +109,7 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 			options.FindOneAndUpdate().SetReturnDocument(options.After),
 		).Decode(&doc)
 		if err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				continue
 			}
 			return nil, fmt.Errorf("claim scheduled event: %w", err)
@@ -196,7 +197,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 	var doc ScheduledDoc
 	err := coll.FindOne(ctx, bson.M{"tenant_id": tenantID, "event_id": eventID}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get scheduled event: %w", err)

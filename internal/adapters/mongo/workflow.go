@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -56,7 +57,7 @@ func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID strin
 		{Key: "tenant_id", Value: tenantID},
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow: %w", err)
@@ -261,7 +262,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 		{Key: "version", Value: version},
 	}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get workflow definition: %w", err)

@@ -133,7 +133,7 @@ func (s *Service) SaveService(ctx context.Context, tenantID string, item *domain
 		return nil, fmt.Errorf("%w: service name and at most %d domain_ids are required", ErrInvalidInput, maxDomainsPerService)
 	}
 	if err := validateEndpoint(item.EndpointURL, s.allowHTTP); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	}
 	for _, domainID := range item.DomainIDs {
 		if _, err := s.GetDomain(ctx, tenantID, domainID); err != nil {

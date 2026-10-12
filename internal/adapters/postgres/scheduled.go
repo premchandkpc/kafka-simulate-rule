@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -155,7 +156,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 		&evt.Status, &evt.CreatedAt, &releasedAt, &evt.RetryAt, &evt.RetryCount, &evt.LastError,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get scheduled event: %w", err)
