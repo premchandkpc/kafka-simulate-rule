@@ -59,7 +59,10 @@ func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 		cfg.AckWait = 30 * time.Second
 	}
 	if cfg.MaxDeliver == 0 {
-		cfg.MaxDeliver = 10
+		// Never strand an unacknowledged work-queue message after a finite
+		// delivery count. The runtime requires an explicit durable recovery
+		// workflow before finite MaxDeliver values can be enabled.
+		cfg.MaxDeliver = -1
 	}
 
 	conn, err := connect(cfg)
