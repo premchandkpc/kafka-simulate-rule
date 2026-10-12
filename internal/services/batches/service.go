@@ -83,13 +83,18 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	groups := make(map[string][]*domain.InboxEntry)
-	order := make([]string, 0)
+	type groupKey struct {
+		tenantID     string
+		partitionKey string
+		ruleSet      string
+	}
+	groups := make(map[groupKey][]*domain.InboxEntry)
+	order := make([]groupKey, 0)
 	for _, e := range entries {
 		if e.TenantID == "" || e.PartitionKey == "" || e.RuleSet == "" {
 			continue
 		}
-		key := e.TenantID + "|" + e.PartitionKey + "|" + e.RuleSet
+		key := groupKey{tenantID: e.TenantID, partitionKey: e.PartitionKey, ruleSet: e.RuleSet}
 		if _, ok := groups[key]; !ok {
 			order = append(order, key)
 		}
@@ -196,7 +201,7 @@ func (s *Service) ListBatches(ctx context.Context, tenantID, ruleSet string, lim
 func (s *Service) ready(members []*domain.InboxEntry) bool {
 	switch s.cfg.Mode {
 	case domain.BatchModeAccumulate:
-		return len(members) >= s.cfg.MaxBatch
+		return s.cfg.MaxBatch > 0 && len(members) >= s.cfg.MaxBatch
 	case domain.BatchModeWindow:
 		oldest := members[0].FirstSeenAt
 		return !s.clock.Now().Before(oldest.Add(s.cfg.Window))
@@ -281,6 +286,9 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		return 0, fmt.Errorf("batch processing requires a configured shard lease provider and worker ID")
 	}
 	shard := envelope.VirtualShard(s.numShards)
+	if !s.leaseProvider.IsOwner(shard) {
+		return 0, domain.ErrFencingTokenMismatch
+	}
 	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
 	if !ok || fencingToken <= 0 {
 		return 0, domain.ErrFencingTokenMismatch
