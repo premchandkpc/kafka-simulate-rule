@@ -209,7 +209,7 @@ func (c *Consumer) ensureConsumerLocked(ctx context.Context, key consumerKey) er
 	if key.ruleSet != "" {
 		token := ruleSetToken(key.ruleSet)
 		filterSubject = ruleSetSubject(key.baseSubject, key.ruleSet, key.shard)
-		durable = fmt.Sprintf("%s-%s-rs-%s-shard-%d", c.baseDurable, safeDurableToken(key.baseSubject), token[:12], key.shard)
+		durable = fmt.Sprintf("%s-%s-rs-%s-shard-%d", c.baseDurable, safeDurableToken(key.baseSubject), token[:32], key.shard)
 	}
 	_, err := c.js.CreateOrUpdateConsumer(ctx, c.cfg.Stream, jetstream.ConsumerConfig{
 		Durable: durable, AckPolicy: jetstream.AckExplicitPolicy, FilterSubject: filterSubject,
