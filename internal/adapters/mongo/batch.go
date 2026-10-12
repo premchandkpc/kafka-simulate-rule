@@ -93,8 +93,7 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	return entries, nil
 }
 
-
- // CompleteBatch atomically persists the completed run and all member associations
+// CompleteBatch atomically persists the completed run and all member associations
  // using a MongoDB transaction. The deployment must support replica-set transactions.
 func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
 	if run == nil || run.BatchID == "" || run.TenantID == "" || run.PartitionKey == "" || run.RuleSet == "" {
@@ -126,10 +125,10 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 		doc := BatchRunDocFromDomain(run)
 		_, err := runs.UpdateOne(sc,
 			bson.M{
-				"batch_id": run.BatchID,
-				"tenant_id": run.TenantID,
+				"batch_id":     run.BatchID,
+				"tenant_id":     run.TenantID,
 				"partition_key": run.PartitionKey,
-				"rule_set": run.RuleSet,
+				"rule_set":      run.RuleSet,
 			},
 			bson.M{"$set": doc},
 			options.Update().SetUpsert(true),
@@ -139,11 +138,11 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 		}
 
 		filter := bson.M{
-			"tenant_id": run.TenantID,
+			"tenant_id":     run.TenantID,
 			"partition_key": run.PartitionKey,
-			"rule_set": run.RuleSet,
-			"event_id": bson.M{"$in": eventIDs},
-			"status": "committed",
+			"rule_set":      run.RuleSet,
+			"event_id":      bson.M{"$in": eventIDs},
+			"status":        "committed",
 			"$or": []bson.M{
 				{"batch_id": bson.M{"$exists": false}},
 				{"batch_id": run.BatchID},
