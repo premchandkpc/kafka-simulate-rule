@@ -1228,6 +1228,22 @@ export default function App() {
     const isCompleted = execution?.status === "completed";
     const hasErrors = node.effects.some(e => e.status.toLowerCase() === "failed" || e.status.toLowerCase() === "quarantined");
 
+    // Collect all emitted event types from effects
+    const emittedEventTypes = node.effects
+      .filter(e => e.effect_type === "emit_event")
+      .map(e => e.name)
+      .filter((v, i, a) => a.indexOf(v) === i);
+
+    // Collect external commands
+    const externalCommands = node.effects
+      .filter(e => e.effect_type === "external_command" || e.effect_type === "command")
+      .map(e => ({ name: e.name, destination: e.destination }));
+
+    // Collect service events
+    const serviceEvents = node.effects
+      .filter(e => e.effect_type === "service_event")
+      .map(e => e.name);
+
     return <div className={`trace-branch${depth > 0 ? " trace-branch-child" : ""}`}>
       <div className="trace-event">
         <div className="trace-event-top">
@@ -1255,16 +1271,35 @@ export default function App() {
             )}
           </div>
         )}
+        {(emittedEventTypes.length > 0 || externalCommands.length > 0 || serviceEvents.length > 0) && (
+          <div className="trace-output-summary">
+            {emittedEventTypes.length > 0 && (
+              <span className="output-badge emit-event">
+                📤 Emits: {emittedEventTypes.join(", ")}
+              </span>
+            )}
+            {externalCommands.length > 0 && (
+              <span className="output-badge external-command">
+                ⚡ Commands: {externalCommands.map(c => `${c.name}→${c.destination}`).join(", ")}
+              </span>
+            )}
+            {serviceEvents.length > 0 && (
+              <span className="output-badge service-event">
+                📬 Service events: {serviceEvents.join(", ")}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       {node.effects.map(effect => {
         const isEmitEvent = effect.effect_type === "emit_event";
-        const isExternal = effect.effect_type === "external_command";
+        const isExternal = effect.effect_type === "external_command" || effect.effect_type === "command";
         const childStatus = effect.child?.status;
         const childExecution = effect.child?.execution;
         return <div className="trace-effect" key={effect.effect_id}>
           <div className="trace-effect-line">
             <span className={`effect-mark effect-${effect.effect_type.replace(/_/g, "-")}`}>
-              {isEmitEvent ? "↗" : isExternal ? "⇢" : "⚡"}
+              {isEmitEvent ? "↗" : isExternal ? "⇢" : "📬"}
             </span>
             <div className="effect-detail">
               <div className="effect-header">
@@ -1313,6 +1348,326 @@ export default function App() {
     const count = parseMetric(text, `flowrule_execution_duration_seconds_count{rule_set="${ruleSet}"}`);
     return count > 0 ? sum / count : null;
   };
+
+  // ===== NEW: Rule Chain Flow with Contracts =====
+  interface ContractSummary {
+    name: string;
+    version: string;
+    fields: string[];
+    requiredFields: string[];
+  }
+
+  interface RuleSetNode {
+    ruleSet: string;
+    revision: number;
+    matchMode: string;
+    inputContract?: ContractSummary;
+    outputContracts: ContractSummary[];
+    externalCommands: Array<{ name: string; destination: string }>;
+    branches: RuleBranch[];
+    isEntry?: boolean;
+  }
+
+  interface RuleBranch {
+    id: string;
+    emits: Array<{ type: string; destination: string }>;
+  }
+
+  function RuleChainFlow({ settings, scenario, events, running }: { settings: Settings; scenario: string; events: SimulationEvent[]; running: boolean }) {
+    const [chain, setChain] = useState<RuleSetNode[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+      let cancelled = false;
+      setLoading(true);
+      setError("");
+
+      async function loadChain() {
+        try {
+          // Get all domains for this tenant
+          const domainsResp = await apiRequest(settings, "/v1/domains");
+          const domains = asArray(domainsResp);
+          const domain = domains.find((d: any) => d.name === scenario);
+          if (!domain) throw new Error(`Domain ${scenario} not found`);
+
+          // Get all active rules
+          const activeResp = await apiRequest(settings, "/v1/rules/active");
+          const activeRules = asArray(activeResp);
+
+          // Get all contracts
+          const contractsResp = await apiRequest(settings, "/v1/contracts");
+          const contracts = asArray(contractsResp);
+
+          // Build rule set nodes for this domain
+          const domainEventTypes = domain.event_types || [];
+          const ruleSets = activeRules
+            .filter((r: any) => domainEventTypes.includes(r.rule_set || r.rule_id))
+            .map((r: any) => ({ name: r.rule_set || r.rule_id, revision: r.revision }));
+
+          // For each rule set, get its revision details and contracts
+          const nodes: RuleSetNode[] = [];
+          for (const rs of ruleSets) {
+            try {
+              const revResp = await apiRequest(settings, `/v1/rules/${encodeURIComponent(rs.name)}/revisions/${rs.revision}`);
+              const revision = unwrap(revResp);
+              
+              // Parse input contract
+              let inputContract: ContractSummary | undefined;
+              if (revision.input_contract) {
+                const contract = contracts.find((c: any) => c.name === revision.input_contract.name && c.version === revision.input_contract.version);
+                if (contract) {
+                  const fields = Object.keys(contract.fields || {});
+                  const requiredFields = Object.entries(contract.fields || {})
+                    .filter(([, f]: [string, any]) => f.required)
+                    .map(([k]) => k);
+                  inputContract = {
+                    name: contract.name,
+                    version: contract.version,
+                    fields,
+                    requiredFields
+                  };
+                }
+              }
+
+              // Parse output contracts from emit_event actions
+              const outputContracts: ContractSummary[] = [];
+              const externalCommands: Array<{ name: string; destination: string }> = [];
+              const emittedTypes = new Set<string>();
+
+              if (revision.source) {
+                try {
+                  const source = JSON.parse(revision.source);
+                  if (source.rules) {
+                    for (const rule of source.rules) {
+                      if (rule.then) {
+                        for (const action of rule.then) {
+                          if (action.emit_event) {
+                            emittedTypes.add(action.emit_event.type);
+                          }
+                          if (action.command) {
+                            externalCommands.push({
+                              name: action.command.name,
+                              destination: action.command.destination
+                            });
+                          }
+                        }
+                      }
+                      if (rule.otherwise) {
+                        for (const action of rule.otherwise) {
+                          if (action.emit_event) {
+                            emittedTypes.add(action.emit_event.type);
+                          }
+                          if (action.command) {
+                            externalCommands.push({
+                              name: action.command.name,
+                              destination: action.command.destination
+                            });
+                          }
+                        }
+                      }
+                    }
+                  }
+                } catch { /* ignore parse errors */ }
+              }
+
+              // Match emitted types to contracts
+              for (const type of emittedTypes) {
+                const contract = contracts.find((c: any) => c.name === type);
+                if (contract) {
+                  const fields = Object.keys(contract.fields || {});
+                  const requiredFields = Object.entries(contract.fields || {})
+                    .filter(([, f]: [string, any]) => f.required)
+                    .map(([k]) => k);
+                  outputContracts.push({
+                    name: contract.name,
+                    version: contract.version,
+                    fields,
+                    requiredFields
+                  });
+                }
+              }
+
+              // Build branches for flow visualization
+              const branches: RuleBranch[] = [];
+              if (revision.source) {
+                try {
+                  const source = JSON.parse(revision.source);
+                  if (source.rules) {
+                    for (const rule of source.rules) {
+                      const emits: Array<{ type: string; destination: string }> = [];
+                      if (rule.then) {
+                        for (const action of rule.then) {
+                          if (action.emit_event) {
+                            emits.push({ type: action.emit_event.type, destination: "next rule set" });
+                          }
+                          if (action.command) {
+                            emits.push({ type: action.command.name, destination: action.command.destination });
+                          }
+                        }
+                      }
+                      if (emits.length > 0) {
+                        branches.push({ id: rule.id, emits });
+                      }
+                    }
+                  }
+                } catch { /* ignore */ }
+              }
+
+              nodes.push({
+                ruleSet: rs.name,
+                revision: rs.revision,
+                matchMode: revision.match_mode || "all_matches",
+                inputContract,
+                outputContracts,
+                externalCommands,
+                branches,
+                isEntry: SOURCE_RULE_BY_SCENARIO[scenario as Exclude<SimulationScenario, "all">] === rs.name
+              });
+            } catch (e) {
+              console.warn(`Failed to load revision for ${rs.name}:`, e);
+            }
+          }
+
+          // Sort: entry first, then by dependency order
+          nodes.sort((a, b) => {
+            if (a.isEntry && !b.isEntry) return -1;
+            if (!a.isEntry && b.isEntry) return 1;
+            return 0;
+          });
+
+          if (!cancelled) {
+            setChain(nodes);
+            setLoading(false);
+          }
+        } catch (e) {
+          if (!cancelled) {
+            setError(e instanceof Error ? e.message : String(e));
+            setLoading(false);
+          }
+        }
+      }
+
+      loadChain();
+      return () => { cancelled = true; };
+    }, [settings, scenario, running]);
+
+    if (loading) return <section className="panel rule-chain-panel"><div className="panel-heading"><h3>Rule Chain Flow</h3><p>Loading chain for {DOMAIN_LABELS[scenario] || scenario}...</p></div><div className="chain-loading">Building contract graph...</div></section>;
+
+    if (error) return <section className="panel rule-chain-panel"><div className="panel-heading"><h3>Rule Chain Flow</h3></div><div className="notice notice-error">{error}</div></section>;
+
+    if (chain.length === 0) return <section className="panel rule-chain-panel"><div className="panel-heading"><h3>Rule Chain Flow</h3></div><Empty title="No active rule sets" detail={`Save the ${DOMAIN_LABELS[scenario] || scenario} domain from the Domain catalog to see its flow.`}/></section>;
+
+    // Check which nodes have been observed in traces
+    const observedRuleSets = new Set<string>();
+    events.filter(e => e.scenario === scenario).forEach(e => {
+      if (e.trace?.execution?.rule_set) observedRuleSets.add(e.trace.execution.rule_set);
+      e.trace?.effects.forEach(fx => {
+        if (fx.child?.execution?.rule_set) observedRuleSets.add(fx.child.execution.rule_set);
+      });
+    });
+
+    return <section className="panel rule-chain-panel">
+      <div className="panel-heading">
+        <div><h3>{DOMAIN_LABELS[scenario] || scenario} Rule Chain</h3><p>Complete flow from entry rule through all downstream rule sets, showing input/output contracts at each hop.</p></div>
+        <span className="chain-badge">{chain.length} rule set{chain.length !== 1 ? "s" : ""} · {observedRuleSets.size} observed in traces</span>
+      </div>
+      <div className="rule-chain-flow">
+        {chain.map((node, idx) => (
+          <div className="rule-chain-node" key={node.ruleSet}>
+            {idx > 0 && <div className="chain-connector">↓</div>}
+            <div className={`chain-node-card ${node.isEntry ? "entry-node" : ""} ${observedRuleSets.has(node.ruleSet) ? "observed" : ""}`}>
+              <div className="chain-node-header">
+                <span className="chain-node-badge">{node.isEntry ? "ENTRY" : `HOP ${idx}`}</span>
+                <strong>{node.ruleSet}</strong>
+                <small>rev {node.revision} · {node.matchMode}</small>
+                {observedRuleSets.has(node.ruleSet) && <span className="observed-badge">✓ Observed</span>}
+              </div>
+
+              {/* Input Contract */}
+              <div className="contract-section input-contract">
+                <h5>📥 Input Contract</h5>
+                {node.inputContract ? (
+                  <div className="contract-detail">
+                    <div className="contract-name">{node.inputContract.name} v{node.inputContract.version}</div>
+                    <div className="contract-fields">
+                      <span className="field-count">{node.inputContract.fields.length} fields</span>
+                      {node.inputContract.requiredFields.length > 0 && (
+                        <span className="required-fields">
+                          {node.inputContract.requiredFields.slice(0, 5).map(f => <code key={f}>{f}</code>)}
+                          {node.inputContract.requiredFields.length > 5 && <span>+{node.inputContract.requiredFields.length - 5} more</span>}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="contract-none">No input contract specified (accepts any event matching rule set)</div>
+                )}
+              </div>
+
+              {/* Processing */}
+              <div className="contract-section processing">
+                <h5>⚙ Processing</h5>
+                <div className="processing-detail">
+                  <div className="branch-list">
+                    {node.branches.length > 0 ? (
+                      node.branches.map(branch => (
+                        <div className="branch-item" key={branch.id}>
+                          <span className="branch-id">{branch.id}</span>
+                          {branch.emits.map((emit, i) => (
+                            <span className="branch-emit" key={i}>
+                              → <code>{emit.type}</code> <span className="emit-dest">({emit.destination})</span>
+                            </span>
+                          ))}
+                        </div>
+                      ))
+                    ) : (
+                      <span className="no-branches">No emit actions defined</span>
+                    )}
+                  </div>
+                  {node.externalCommands.length > 0 && (
+                    <div className="external-commands">
+                      <h6>External Commands:</h6>
+                      {node.externalCommands.map(cmd => (
+                        <div className="cmd-item" key={cmd.name}>
+                          <code>{cmd.name}</code> → <span>{cmd.destination}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Output Contracts */}
+              <div className="contract-section output-contracts">
+                <h5>📤 Output Contracts</h5>
+                {node.outputContracts.length > 0 ? (
+                  <div className="contract-grid">
+                    {node.outputContracts.map((contract, i) => (
+                      <div className="contract-card" key={i}>
+                        <div className="contract-name">{contract.name} v{contract.version}</div>
+                        <div className="contract-fields">
+                          <span className="field-count">{contract.fields.length} fields</span>
+                          {contract.requiredFields.length > 0 && (
+                            <span className="required-fields">
+                              {contract.requiredFields.slice(0, 4).map(f => <code key={f}>{f}</code>)}
+                              {contract.requiredFields.length > 4 && <span>+{contract.requiredFields.length - 4} more</span>}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="contract-none">No output contracts (terminal or emits without contracts)</div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>;
+  }
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -1381,6 +1736,21 @@ export default function App() {
           error={simulationLogsError}
           onRefresh={loadSimulationLogs}
         />
+        
+        {/* Rule Chain Flow with Contracts */}
+        {selectedSourceRules.length === 1 && (
+          <RuleChainFlow 
+            settings={settings} 
+            scenario={selectedSourceRules[0].scenario} 
+            events={simulationEvents} 
+            running={simulationRunning}
+          />
+        )}
+        {selectedSourceRules.length > 1 && (
+          <div className="panel rule-chain-multi">
+            <div className="panel-heading"><h3>Rule Chain Flow</h3><p>Select a single domain above to view the complete rule chain with input/output contracts.</p></div>
+          </div>
+        )}
         
         {selectedSourceRules.map(({ scenario, label, rule }) => <div className="entry-rule-picker" key={`pick-${scenario}`}><span>{label} source event type</span><code>{rule}</code></div>)}
         {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} settings={settings} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
