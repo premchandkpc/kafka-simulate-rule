@@ -118,9 +118,12 @@ func (m *memBatches) ListRuns(ctx context.Context, tenantID, ruleSet string, lim
 }
 
 type memEventProcessor struct {
-	mu         sync.Mutex
-	envelopes  []*domain.EventEnvelope
-	executions map[string]*domain.Execution
+	mu            sync.Mutex
+	envelopes     []*domain.EventEnvelope
+	executions    map[string]*domain.Execution
+	fencingTokens []int64
+	shards        []uint32
+	workerIDs     []string
 }
 
 func newMemEventProcessor() *memEventProcessor {
@@ -133,6 +136,9 @@ func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventE
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.envelopes = append(m.envelopes, envelope)
+	m.fencingTokens = append(m.fencingTokens, fencingToken)
+	m.shards = append(m.shards, shard)
+	m.workerIDs = append(m.workerIDs, workerID)
 	exec := &domain.Execution{
 		ID:           "exec-" + envelope.ID,
 		EventID:      envelope.ID,
@@ -191,6 +197,12 @@ func TestBatchService_Accumulate(t *testing.T) {
 
 	if len(events.envelopes) != 1 {
 		t.Fatalf("expected 1 envelope, got %d", len(events.envelopes))
+	}
+	if events.fencingTokens[0] <= 0 {
+		t.Fatalf("fencing token = %d, want a positive lease token", events.fencingTokens[0])
+	}
+	if events.workerIDs[0] != "worker-1" {
+		t.Fatalf("worker ID = %q, want worker-1", events.workerIDs[0])
 	}
 	env := events.envelopes[0]
 	if env.Type != "order.created.batch" {
