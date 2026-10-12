@@ -39,6 +39,26 @@ func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.In
 	return result, nil
 }
 
+func (m *memBatches) ListUnbatchedByIDs(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wanted := make(map[string]struct{}, len(eventIDs))
+	for _, id := range eventIDs {
+		wanted[id] = struct{}{}
+	}
+	var result []*domain.InboxEntry
+	for _, e := range m.entries {
+		if e.TenantID != tenantID || e.PartitionKey != partitionKey || e.RuleSet != ruleSet ||
+			e.Status != domain.InboxStatusCommitted || e.BatchID != "" {
+			continue
+		}
+		if _, ok := wanted[e.EventID]; ok {
+			result = append(result, e)
+		}
+	}
+	return result, nil
+}
+
 func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
