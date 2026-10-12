@@ -9,35 +9,54 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// syncConsumers reconciles broker consumers with the shards this worker owns.
 func (w *Worker) syncConsumers(ctx context.Context) {
 	if w.shardService == nil || w.shardedConsumer == nil {
 		return
 	}
 
 	owned := w.shardService.OwnedShards()
-	ownedSet := make(map[uint32]struct{}, len(owned))
-	for _, shardID := range owned {
-		ownedSet[shardID] = struct{}{}
-	}
-
-	// Reconcile against the consumer's actual state every time. If removing an
-	// unowned shard fails, it remains visible here and removal is retried next poll.
+	ownedSet := shardSet(owned)
 	active := w.shardedConsumer.OwnedShards()
-	activeSet := make(map[uint32]struct{}, len(active))
+	activeSet := shardSet(active)
+
+	w.removeUnownedShardConsumers(ctx, active, ownedSet, activeSet)
+	w.ensureOwnedShardConsumers(ctx, owned, activeSet)
+}
+
+func shardSet(shards []uint32) map[uint32]struct{} {
+	set := make(map[uint32]struct{}, len(shards))
+	for _, shardID := range shards {
+		set[shardID] = struct{}{}
+	}
+	return set
+}
+
+func (w *Worker) removeUnownedShardConsumers(
+	ctx context.Context,
+	active []uint32,
+	ownedSet map[uint32]struct{},
+	activeSet map[uint32]struct{},
+) {
 	for _, shardID := range active {
-		activeSet[shardID] = struct{}{}
 		if _, stillOwned := ownedSet[shardID]; stillOwned {
 			continue
 		}
 		if err := w.shardedConsumer.RemoveShardConsumer(ctx, shardID); err != nil {
 			log.Printf("remove consumer for unowned shard %d: %v", shardID, err)
-		} else {
-			delete(activeSet, shardID)
+			continue
 		}
+		delete(activeSet, shardID)
 	}
+}
 
-	// Failed EnsureShardConsumer calls are retried because only actual consumers
-	// count as active on the next synchronization pass.
+func (w *Worker) ensureOwnedShardConsumers(
+	ctx context.Context,
+	owned []uint32,
+	activeSet map[uint32]struct{},
+) {
+	// Only consumers confirmed active are skipped; failed ensures are retried
+	// during the next reconciliation pass.
 	for _, shardID := range owned {
 		if _, exists := activeSet[shardID]; exists {
 			continue
@@ -52,43 +71,32 @@ func (w *Worker) syncConsumers(ctx context.Context) {
 func (w *Worker) runSharded(ctx context.Context) {
 	// Synchronize initial ownership through the same retryable path used later.
 	w.syncConsumers(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("worker stopping")
-			return
-		default:
-		}
-
-		// Sync consumers with current owned shards
-		w.syncConsumers(ctx)
-
-		// Fetch and process deliveries for owned shards. A successful empty poll
-		// is idle work, not an error, but still needs a short delay to avoid a
-		// hot loop while waiting for shard ownership or new messages.
-		didWork, err := w.fetchAndProcessDeliveries(ctx)
-		if err != nil {
-			if !errors.Is(err, ctx.Err()) {
-				log.Printf("fetch and process error: %v", err)
-			}
-			if !waitForRetry(ctx, time.Second) {
-				return
-			}
-			continue
-		}
-		if !didWork && !waitForRetry(ctx, 100*time.Millisecond) {
+	for ctx.Err() == nil {
+		if !w.runShardedIteration(ctx) {
 			return
 		}
 	}
+	log.Println("worker stopping")
+}
+
+func (w *Worker) runShardedIteration(ctx context.Context) bool {
+	w.syncConsumers(ctx)
+
+	didWork, err := w.fetchAndProcessDeliveries(ctx)
+	if err != nil {
+		if !errors.Is(err, ctx.Err()) {
+			log.Printf("fetch and process error: %v", err)
+		}
+		return waitForRetry(ctx, time.Second)
+	}
+	if !didWork {
+		return waitForRetry(ctx, 100*time.Millisecond)
+	}
+	return true
 }
 
 // fetchAndProcessDeliveries fetches and processes deliveries for owned shards.
-// It reports whether any deliveries were fetched and returns an error on fetch failure.
 func (w *Worker) fetchAndProcessDeliveries(ctx context.Context) (bool, error) {
-	// Fetch only shards for which this worker currently holds a lease.
-	// Consumer-side removal can fail temporarily; stale consumers must not
-	// remain in the fetch set while reconciliation retries.
 	ownedShards := w.shardService.OwnedShards()
 	if len(ownedShards) == 0 {
 		return false, nil
@@ -98,15 +106,17 @@ func (w *Worker) fetchAndProcessDeliveries(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if len(deliveries) == 0 {
-		return false, nil
-	}
+	return w.processFetchedDeliveries(ctx, deliveries), nil
+}
 
+func (w *Worker) processFetchedDeliveries(ctx context.Context, deliveries []ports.Delivery) bool {
+	if len(deliveries) == 0 {
+		return false
+	}
 	for _, delivery := range deliveries {
 		if err := w.processSingleDelivery(ctx, delivery); err != nil {
 			log.Printf("process delivery error: %v", err)
 		}
 	}
-	return true, nil
+	return true
 }
-
