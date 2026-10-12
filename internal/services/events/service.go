@@ -225,8 +225,11 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 
 // QuarantineEvent records a failed event for later inspection.
 func (s *Service) QuarantineEvent(ctx context.Context, sourceID string, eventID string, tenantID string, errClass domain.ErrorClass, errMsg string) error {
+	rawID := fmt.Sprintf("event-quarantine|%d:%s|%d:%s|%d:%s|%s",
+		len(tenantID), tenantID, len(sourceID), sourceID, len(eventID), eventID, errClass)
+	quarantineID := domain.ComputeSourceHash([]byte(rawID))
 	return s.quarantine.Save(ctx, &domain.QuarantineEntry{
-		ID:         domain.NewID(),
+		ID:         quarantineID,
 		SourceType: "event",
 		SourceID:   sourceID,
 		EventID:    eventID,
