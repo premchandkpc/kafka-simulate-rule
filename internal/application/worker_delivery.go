@@ -54,44 +54,81 @@ func (w *Worker) processDelivery(ctx context.Context, env *domain.EventEnvelope,
 		return errors.New("process delivery: event envelope is nil")
 	}
 
-	exec, err := w.events.Process(ctx, env, fencingToken, vshard, workerID)
-	if err == nil && exec == nil {
+	execution, err := w.events.Process(ctx, env, fencingToken, vshard, workerID)
+	if err == nil && execution == nil {
 		err = errors.New("event processor returned a nil execution without an error")
 	}
+	return w.settleEventResult(ctx, env, delivery, execution, err)
+}
+
+func (w *Worker) settleEventResult(
+	ctx context.Context,
+	env *domain.EventEnvelope,
+	delivery ports.Delivery,
+	execution *domain.Execution,
+	processErr error,
+) error {
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
-	if err != nil {
-		log.Printf("process event %s: %v", env.ID, err)
-		if domain.IsPermanent(err) {
-			if qErr := w.events.QuarantineEvent(settleCtx, env.ID, env.ID, env.TenantID, domain.ClassifyError(err), err.Error()); qErr != nil {
-				retryErr := delivery.Retry(settleCtx, retryDelayForDelivery(w.config.RetryDelay, delivery))
-				return errors.Join(fmt.Errorf("quarantine permanent event %s: %w", env.ID, qErr), retryErr)
-			}
-			if ackErr := delivery.Ack(settleCtx); ackErr != nil {
-				return fmt.Errorf("ack quarantined event %s: %w", env.ID, ackErr)
-			}
-			return nil
-		}
-		if retryErr := delivery.Retry(settleCtx, retryDelayForDelivery(w.config.RetryDelay, delivery)); retryErr != nil {
-			return errors.Join(fmt.Errorf("process event %s: %w", env.ID, err), fmt.Errorf("retry event %s: %w", env.ID, retryErr))
-		}
-		return err
+	if processErr != nil {
+		return w.handleEventProcessingFailure(settleCtx, env, delivery, processErr)
 	}
-
 	if err := delivery.Ack(settleCtx); err != nil {
 		return fmt.Errorf("ack event %s: %w", env.ID, err)
 	}
-	log.Printf("processed event %s -> execution %s", env.ID, exec.ID)
+	log.Printf("processed event %s -> execution %s", env.ID, execution.ID)
 	return nil
 }
 
-// processSingleDelivery processes a single delivery.
+func (w *Worker) handleEventProcessingFailure(
+	settleCtx context.Context,
+	env *domain.EventEnvelope,
+	delivery ports.Delivery,
+	processErr error,
+) error {
+	log.Printf("process event %s: %v", env.ID, processErr)
+	if domain.IsPermanent(processErr) {
+		return w.quarantinePermanentEvent(settleCtx, env, delivery, processErr)
+	}
+	if retryErr := delivery.Retry(settleCtx, retryDelayForDelivery(w.config.RetryDelay, delivery)); retryErr != nil {
+		return errors.Join(
+			fmt.Errorf("process event %s: %w", env.ID, processErr),
+			fmt.Errorf("retry event %s: %w", env.ID, retryErr),
+		)
+	}
+	return processErr
+}
+
+func (w *Worker) quarantinePermanentEvent(
+	settleCtx context.Context,
+	env *domain.EventEnvelope,
+	delivery ports.Delivery,
+	processErr error,
+) error {
+	if err := w.events.QuarantineEvent(
+		settleCtx,
+		env.ID,
+		env.ID,
+		env.TenantID,
+		domain.ClassifyError(processErr),
+		processErr.Error(),
+	); err != nil {
+		retryErr := delivery.Retry(settleCtx, retryDelayForDelivery(w.config.RetryDelay, delivery))
+		return errors.Join(fmt.Errorf("quarantine permanent event %s: %w", env.ID, err), retryErr)
+	}
+	if err := delivery.Ack(settleCtx); err != nil {
+		return fmt.Errorf("ack quarantined event %s: %w", env.ID, err)
+	}
+	return nil
+}
+
+// processSingleDelivery validates routing and submits a delivery to the per-key queue.
 func (w *Worker) processSingleDelivery(ctx context.Context, delivery ports.Delivery) error {
 	env, err := delivery.Event()
 	if err != nil || env == nil {
 		w.quarantineInvalidDelivery(ctx, delivery, err)
-		return nil // Don't propagate error, delivery handled
+		return nil // The malformed delivery has been quarantined or scheduled for retry.
 	}
 
 	vshard := w.shardService.VirtualShardForEvent(env)
@@ -101,16 +138,23 @@ func (w *Worker) processSingleDelivery(ctx context.Context, delivery ports.Deliv
 		}
 		return nil
 	}
+	return w.submitOwnedDelivery(ctx, env, delivery, vshard)
+}
 
+func (w *Worker) submitOwnedDelivery(
+	ctx context.Context,
+	env *domain.EventEnvelope,
+	delivery ports.Delivery,
+	vshard uint32,
+) error {
 	fencingToken := int64(0)
 	if token, ok := w.shardService.GetFencingToken(vshard); ok {
 		fencingToken = token
 	}
-
 	if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
 		log.Printf("keyqueue submit failed: %v", err)
-		if err := settleNak(ctx, delivery); err != nil {
-			log.Printf("nak failed: %v", err)
+		if nakErr := settleNak(ctx, delivery); nakErr != nil {
+			log.Printf("nak failed: %v", nakErr)
 		}
 		return err
 	}
