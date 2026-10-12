@@ -21,7 +21,7 @@
 - [x] Outbox claim with FOR UPDATE SKIP LOCKED
 - [x] HTTP destination adapter with Idempotency-Key support; destination-side durable deduplication remains a deployment contract
 - [x] Graceful shutdown with in-flight drain
-- [x] MaxDeliver = 10
+- [x] JetStream delivery limit set to unlimited (`NATS_MAX_DELIVER=-1`) until exhausted-delivery recovery is implemented
 
 ### Phase 1.5 — Architecture and correctness (DONE)
 
@@ -67,7 +67,8 @@
 | Lease expiry/contention and stale-worker behavior need live-infrastructure failure-injection coverage | Open | 1 |
 | Dynamic worker membership and lease rebalancing are not implemented; assignment currently assumes three worker replicas | Open | 2 |
 | Destination-side idempotency and duplicate-send behavior need production-like receiver tests | Open | 3 |
-| Verify every quarantine path is durable and quarantine-write failures remain safely retryable | Open | 4 |
+| Verify every quarantine path is durable and quarantine-write failures remain safely retryable | Open | 3 |
+| Durable exhausted-delivery recovery / DLQ workflow is not implemented; finite JetStream MaxDeliver is therefore rejected and unlimited delivery is required | Open | 4 |
 | Worker defaults to one key-queue worker; tune bounded concurrency and test per-key ordering under redelivery | Open | 5 |
 | No authentication/authorization | Open | 6 |
 | No replay API endpoint | Open | 7 |
@@ -98,7 +99,7 @@
 - **Outbox/destination boundary:** publishing and marking an effect delivered are separate operations. A crash after send can cause a repeated request. Idempotency-Key must be honored durably by the destination for effectively-once external behavior.
 - **Fencing:** the event service validates shard ownership and the fencing token in its transaction before mutating inbox/execution/outbox state. This needs integration/failure-injection coverage for lease expiry, contention, and stale workers.
 - **Replay identity:** execution IDs are deterministically derived from tenant, event ID, rule set, and selected revision. The replay API is not implemented; define whether replay uses the original or a selected revision and add end-to-end replay tests before marking the criterion complete.
-- **Poison events:** permanent event errors are quarantined before ACK. If quarantine persistence fails, the worker retries the delivery. Verify JetStream MaxDeliver exhaustion/advisory handling and document the operational recovery path; MaxDeliver alone is not a durable DLQ.
+- **Poison events:** permanent event errors are quarantined before ACK. If quarantine persistence fails, the worker retries the delivery. Until a durable exhausted-delivery recovery workflow is implemented and tested, configuration requires JetStream `MaxDeliver=-1`; finite delivery limits could strand an unacknowledged work-queue message.
 - **Ordering:** key-queue serialization is local to a worker process. Broker redelivery, lease transitions, and multiple publishers can affect ordering. FOR UPDATE SKIP LOCKED improves concurrent claiming but does not itself guarantee per-key outbox order.
 - **Retention:** inbox retention defines the deduplication horizon. Retention must exceed broker redelivery and supported replay horizons. Producers must use stable event IDs; JetStream publish deduplication is not a substitute for durable inbox deduplication.
 - **Delivery throughput:** the default publisher attempts one batch of 10 every five seconds. This is a nominal ceiling of about 2 effects/second per publisher before considering processing time. Measure before tuning; any drain loop must remain bounded and cancellation-aware.
