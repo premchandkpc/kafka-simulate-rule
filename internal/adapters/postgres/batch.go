@@ -154,8 +154,7 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	return entries, nil
 }
 
-
- // CompleteBatch writes the run and all inbox membership changes in one PostgreSQL
+// CompleteBatch writes the run and all inbox membership changes in one PostgreSQL
  // transaction. A member may already belong to this same deterministic batch, but
  // may never be stolen from another batch.
 func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
