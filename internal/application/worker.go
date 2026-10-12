@@ -132,7 +132,7 @@ func NewWorker(
 		return nil, fmt.Errorf("worker fetch batch size (%d) must not exceed max global in-flight (%d)", config.FetchBatchSize, config.MaxGlobalInFlight)
 	}
 
-	var sc shardedConsumer
+	var sc ports.ShardedConsumer
 	if candidate, ok := consumer.(ports.ShardedConsumer); ok {
 		sc = candidate
 	}
