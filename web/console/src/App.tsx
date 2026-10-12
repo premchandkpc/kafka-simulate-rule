@@ -575,6 +575,7 @@ export default function App() {
   const simulationStopRequestedRef = useRef(false);
   const simulationWaitRef = useRef<AbortController | null>(null);
   const simulationEventsRef = useRef<SimulationEvent[]>([]);
+  const simulationTraceInFlightRef = useRef(new Set<string>());
 
   const saveSettings = (next: Settings) => { setSettings(next); localStorage.setItem("flowrule-console-settings", JSON.stringify(next)); setSettingsOpen(false); setHealth("checking"); };
   const loadDomainServices = useCallback(async () => {
@@ -798,6 +799,8 @@ export default function App() {
   }, []);
   const [simulationTraceRefreshedAt, setSimulationTraceRefreshedAt] = useState("");
   const refreshSimulationTrace = useCallback(async (event: SimulationEvent) => {
+    if (simulationTraceInFlightRef.current.has(event.id)) return;
+    simulationTraceInFlightRef.current.add(event.id);
     try {
       const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
       const trace = response as TraceNode;
@@ -808,6 +811,8 @@ export default function App() {
       setSimulationTraceError("");
     } catch (e) {
       setSimulationTraceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      simulationTraceInFlightRef.current.delete(event.id);
     }
   }, [settings]);
   useEffect(() => {
@@ -815,9 +820,13 @@ export default function App() {
     let failures = 0;
     let timer = 0;
     const poll = async () => {
-      const latest = simulationEventsRef.current.slice(0, 8).filter(event => !isTerminalTrace(event.trace));
+      const latest = simulationEventsRef.current.slice(0, 8).filter(event =>
+        !isTerminalTrace(event.trace) && !simulationTraceInFlightRef.current.has(event.id)
+      );
       let failed = false;
       await Promise.all(latest.map(async event => {
+        if (simulationTraceInFlightRef.current.has(event.id)) return;
+        simulationTraceInFlightRef.current.add(event.id);
         try {
           const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
           if (!stopped) {
@@ -832,6 +841,8 @@ export default function App() {
         } catch (e) {
           failed = true;
           if (!stopped) setSimulationTraceError(`${e instanceof Error ? e.message : String(e)} — showing the last known trace; retrying with backoff`);
+        } finally {
+          simulationTraceInFlightRef.current.delete(event.id);
         }
       }));
       failures = failed ? Math.min(failures + 1, 5) : 0;
