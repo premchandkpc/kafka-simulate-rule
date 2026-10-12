@@ -16,5 +16,7 @@ const (
 	collectionWorkflowDefinitions = "workflow_definitions"
 	collectionBatchRuns           = "batch_runs"
 	collectionContractSchemas     = "contract_schemas"
+	collectionTenantDomains       = "tenant_domains"
+	collectionDomainServices      = "domain_services"
 	collectionTransactionChecks   = "_flowrule_transaction_checks"
 )

@@ -25,6 +25,7 @@ type Repositories struct {
 	Batches                ports.BatchRepository
 	Quarantine             ports.QuarantineRepository
 	Contracts              ports.ContractRegistry
+	DomainServices         ports.DomainServiceRepository
 	Transactions           ports.TransactionManager
 	NewEventTxRepositories ports.EventTxRepositoryFactory
 	NewRuleTxRepositories  ports.RuleTxRepositoryFactory
@@ -113,6 +114,7 @@ func buildPostgresRepos(pool *pgxpool.Pool) Repositories {
 		Batches:                postgresadapter.NewBatchRepository(pool),
 		Quarantine:             postgresadapter.NewQuarantineRepository(pool),
 		Contracts:              postgresadapter.NewContractRegistry(pool),
+		DomainServices:         postgresadapter.NewDomainServiceRepository(pool),
 		Transactions:           postgresadapter.NewTransactionManager(pool),
 		NewEventTxRepositories: postgresadapter.NewEventTxRepositories,
 		NewRuleTxRepositories:  postgresadapter.NewRuleTxRepositories,
@@ -134,6 +136,7 @@ func buildMongoRepos(q mongoadapter.Querier, db *mongoadapter.DB) (Repositories,
 		Batches:                mongoadapter.NewBatchRepository(q),
 		Quarantine:             quarantineRepo,
 		Contracts:              mongoadapter.NewContractRegistry(q),
+		DomainServices:         mongoadapter.NewDomainServiceRepository(q),
 		Transactions:           mongoadapter.NewTransactionManager(db.Client(), db.Database()),
 		NewEventTxRepositories: mongoadapter.NewEventTxRepositories,
 		NewRuleTxRepositories:  mongoadapter.NewRuleTxRepositories,

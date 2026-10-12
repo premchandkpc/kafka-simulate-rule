@@ -2,6 +2,7 @@ package flowrule
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -19,17 +20,17 @@ type Transport interface {
 
 // Envelope wraps a typed payload with metadata
 type Envelope struct {
-	ID             string            `json:"id"`
-	Type           string            `json:"type"`
-	TenantID       string            `json:"tenant_id"`
-	PartitionKey   string            `json:"partition_key"`
-	WorkflowID     string            `json:"workflow_id,omitempty"`
-	CorrelationID  string            `json:"correlation_id,omitempty"`
-	CausationID    string            `json:"causation_id,omitempty"`
-	OccurredAt     time.Time         `json:"occurred_at"`
-	Data           []byte            `json:"data"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	SchemaVersion  string            `json:"schema_version,omitempty"`
+	ID            string            `json:"id"`
+	Type          string            `json:"type"`
+	TenantID      string            `json:"tenant_id"`
+	PartitionKey  string            `json:"partition_key"`
+	WorkflowID    string            `json:"workflow_id,omitempty"`
+	CorrelationID string            `json:"correlation_id,omitempty"`
+	CausationID   string            `json:"causation_id,omitempty"`
+	OccurredAt    time.Time         `json:"occurred_at"`
+	Data          json.RawMessage   `json:"data"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	SchemaVersion string            `json:"schema_version,omitempty"`
 }
 
 // EnvelopeOption configures an envelope

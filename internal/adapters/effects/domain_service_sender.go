@@ -1,0 +1,191 @@
+package effects
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"time"
+
+	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
+)
+
+const maxDomainServicePayloadBytes = 1 << 20
+
+type DomainServiceSender struct {
+	services     ports.DomainServiceRepository
+	client       *http.Client
+	allowPrivate bool
+}
+
+func NewDomainServiceSender(services ports.DomainServiceRepository, allowPrivate bool) *DomainServiceSender {
+	transport := &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialDomainService(ctx, network, address, allowPrivate)
+		},
+	}
+	return &DomainServiceSender{
+		services:     services,
+		allowPrivate: allowPrivate,
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   10 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
+}
+
+func (s *DomainServiceSender) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
+	if effect == nil {
+		return errors.New("send domain service event: effect is nil")
+	}
+	if effect.TenantID == "" || effect.Destination == "" || effect.Name == "" {
+		return errors.New("send domain service event: tenant, service, and event type are required")
+	}
+	if effect.EffectType != domain.EffectTypeServiceEvent {
+		return fmt.Errorf("send domain service event: unsupported effect type %q", effect.EffectType)
+	}
+	if len(effect.Payload) == 0 || len(effect.Payload) > maxDomainServicePayloadBytes {
+		return fmt.Errorf("send domain service event: payload must be between 1 and %d bytes", maxDomainServicePayloadBytes)
+	}
+	var event domain.EventEnvelope
+	if err := json.Unmarshal(effect.Payload, &event); err != nil {
+		return fmt.Errorf("decode tenant service event: %w", err)
+	}
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("validate tenant service event: %w", err)
+	}
+	if event.TenantID != effect.TenantID || event.Type != effect.Name {
+		return errors.New("send domain service event: event identity does not match outbox effect")
+	}
+	if s.services == nil {
+		return errors.New("send domain service event: service repository is not configured")
+	}
+	service, err := s.services.GetService(ctx, effect.TenantID, effect.Destination)
+	if err != nil {
+		return fmt.Errorf("get subscribed tenant service: %w", err)
+	}
+	if service == nil || !service.Active {
+		return fmt.Errorf("subscribed tenant service %q is unavailable", effect.Destination)
+	}
+	target, err := url.Parse(service.EndpointURL)
+	if err != nil || target.Hostname() == "" || !target.IsAbs() || target.Opaque != "" ||
+		target.User != nil || target.Fragment != "" || len(service.EndpointURL) > 2048 {
+		if err != nil {
+			return fmt.Errorf("parse tenant service endpoint: %w", err)
+		}
+		return errors.New("tenant service endpoint is not a valid absolute URL")
+	}
+	if target.Scheme != "https" && !(s.allowPrivate && target.Scheme == "http") {
+		return fmt.Errorf("tenant service endpoint must use HTTPS")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(effect.Payload))
+	if err != nil {
+		return fmt.Errorf("create tenant service request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", idempotencyKey)
+	req.Header.Set("X-FlowRule-Effect-ID", effect.ID)
+	req.Header.Set("X-FlowRule-Event-ID", event.ID)
+	req.Header.Set("X-FlowRule-Tenant-ID", effect.TenantID)
+	req.Header.Set("X-FlowRule-Service-ID", service.ID)
+
+	response, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("deliver event to tenant service %q: %w", service.ID, err)
+	}
+	defer response.Body.Close()
+	_, drainErr := io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		if drainErr != nil {
+			return fmt.Errorf("tenant service %q returned status %d; drain response: %w", service.ID, response.StatusCode, drainErr)
+		}
+		return fmt.Errorf("tenant service %q returned non-success status %d", service.ID, response.StatusCode)
+	}
+	if drainErr != nil {
+		return fmt.Errorf("read tenant service %q response: %w", service.ID, drainErr)
+	}
+	return nil
+}
+
+func dialDomainService(ctx context.Context, network, address string, allowPrivate bool) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("split tenant service endpoint: %w", err)
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tenant service endpoint port: %w", err)
+	}
+	if portNumber < 1 || portNumber > 65535 {
+		return nil, fmt.Errorf("invalid tenant service endpoint port %q", port)
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tenant service endpoint: %w", err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("tenant service endpoint %q resolved to no addresses", host)
+	}
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	var failures []error
+	for _, item := range ips {
+		if item.IP == nil || item.IP.IsUnspecified() || item.IP.IsMulticast() {
+			return nil, fmt.Errorf("tenant service endpoint %q resolves to an invalid address", host)
+		}
+		if !allowPrivate && !isPublicIP(item.IP) {
+			return nil, fmt.Errorf("tenant service endpoint %q resolves to a non-public address", host)
+		}
+	}
+	for _, item := range ips {
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(item.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		failures = append(failures, err)
+	}
+	return nil, fmt.Errorf("connect to tenant service endpoint: %w", errors.Join(failures...))
+}
+
+func isPublicIP(ip net.IP) bool {
+	if ip == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() || !ip.IsGlobalUnicast() {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		for _, cidr := range []string{
+			"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.88.99.0/24",
+			"192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24",
+			"203.0.113.0/24", "240.0.0.0/4",
+		} {
+			_, network, _ := net.ParseCIDR(cidr)
+			if network.Contains(ip4) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, cidr := range []string{
+		"::/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64",
+		"2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "fec0::/10",
+	} {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+var _ ports.EffectSender = (*DomainServiceSender)(nil)

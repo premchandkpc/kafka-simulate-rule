@@ -114,6 +114,17 @@ func (d *DB) Client() *mongo.Client {
 }
 
 func createIndexes(ctx context.Context, db *mongo.Database) error {
+	for collName, models := range indexModels() {
+		coll := db.Collection(collName)
+		_, err := coll.Indexes().CreateMany(ctx, models)
+		if err != nil {
+			return fmt.Errorf("create indexes for %s: %w", collName, err)
+		}
+	}
+	return nil
+}
+
+func indexModels() map[string][]mongo.IndexModel {
 	indexes := map[string][]mongo.IndexModel{
 		"rule_revisions": {
 			{Keys: bson.D{{Key: "tenant_scope", Value: 1}, {Key: "rule_id", Value: 1}, {Key: "revision", Value: 1}}, Options: options.Index().SetUnique(true)},
@@ -166,14 +177,16 @@ func createIndexes(ctx context.Context, db *mongo.Database) error {
 		"contract_schemas": {
 			{Keys: bson.D{{Key: "name", Value: 1}, {Key: "version", Value: 1}}, Options: options.Index().SetUnique(true)},
 		},
+		"tenant_domains": {
+			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "domain_id", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "name", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "event_types", Value: 1}}},
+		},
+		"domain_services": {
+			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "service_id", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "name", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "active", Value: 1}, {Key: "domain_ids", Value: 1}}},
+		},
 	}
-
-	for collName, models := range indexes {
-		coll := db.Collection(collName)
-		_, err := coll.Indexes().CreateMany(ctx, models)
-		if err != nil {
-			return fmt.Errorf("create indexes for %s: %w", collName, err)
-		}
-	}
-	return nil
+	return indexes
 }

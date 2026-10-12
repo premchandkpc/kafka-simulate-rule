@@ -97,6 +97,28 @@ type ContractSchema struct {
 	UpdatedAt     time.Time                `json:"updated_at,omitempty"`
 }
 
+// TenantDomain groups event types that tenant services can subscribe to.
+type TenantDomain struct {
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	Name       string    `json:"name"`
+	EventTypes []string  `json:"event_types"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// DomainService is a tenant-owned HTTP consumer and its domain subscriptions.
+type DomainService struct {
+	ID          string    `json:"id"`
+	TenantID    string    `json:"tenant_id"`
+	Name        string    `json:"name"`
+	EndpointURL string    `json:"endpoint_url"`
+	DomainIDs   []string  `json:"domain_ids"`
+	Active      bool      `json:"active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type ContractField struct {
 	Type        string                   `json:"type"`
 	Description string                   `json:"description,omitempty"`
@@ -191,6 +213,7 @@ type CommandAction struct {
 type Effect struct {
 	ID          string          `json:"id"`
 	ExecutionID string          `json:"execution_id"`
+	TenantID    string          `json:"tenant_id,omitempty"`
 	Destination string          `json:"destination"`
 	Name        string          `json:"name"`
 	Payload     json.RawMessage `json:"payload"`
@@ -201,9 +224,10 @@ type Effect struct {
 type EffectType string
 
 const (
-	EffectTypeEmit      EffectType = "emit"
-	EffectTypeEmitEvent EffectType = "emit_event"
-	EffectTypeCommand   EffectType = "command"
+	EffectTypeEmit         EffectType = "emit"
+	EffectTypeEmitEvent    EffectType = "emit_event"
+	EffectTypeCommand      EffectType = "command"
+	EffectTypeServiceEvent EffectType = "service_event"
 )
 
 type Decision struct {

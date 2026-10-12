@@ -17,12 +17,13 @@ func NewEventTxRepositories(tx ports.Transaction) (ports.EventTxRepos, error) {
 
 	q := NewTxQuerier(mongoTx.Session(), mongoTx.Database())
 	return ports.EventTxRepos{
-		Inbox:       NewInboxRepository(q),
-		Activations: NewActivationRepository(q),
-		RuleRepo:    NewRuleRepository(q),
-		Executions:  NewExecutionRepository(q),
-		Outbox:      NewOutboxRepository(q),
-		ShardLeases: NewShardLeaseRepository(q),
+		Inbox:          NewInboxRepository(q),
+		Activations:    NewActivationRepository(q),
+		RuleRepo:       NewRuleRepository(q),
+		Executions:     NewExecutionRepository(q),
+		Outbox:         NewOutboxRepository(q),
+		ShardLeases:    NewShardLeaseRepository(q),
+		DomainServices: NewDomainServiceRepository(q),
 	}, nil
 }
 

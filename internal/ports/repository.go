@@ -144,3 +144,16 @@ type ContractRegistry interface {
 	List(ctx context.Context, name string) ([]*domain.ContractSchema, error)
 	Delete(ctx context.Context, name, version string) error
 }
+
+// DomainServiceRepository manages tenant domains, callback services, and matching subscriptions.
+type DomainServiceRepository interface {
+	SaveDomain(ctx context.Context, item *domain.TenantDomain) error
+	GetDomain(ctx context.Context, tenantID, domainID string) (*domain.TenantDomain, error)
+	ListDomains(ctx context.Context, tenantID string) ([]*domain.TenantDomain, error)
+	DeleteDomain(ctx context.Context, tenantID, domainID string) error
+	SaveService(ctx context.Context, item *domain.DomainService) error
+	GetService(ctx context.Context, tenantID, serviceID string) (*domain.DomainService, error)
+	ListServices(ctx context.Context, tenantID string) ([]*domain.DomainService, error)
+	DeleteService(ctx context.Context, tenantID, serviceID string) error
+	ListSubscribersForEvent(ctx context.Context, tenantID, eventType string) ([]*domain.DomainService, error)
+}

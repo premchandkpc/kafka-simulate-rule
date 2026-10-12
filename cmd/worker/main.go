@@ -125,7 +125,13 @@ func run() (runErr error) {
 
 	// Route emitted child events back into the same subject family consumed by
 	// this worker. Only command effects leave the broker for an external sender.
-	effectSender := svceffects.NewRouterWithConfig(consumer, externalSender, eventSubject, cfg.Worker.NumShards)
+	serviceSender := effects.NewDomainServiceSender(
+		repositories.DomainServices,
+		cfg.App.Env == "development" || cfg.App.Env == "dev" || cfg.App.Env == "test",
+	)
+	effectSender := svceffects.NewRouterWithConfig(
+		consumer, externalSender, eventSubject, cfg.Worker.NumShards, serviceSender,
+	)
 	workerID := cfg.WorkerID()
 	eventsSvc := svcevents.NewService(
 		compiler,

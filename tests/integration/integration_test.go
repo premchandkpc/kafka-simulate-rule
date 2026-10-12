@@ -300,12 +300,13 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 
 	newRepos := func(tx ports.Transaction) (ports.EventTxRepos, error) {
 		return ports.EventTxRepos{
-			Inbox:       inbox,
-			Activations: activations,
-			RuleRepo:    ruleRepo,
-			Executions:  executions,
-			Outbox:      outbox,
-			ShardLeases: newMockShardLease(),
+			Inbox:          inbox,
+			Activations:    activations,
+			RuleRepo:       ruleRepo,
+			Executions:     executions,
+			Outbox:         outbox,
+			ShardLeases:    newMockShardLease(),
+			DomainServices: noSubscribers{},
 		}, nil
 	}
 
@@ -563,4 +564,11 @@ func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *te
 	if len(outbox.effects) != 1 {
 		t.Fatalf("expected one outbox effect, got %d", len(outbox.effects))
 	}
+}
+
+// noSubscribers is a domain service repository with no tenant subscriptions.
+type noSubscribers struct{ ports.DomainServiceRepository }
+
+func (noSubscribers) ListSubscribersForEvent(context.Context, string, string) ([]*domain.DomainService, error) {
+	return nil, nil
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/rules"
 	svcbatches "github.com/flowrule/flowrule/internal/services/batches"
+	svcdomains "github.com/flowrule/flowrule/internal/services/domainservices"
 	svcquarantine "github.com/flowrule/flowrule/internal/services/quarantine"
 	svcrules "github.com/flowrule/flowrule/internal/services/rules"
 	svcworkflow "github.com/flowrule/flowrule/internal/services/workflow"
@@ -97,6 +98,11 @@ func run() (runErr error) {
 	)
 
 	quarantineSvc := svcquarantine.NewService(repositories.Quarantine)
+	domainServicesSvc := svcdomains.NewService(
+		repositories.DomainServices,
+		domain.SystemClock{},
+		cfg.App.Env == "development" || cfg.App.Env == "dev" || cfg.App.Env == "test",
+	)
 
 	workflowDefRepo := repositories.WorkflowDefinitions
 
@@ -116,7 +122,11 @@ func run() (runErr error) {
 		repositories.ScheduledEvents,
 		publisher,
 		cfg.Worker.NumShards,
-		http.RouterConfig{AuthValidator: authValidator, RequireAuth: cfg.Auth.RequireAuth, RequiredScopes: cfg.Auth.RequiredScopes},
+		http.RouterConfig{
+			AuthValidator: authValidator, RequireAuth: cfg.Auth.RequireAuth, RequiredScopes: cfg.Auth.RequiredScopes,
+			InboxRepo: repositories.Inbox, ExecutionRepo: repositories.Executions, OutboxRepo: repositories.Outbox,
+			DomainServices: domainServicesSvc,
+		},
 	)
 
 	log.Printf("API server listening on %s", cfg.App.HTTPAddr)
