@@ -134,7 +134,7 @@ func Load() (*Config, error) {
 			LeaseRenewalIntervalMS:  toInt(getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000)),
 			EffectDestinationURL:    getEnv("EFFECT_DESTINATION_URL", ""),
 			NATSAckWaitMS:           toInt(getIntEnv("NATS_ACK_WAIT_MS", 30000)),
-			NATSMaxDeliver:          toInt(getIntEnv("NATS_MAX_DELIVER", 10)),
+			NATSMaxDeliver:          getIntEnv("NATS_MAX_DELIVER", -1),
 			HotKeyThreshold:         toInt(getIntEnv("HOT_KEY_THRESHOLD", 1000)),
 			HotKeyCheckIntervalMS:   toInt(getIntEnv("HOT_KEY_CHECK_INTERVAL_MS", 10000)),
 		},
@@ -264,8 +264,8 @@ func (c *Config) Validate() error {
 	if c.Worker.NATSAckWaitMS <= 0 {
 		return fmt.Errorf("NATS_ACK_WAIT_MS must be > 0")
 	}
-	if c.Worker.NATSMaxDeliver <= 0 {
-		return fmt.Errorf("NATS_MAX_DELIVER must be > 0")
+	if c.Worker.NATSMaxDeliver != -1 {
+		return fmt.Errorf("NATS_MAX_DELIVER must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
 	}
 	if c.Worker.HotKeyThreshold <= 0 {
 		return fmt.Errorf("HOT_KEY_THRESHOLD must be > 0")
