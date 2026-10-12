@@ -241,10 +241,10 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		return 0, fmt.Errorf("check existing batch: %w", err)
 	}
 	if existing != nil && existing.Status == domain.BatchRunStatusCompleted {
-		for _, m := range members {
-			if err := s.batches.MarkBatched(ctx, m.TenantID, m.EventID, batchID); err != nil {
-				return 0, fmt.Errorf("mark batched idempotent: %w", err)
-			}
+		// A previous attempt may have committed event processing but failed while
+		// finalizing membership. CompleteBatch is idempotent for the same batch ID.
+		if err := s.batches.CompleteBatch(ctx, existing, eventIDs); err != nil {
+			return 0, fmt.Errorf("recover completed batch: %w", err)
 		}
 		return 0, nil
 	}
@@ -307,14 +307,11 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 		CreatedAt:    now,
 	}
 
-	if err := s.batches.SaveRun(ctx, run); err != nil {
-		return 0, fmt.Errorf("save batch run: %w", err)
-	}
-
-	for _, m := range members {
-		if err := s.batches.MarkBatched(ctx, m.TenantID, m.EventID, batchID); err != nil {
-			return 0, fmt.Errorf("mark batched: %w", err)
-		}
+	// Persist the run and all member associations atomically. If this fails
+	// after event processing committed, the deterministic batch event can be
+	// replayed safely and finalization retried.
+	if err := s.batches.CompleteBatch(ctx, run, eventIDs); err != nil {
+		return 0, fmt.Errorf("complete batch: %w", err)
 	}
 
 	return 1, nil
