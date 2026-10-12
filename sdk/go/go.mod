@@ -1,6 +1,6 @@
 module github.com/flowrule/flowrule-sdk/go
 
-go 1.23
+go 1.26.0
 
 require (
 	github.com/flowrule/flowrule-sdk/go/flowrule v0.0.0
