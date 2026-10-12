@@ -3,7 +3,6 @@ package ports
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
 )
@@ -55,12 +54,6 @@ type SchedulerService interface {
 	Schedule(ctx context.Context, event *domain.ScheduledEvent) error
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-}
-
-// ShardService manages shard ownership
-type ShardService interface {
-	Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error)
-	Release(ctx context.Context, shard uint32, owner string) error
 }
 
 // QuarantineService manages failed items

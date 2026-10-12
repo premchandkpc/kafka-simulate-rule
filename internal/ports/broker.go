@@ -175,3 +175,33 @@ type ShardedConsumer interface {
 	FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
 	OwnedShards() []uint32
 }
+
+// RulesetConsumer is a consumer bound to a specific ruleset.
+// It handles only events for its configured event types.
+type RulesetConsumer interface {
+	EventConsumer
+	Ruleset() string
+	EventTypes() []string
+}
+
+// ConsumerRegistry manages multiple ruleset-bound consumers.
+// It allows the worker to fetch events for specific rulesets independently.
+type ConsumerRegistry interface {
+	// Register adds a consumer for a specific ruleset.
+	Register(ctx context.Context, rc RulesetConsumer) error
+
+	// Get returns the consumer for a ruleset.
+	Get(ruleset string) (RulesetConsumer, bool)
+
+	// FetchForRuleset fetches events for a specific ruleset.
+	FetchForRuleset(ctx context.Context, ruleset string, maxMessages int) ([]Delivery, error)
+
+	// Start begins consuming for all registered consumers.
+	Start(ctx context.Context) error
+
+	// Stop stops all registered consumers.
+	Stop(ctx context.Context) error
+
+	// RegisteredRulesets returns all registered rulesets.
+	RegisteredRulesets() []string
+}

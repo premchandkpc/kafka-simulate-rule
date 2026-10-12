@@ -135,7 +135,7 @@ func (m *LeaseManager) Start(ctx context.Context) error {
 
 // Stop is idempotent, waits for lease renewal to stop, and releases leases with
 // a bounded context that remains usable during signal-driven shutdown.
-func (m *LeaseManager) Stop(ctx context.Context) { //nolint:contextcheck // intentionally assign to parameter for fallback
+func (m *LeaseManager) Stop(ctx context.Context) error { //nolint:contextcheck // intentionally assign to parameter for fallback
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -156,11 +156,16 @@ func (m *LeaseManager) Stop(ctx context.Context) { //nolint:contextcheck // inte
 
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	var firstErr error
 	for shardID := range owned {
 		if err := m.repo.Release(releaseCtx, shardID, m.owner); err != nil {
 			log.Printf("shard %d: release failed: %v", shardID, err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
+	return firstErr
 }
 
 func (m *LeaseManager) acquireShard(ctx context.Context, shard uint32) error {

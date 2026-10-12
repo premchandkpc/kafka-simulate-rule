@@ -12,7 +12,6 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
-	"github.com/flowrule/flowrule/internal/runtime/shard"
 )
 
 // WorkerConfig holds configuration for the worker.
@@ -58,17 +57,17 @@ type shardedConsumer interface {
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
 type Worker struct {
-	consumer        ports.BrokerConsumer
-	events          ports.EventProcessor
-	effects         ports.EffectPublisher
-	batches         ports.BatchProcessor
-	batchInterval   time.Duration
-	clock           ports.Clock
-	leaseManager    *shard.LeaseManager
-	keyQueue        *keyqueue.KeyQueue
-	workerID        string
-	numShards       uint32
-	config          WorkerConfig
+	consumer     ports.BrokerConsumer
+	events       ports.EventProcessor
+	effects      ports.EffectPublisher
+	batches      ports.BatchProcessor
+	batchInterval time.Duration
+	clock        ports.Clock
+	shardService ports.ShardService
+	keyQueue     *keyqueue.KeyQueue
+	workerID     string
+	numShards    uint32
+	config       WorkerConfig
 	shardedConsumer shardedConsumer
 }
 
@@ -79,7 +78,7 @@ func NewWorker(
 	batches ports.BatchProcessor,
 	batchInterval time.Duration,
 	clock ports.Clock,
-	leaseManager *shard.LeaseManager,
+	shardService ports.ShardService,
 	workerID string,
 	numShards uint32,
 	config WorkerConfig,
@@ -95,6 +94,9 @@ func NewWorker(
 	}
 	if clock == nil {
 		return nil, errors.New("worker clock is required")
+	}
+	if shardService == nil {
+		return nil, errors.New("worker shard service is required")
 	}
 	if workerID == "" {
 		return nil, errors.New("worker ID is required")
@@ -145,8 +147,8 @@ func NewWorker(
 		sc = candidate
 	}
 	if config.RequireSharded {
-		if leaseManager == nil {
-			return nil, errors.New("lease manager is required when sharded mode is enabled")
+		if shardService == nil {
+			return nil, errors.New("shard service is required when sharded mode is enabled")
 		}
 		if sc == nil {
 			return nil, errors.New("consumer must implement sharded consumer when sharded mode is enabled")
@@ -154,16 +156,16 @@ func NewWorker(
 	}
 
 	return &Worker{
-		consumer:        consumer,
-		events:          events,
-		effects:         effects,
-		batches:         batches,
-		batchInterval:   batchInterval,
-		clock:           clock,
-		leaseManager:    leaseManager,
-		workerID:        workerID,
-		numShards:       numShards,
-		config:          config,
+		consumer:     consumer,
+		events:       events,
+		effects:      effects,
+		batches:      batches,
+		batchInterval: batchInterval,
+		clock:        clock,
+		shardService: shardService,
+		workerID:     workerID,
+		numShards:    numShards,
+		config:       config,
 		shardedConsumer: sc,
 	}, nil
 }
@@ -172,19 +174,16 @@ func (w *Worker) Run(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("worker context is required")
 	}
-	if w.leaseManager != nil {
-		if err := w.leaseManager.Start(ctx); err != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			w.leaseManager.Stop(shutdownCtx)
-			cancel()
-			return fmt.Errorf("start lease manager: %w", err)
-		}
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
-			w.leaseManager.Stop(shutdownCtx)
-		}()
+	if err := w.shardService.Start(ctx); err != nil {
+		return fmt.Errorf("start shard service: %w", err)
 	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := w.shardService.Stop(shutdownCtx); err != nil {
+			log.Printf("stop shard service: %v", err)
+		}
+	}()
 
 	w.keyQueue = keyqueue.NewKeyQueue(
 		w.config.MaxGlobalInFlight,
@@ -219,17 +218,17 @@ func (w *Worker) Run(ctx context.Context) error {
 	defer background.Wait()
 
 	// RequireSharded defaults to true and NewWorker validates that both
-	// shardedConsumer and leaseManager are present when enabled.
+	// shardedConsumer and shardService are present when enabled.
 	w.runSharded(ctx)
 	return nil
 }
 
 func (w *Worker) syncConsumers(ctx context.Context) {
-	if w.leaseManager == nil || w.shardedConsumer == nil {
+	if w.shardService == nil || w.shardedConsumer == nil {
 		return
 	}
 
-	owned := w.leaseManager.OwnedShards()
+	owned := w.shardService.OwnedShards()
 	ownedSet := make(map[uint32]struct{}, len(owned))
 	for _, shardID := range owned {
 		ownedSet[shardID] = struct{}{}
@@ -394,7 +393,7 @@ func (w *Worker) runSharded(ctx context.Context) {
 		// Fetch only shards for which this worker currently holds a lease.
 		// Consumer-side removal can fail temporarily; stale consumers must not
 		// remain in the fetch set while reconciliation retries.
-		ownedShards := w.leaseManager.OwnedShards()
+		ownedShards := w.shardService.OwnedShards()
 		if len(ownedShards) == 0 {
 			if !waitForRetry(ctx, time.Second) {
 				return
@@ -424,8 +423,8 @@ func (w *Worker) runSharded(ctx context.Context) {
 				continue
 			}
 
-			vshard := w.leaseManager.VirtualShardForEvent(env)
-			if !w.leaseManager.IsOwner(vshard) {
+			vshard := w.shardService.VirtualShardForEvent(env)
+			if !w.shardService.IsOwner(vshard) {
 				if err := settleNak(ctx, delivery); err != nil {
 					log.Printf("nak non-owned shard %d: %v", vshard, err)
 				}
@@ -433,7 +432,7 @@ func (w *Worker) runSharded(ctx context.Context) {
 			}
 
 			fencingToken := int64(0)
-			if token, ok := w.leaseManager.GetFencingToken(vshard); ok {
+			if token, ok := w.shardService.GetFencingToken(vshard); ok {
 				fencingToken = token
 			}
 
