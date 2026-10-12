@@ -274,7 +274,7 @@ func TestBatchService_AccumulateBelowThreshold(t *testing.T) {
 
 	for i := 1; i <= 2; i++ {
 		id := "evt-" + string(rune('0'+i))
-		batches.entries[id] = &domain.InboxEntry{
+		batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 			TenantID:     "tenant-1",
 			EventID:      id,
 			PartitionKey: "pk-1",
@@ -314,7 +314,7 @@ func TestBatchService_Window(t *testing.T) {
 	now := time.Now().UTC()
 
 	id := "evt-1"
-	batches.entries[id] = &domain.InboxEntry{
+	batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 		TenantID:     "tenant-1",
 		EventID:      id,
 		PartitionKey: "pk-1",
@@ -353,7 +353,7 @@ func TestBatchService_WindowNotElapsed(t *testing.T) {
 	now := time.Now().UTC()
 
 	id := "evt-1"
-	batches.entries[id] = &domain.InboxEntry{
+	batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 		TenantID:     "tenant-1",
 		EventID:      id,
 		PartitionKey: "pk-1",
@@ -389,7 +389,7 @@ func TestBatchService_NoneMode(t *testing.T) {
 	now := time.Now().UTC()
 
 	id := "evt-1"
-	batches.entries[id] = &domain.InboxEntry{
+	batches.entries["tenant-1|"+id] = &domain.InboxEntry{
 		TenantID:     "tenant-1",
 		EventID:      id,
 		PartitionKey: "pk-1",
