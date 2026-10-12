@@ -99,13 +99,8 @@ for f in rules/*.yaml; do
 done
 ```
 
-### 3. Deploy Workflow
-
-```bash
-curl -X POST http://localhost:8080/v1/workflow-definitions \
-  -H "Content-Type: application/yaml" \
-  -d @workflows/order-processing.yaml
-```
+### 3. Workflow (reference only)
+The workflow YAML under `workflows/` documents the process; the tenant API does not expose workflow mutation, so it is not deployed.
 
 ### 4. Run Producer
 
@@ -130,13 +125,13 @@ Generate Go types from contracts:
 flowrule-codegen -contract order.created -version 1.0 -target go -output /tmp/out  # or: make generate-domain DOMAIN=ecommerce (writes domain-builds/ecommerce)
 
 # Generate Java classes
-flowrule-codegen -contract order.created -version 1.0 -target java -output generated/java/OrderCreated.java
+flowrule-codegen -contract order.created -version 1.0 -target java -output /tmp/out/java/OrderCreated.java
 
 # Generate Protobuf
-flowrule-codegen -contract order.created -version 1.0 -target protobuf -output generated/protobuf/order_created.proto
+flowrule-codegen -contract order.created -version 1.0 -target protobuf -output /tmp/out/protobuf/order_created.proto
 
 # Generate JSON Schema
-flowrule-codegen -contract order.created -version 1.0 -target jsonschema -output generated/jsonschema/order_created.json
+flowrule-codegen -contract order.created -version 1.0 -target jsonschema -output /tmp/out/jsonschema/order_created.json
 ```
 
 ## Generated Artifacts

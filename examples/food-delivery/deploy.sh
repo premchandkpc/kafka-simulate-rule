@@ -1,19 +1,20 @@
 #!/bin/bash
-# Deploy food-delivery example contracts, rules, and workflow
+# Deploy food-delivery example contracts, rules
 
 set -e
 
 API_URL="${FLOWRULE_API:-http://localhost:8080}"
+TENANT_ID="${FLOWRULE_TENANT:-development-tenant}"
 
 echo "Deploying food-delivery example to $API_URL"
 
-# Generated source files are checked in; deploy only registers the contract/rule/workflow definitions.
+# Generated code lives in ../../domain-builds (make generate-domain); deploy only registers contracts and rules.
 
 echo "Registering contracts..."
 for f in contracts/*.yaml; do
   echo "  Registering $f"
   curl --fail-with-body -sS -X POST "$API_URL/v1/contracts" \
-    -H "Content-Type: application/yaml" \
+    -H "X-Tenant-ID: $TENANT_ID" -H "Content-Type: application/yaml" \
     -d @"$f" | jq .
 done
 
@@ -22,13 +23,10 @@ for f in rules/*.yaml; do
   ruleSet=$(basename "$f" .yaml)
   echo "  Deploying $ruleSet"
   curl --fail-with-body -sS -X POST "$API_URL/v1/rules/$ruleSet/revisions" \
-    -H "Content-Type: application/yaml" \
+    -H "X-Tenant-ID: $TENANT_ID" -H "Content-Type: application/yaml" \
     -d @"$f" | jq .
 done
 
-echo "Deploying workflow..."
-curl --fail-with-body -sS -X POST "$API_URL/v1/workflows/definitions" \
-  -H "Content-Type: application/yaml" \
-  -d @workflows/food-delivery.yaml | jq .
+# Workflow definitions (workflows/*.yaml) are reference files: the tenant API does not expose workflow mutation.
 
 echo "Food delivery deployment complete!"

@@ -136,17 +136,8 @@ The FlowRule **Worker runtime** handles:
 
 ## Generated Types
 
-Each example's `generated/` directory contains type-safe artifacts:
+Generated domain code lives in the repository-level `domain-builds/<domain>/` modules (`make generate-domain DOMAIN=<domain>`), not inside each example. Examples import it together with the SDK from `sdk/go/flowrule`.
 
-```
-generated/
-├── go/          # Go structs with validation tags
-├── java/        # Java classes with Jackson/Jakarta annotations
-├── protobuf/    # Protobuf messages
-└── jsonschema/  # JSON Schema for validation
-```
-
-Use these directly in your application code - no manual DTO maintenance needed.
 Generating a Go target also emits a typed client with default-rule-set and explicit-rule-set send/subscribe methods. Generated Go clients import the separate FlowRule client SDK module.
 
 ## Key Concepts Demonstrated

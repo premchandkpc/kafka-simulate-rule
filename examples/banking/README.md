@@ -76,12 +76,8 @@ for f in rules/*.yaml; do
 done
 ```
 
-### 3. Deploy Workflow
-```bash
-curl -X POST http://localhost:8080/v1/workflow-definitions \
-  -H "Content-Type: application/yaml" \
-  -d @workflows/transaction-processing.yaml
-```
+### 3. Workflow (reference only)
+The workflow YAML under `workflows/` documents the process; the tenant API does not expose workflow mutation, so it is not deployed.
 
 ### 4. Run Producer
 ```bash
