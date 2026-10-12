@@ -111,4 +111,3 @@ func (w *Worker) batchLoop(ctx context.Context) {
 		}
 	}
 }
-
