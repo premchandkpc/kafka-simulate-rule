@@ -36,6 +36,22 @@ func validConfigForTest() *Config {
 	}
 }
 
+func TestValidateRejectsDuplicateNATSRulesets(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.NATS.RuleSets = []string{"orders.created", "orders.created"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate ruleset") {
+		t.Fatalf("Validate() error = %v, want duplicate ruleset error", err)
+	}
+}
+
+func TestValidateRejectsOversizedNATSRuleset(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.NATS.RuleSets = []string{strings.Repeat("x", 129)}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "at most 128 bytes") {
+		t.Fatalf("Validate() error = %v, want ruleset length error", err)
+	}
+}
+
 func TestValidateRejectsInvalidWorkerRuntimeSettings(t *testing.T) {
 	tests := []struct {
 		name   string

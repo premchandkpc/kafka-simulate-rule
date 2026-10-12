@@ -27,6 +27,7 @@ type NATSConfig struct {
 	URL      string
 	Stream   string
 	Consumer string
+	RuleSets []string
 }
 
 type RedisConfig struct {
@@ -108,6 +109,7 @@ func Load() (*Config, error) {
 			URL:      getEnv("NATS_URL", "nats://localhost:4222"),
 			Stream:   getEnv("NATS_STREAM", "flowrule"),
 			Consumer: getEnv("NATS_CONSUMER", ""),
+			RuleSets: splitCSV(getEnv("NATS_RULESETS", "")),
 		},
 		Redis: RedisConfig{
 			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
@@ -188,6 +190,20 @@ func (c *Config) Validate() error {
 	}
 	if c.NATS.URL == "" {
 		return fmt.Errorf("NATS_URL is required")
+	}
+	seenRuleSets := make(map[string]struct{}, len(c.NATS.RuleSets))
+	for _, ruleSet := range c.NATS.RuleSets {
+		ruleSet = strings.TrimSpace(ruleSet)
+		if ruleSet == "" {
+			return fmt.Errorf("NATS_RULESETS must not contain empty values")
+		}
+		if len(ruleSet) > 128 {
+			return fmt.Errorf("NATS_RULESETS entries must be at most 128 bytes")
+		}
+		if _, exists := seenRuleSets[ruleSet]; exists {
+			return fmt.Errorf("NATS_RULESETS contains duplicate ruleset %q", ruleSet)
+		}
+		seenRuleSets[ruleSet] = struct{}{}
 	}
 	if c.Auth.RequireAuth {
 		if c.Auth.JWTSecret == "" {

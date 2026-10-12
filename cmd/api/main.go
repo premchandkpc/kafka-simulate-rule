@@ -58,6 +58,7 @@ func run() (runErr error) {
 		Stream:     cfg.NATS.Stream,
 		Consumer:   cfg.NATS.Consumer,
 		Subjects:   []string{"events"},
+		RuleSets:   cfg.NATS.RuleSets,
 		AckWait:    cfg.NATSAckWait(),
 		MaxDeliver: cfg.Worker.NATSMaxDeliver,
 		NumShards:  cfg.Worker.NumShards,
