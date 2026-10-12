@@ -10,7 +10,6 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
-	"github.com/flowrule/flowrule/internal/runtime/shard"
 )
 
 // WorkerConfig holds configuration for the worker.
@@ -37,7 +36,7 @@ type Worker struct {
 	batches         ports.BatchProcessor
 	batchInterval   time.Duration
 	clock           ports.Clock
-	leaseManager    *shard.LeaseManager
+	leaseManager    ports.ShardLeaseRuntime
 	keyQueue        *keyqueue.KeyQueue
 	workerID        string
 	numShards       uint32
@@ -68,7 +67,7 @@ func NewWorker(
 	batches ports.BatchProcessor,
 	batchInterval time.Duration,
 	clock ports.Clock,
-	leaseManager *shard.LeaseManager,
+	leaseManager ports.ShardLeaseRuntime,
 	workerID string,
 	numShards uint32,
 	config WorkerConfig,

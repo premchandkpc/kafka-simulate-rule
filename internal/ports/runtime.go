@@ -60,6 +60,20 @@ type ShardLeaseView interface {
 	GetFencingToken(shard uint32) (int64, bool)
 }
 
+
+/*
+ShardLeaseRuntime is the worker-facing lease contract. It exposes lifecycle,
+ownership snapshots, and event-to-shard mapping without coupling application
+orchestration to the concrete lease manager.
+*/
+type ShardLeaseRuntime interface {
+	ShardLeaseView
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+	OwnedShards() []uint32
+	VirtualShardForEvent(event *domain.EventEnvelope) uint32
+}
+
 // ShardManager manages shard ownership and leases
 type ShardManager interface {
 	Start(ctx context.Context) error
