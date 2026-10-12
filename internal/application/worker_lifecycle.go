@@ -18,14 +18,28 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err := w.shardService.Start(ctx); err != nil {
 		return fmt.Errorf("start shard service: %w", err)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := w.shardService.Stop(shutdownCtx); err != nil {
-			log.Printf("stop shard service: %v", err)
-		}
-	}()
+	defer w.stopShardService(ctx)
 
+	w.startKeyQueue(ctx)
+	defer w.keyQueue.Stop()
+
+	var background sync.WaitGroup
+	w.startBackgroundLoops(ctx, &background)
+	defer background.Wait()
+
+	w.runSharded(ctx)
+	return nil
+}
+
+func (w *Worker) stopShardService(ctx context.Context) {
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := w.shardService.Stop(shutdownCtx); err != nil {
+		log.Printf("stop shard service: %v", err)
+	}
+}
+
+func (w *Worker) startKeyQueue(ctx context.Context) {
 	w.keyQueue = keyqueue.NewKeyQueue(
 		w.config.MaxGlobalInFlight,
 		w.config.MaxPerKeyQueue,
@@ -39,29 +53,23 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.config.HotKeyCallback,
 	)
 	w.keyQueue.Start(ctx)
-	defer w.keyQueue.Stop()
+}
 
-	var background sync.WaitGroup
+func (w *Worker) startBackgroundLoops(ctx context.Context, background *sync.WaitGroup) {
 	background.Add(1)
 	go func() {
 		defer background.Done()
 		w.publishLoop(ctx)
 	}()
-	if w.batches != nil && w.batchInterval > 0 {
-		background.Add(1)
-		go func() {
-			defer background.Done()
-			w.batchLoop(ctx)
-		}()
-	}
-	// Wait for periodic loops before stopping the queue, releasing leases,
-	// and allowing the caller to close shared resources.
-	defer background.Wait()
 
-	// RequireSharded defaults to true and NewWorker validates that both
-	// shardedConsumer and shardService are present when enabled.
-	w.runSharded(ctx)
-	return nil
+	if w.batches == nil || w.batchInterval <= 0 {
+		return
+	}
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		w.batchLoop(ctx)
+	}()
 }
 
 func (w *Worker) publishLoop(ctx context.Context) {
