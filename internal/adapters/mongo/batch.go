@@ -90,6 +90,74 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	return entries, nil
 }
 
+
+ // CompleteBatch atomically persists the completed run and all member associations
+ // using a MongoDB transaction. The deployment must support replica-set transactions.
+func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
+	if run == nil || run.BatchID == "" || run.TenantID == "" || run.PartitionKey == "" || run.RuleSet == "" {
+		return fmt.Errorf("batch run identity is required")
+	}
+	if len(eventIDs) == 0 || len(eventIDs) != run.MemberCount {
+		return fmt.Errorf("batch member count does not match run")
+	}
+	seen := make(map[string]struct{}, len(eventIDs))
+	for _, id := range eventIDs {
+		if id == "" {
+			return fmt.Errorf("batch event ID must not be empty")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate batch event ID %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	client := r.collection(collectionInbox).Database().Client()
+	session, err := client.StartSession()
+	if err != nil {
+		return fmt.Errorf("start batch completion session: %w", err)
+	}
+	defer session.EndSession(context.Background())
+
+	_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+		runs := r.collection(collectionBatchRuns)
+		doc := BatchRunDocFromDomain(run)
+		_, err := runs.UpdateOne(sc,
+			bson.M{"batch_id": run.BatchID},
+			bson.M{"$set": doc},
+			options.Update().SetUpsert(true),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("upsert batch run: %w", err)
+		}
+
+		filter := bson.M{
+			"tenant_id": run.TenantID,
+			"partition_key": run.PartitionKey,
+			"rule_set": run.RuleSet,
+			"event_id": bson.M{"$in": eventIDs},
+			"status": "committed",
+			"$or": []bson.M{
+				{"batch_id": bson.M{"$exists": false}},
+				{"batch_id": run.BatchID},
+			},
+		}
+		result, err := r.collection(collectionInbox).UpdateMany(sc, filter,
+			bson.M{"$set": bson.M{"batch_id": run.BatchID}},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("associate batch members: %w", err)
+		}
+		if result.MatchedCount != int64(len(eventIDs)) {
+			return nil, fmt.Errorf("batch membership conflict: matched %d of %d requested events", result.MatchedCount, len(eventIDs))
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return fmt.Errorf("complete batch transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	coll := r.collection(collectionInbox)
 
