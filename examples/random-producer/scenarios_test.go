@@ -62,6 +62,14 @@ func TestScenarioPayloadsMatchExistingExampleContracts(t *testing.T) {
 			if err := validateContractObject(payload, contract.Fields, "$"); err != nil {
 				t.Fatalf("payload does not match %s: %v", contract.Name, err)
 			}
+			if tt.scenario == ScenarioBanking {
+				channel, ok := payload["channel"].(string)
+				switch channel {
+				case "mobile", "web", "branch", "api":
+				default:
+					t.Fatalf("banking channel = %q (present=%t), want mobile, web, branch, or api", channel, ok)
+				}
+			}
 			if event.PartitionKey == "" {
 				t.Fatal("partition key must be set")
 			}
