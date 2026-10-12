@@ -2,13 +2,25 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/ports"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
+const minimumLockTTL = time.Second
+
+var (
+	ErrLockNotAcquired = errors.New("redis lock not acquired")
+	ErrLockLost        = errors.New("redis lock ownership lost")
+)
+
+// LockManager owns distributed-lock creation independently of the key/value cache.
 type LockManager struct {
 	client *redis.Client
 }
@@ -20,98 +32,84 @@ func NewLockManager(client *Client) *LockManager {
 type Lock struct {
 	client      *redis.Client
 	key         string
+	redisKey    string
 	token       string
 	ttl         time.Duration
 	watchCtx    context.Context
 	watchCancel context.CancelFunc
-}
-
-func (m *LockManager) Acquire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
-	key = "lock:" + key
-	token := fmt.Sprintf("%d", time.Now().UnixNano())
-
-	ok, err := m.client.SetNX(ctx, key, token, ttl).Result()
-	if err != nil {
-		return false, fmt.Errorf("lock acquire: %w", err)
-	}
-	return ok, nil
-}
-
-func (m *LockManager) Release(ctx context.Context, key, token string) (bool, error) {
-	key = "lock:" + key
-
-	script := redis.NewScript(`
-		if redis.call("get", KEYS[1]) == ARGV[1] then
-			return redis.call("del", KEYS[1])
-		else
-			return 0
-		end
-	`)
-
-	result, err := script.Run(ctx, m.client, []string{key}, token).Int()
-	if err != nil {
-		return false, fmt.Errorf("lock release: %w", err)
-	}
-	return result == 1, nil
-}
-
-func (m *LockManager) Extend(ctx context.Context, key, token string, ttl time.Duration) (bool, error) {
-	key = "lock:" + key
-
-	script := redis.NewScript(`
-		if redis.call("get", KEYS[1]) == ARGV[1] then
-			return redis.call("expire", KEYS[1], ARGV[2])
-		else
-			return 0
-		end
-	`)
-
-	result, err := script.Run(ctx, m.client, []string{key}, token, int(ttl.Seconds())).Int()
-	if err != nil {
-		return false, fmt.Errorf("lock extend: %w", err)
-	}
-	return result == 1, nil
+	done        chan struct{}
+	lost        chan struct{}
+	lostOnce    sync.Once
 }
 
 func (m *LockManager) Lock(ctx context.Context, key string, ttl time.Duration) (ports.LockGuard, error) {
-	lock := &Lock{
-		client: m.client,
-		key:    "lock:" + key,
-		token:  fmt.Sprintf("%d", time.Now().UnixNano()),
-		ttl:    ttl,
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("redis lock: key is required")
+	}
+	if ttl < minimumLockTTL {
+		return nil, fmt.Errorf("redis lock: ttl must be at least %s", minimumLockTTL)
 	}
 
-	ok, err := lock.client.SetNX(ctx, lock.key, lock.token, ttl).Result()
+	token := uuid.NewString()
+	redisKey := "lock:" + key
+	acquired, err := m.client.SetNX(ctx, redisKey, token, ttl).Result()
 	if err != nil {
-		return nil, fmt.Errorf("lock acquire: %w", err)
+		return nil, fmt.Errorf("acquire redis lock: %w", err)
 	}
-	if !ok {
-		return nil, fmt.Errorf("lock not acquired")
+	if !acquired {
+		return nil, ErrLockNotAcquired
 	}
 
-	lock.watchCtx, lock.watchCancel = context.WithCancel(ctx)
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	lock := &Lock{
+		client: m.client, key: key, redisKey: redisKey, token: token, ttl: ttl,
+		watchCtx: watchCtx, watchCancel: watchCancel, done: make(chan struct{}), lost: make(chan struct{}),
+	}
 	go lock.renewLoop()
-
 	return lock, nil
 }
 
+func (l *Lock) markLost() {
+	l.lostOnce.Do(func() {
+		close(l.lost)
+		if l.watchCancel != nil {
+			l.watchCancel()
+		}
+	})
+}
+
+func (l *Lock) isLost() bool {
+	select {
+	case <-l.lost:
+		return true
+	default:
+		return false
+	}
+}
+
 func (l *Lock) renewLoop() {
+	defer close(l.done)
 	ticker := time.NewTicker(l.ttl / 3)
 	defer ticker.Stop()
 
+	script := redis.NewScript(`
+		if redis.call("get", KEYS[1]) == ARGV[1] then
+			return redis.call("pexpire", KEYS[1], ARGV[2])
+		else
+			return 0
+		end
+	`)
 	for {
 		select {
 		case <-l.watchCtx.Done():
 			return
 		case <-ticker.C:
-			script := redis.NewScript(`
-				if redis.call("get", KEYS[1]) == ARGV[1] then
-					return redis.call("expire", KEYS[1], ARGV[2])
-				else
-					return 0
-				end
-			`)
-			script.Run(l.watchCtx, l.client, []string{l.key}, l.token, int(l.ttl.Seconds()))
+			result, err := script.Run(l.watchCtx, l.client, []string{l.redisKey}, l.token, l.ttl.Milliseconds()).Int()
+			if err != nil || result != 1 {
+				l.markLost()
+				return
+			}
 		}
 	}
 }
@@ -124,10 +122,15 @@ func (l *Lock) Token() string {
 	return l.token
 }
 
+func (l *Lock) Lost() <-chan struct{} {
+	return l.lost
+}
+
 func (l *Lock) Release(ctx context.Context) error {
 	if l.watchCancel != nil {
 		l.watchCancel()
 	}
+	<-l.done
 
 	script := redis.NewScript(`
 		if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -136,25 +139,41 @@ func (l *Lock) Release(ctx context.Context) error {
 			return 0
 		end
 	`)
-
-	_, err := script.Run(ctx, l.client, []string{l.key}, l.token).Int()
-	return err
+	result, err := script.Run(ctx, l.client, []string{l.redisKey}, l.token).Int()
+	if err != nil {
+		return fmt.Errorf("release redis lock: %w", err)
+	}
+	if result != 1 {
+		l.markLost()
+		return ErrLockLost
+	}
+	return nil
 }
 
 func (l *Lock) Extend(ctx context.Context, ttl time.Duration) error {
+	if ttl < l.ttl {
+		return fmt.Errorf("redis lock: extension ttl must be at least the original ttl %s", l.ttl)
+	}
+	if l.isLost() {
+		return ErrLockLost
+	}
 	script := redis.NewScript(`
 		if redis.call("get", KEYS[1]) == ARGV[1] then
-			return redis.call("expire", KEYS[1], ARGV[2])
+			return redis.call("pexpire", KEYS[1], ARGV[2])
 		else
 			return 0
 		end
 	`)
-
-	_, err := script.Run(ctx, l.client, []string{l.key}, l.token, int(ttl.Seconds())).Int()
-	return err
+	result, err := script.Run(ctx, l.client, []string{l.redisKey}, l.token, ttl.Milliseconds()).Int()
+	if err != nil {
+		return fmt.Errorf("extend redis lock: %w", err)
+	}
+	if result != 1 {
+		l.markLost()
+		return ErrLockLost
+	}
+	return nil
 }
-
-
 
 var _ ports.DistributedLock = (*LockManager)(nil)
 var _ ports.LockGuard = (*Lock)(nil)
