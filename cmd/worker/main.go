@@ -101,11 +101,20 @@ func run() (runErr error) {
 	}
 	consumer, err := nats.NewConsumer(ctx, natsCfg)
 	if err != nil {
-		return fmt.Errorf("initialize NATS JetStream: %w", err)
+		return fmt.Errorf("initialize NATS JetStream consumer: %w", err)
 	}
 	defer func() {
 		if err := consumer.Close(); err != nil {
 			runErr = errors.Join(runErr, fmt.Errorf("close NATS consumer: %w", err))
+		}
+	}()
+	publisher, err := nats.NewPublisher(natsCfg)
+	if err != nil {
+		return fmt.Errorf("initialize NATS JetStream publisher: %w", err)
+	}
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close NATS publisher: %w", err))
 		}
 	}()
 
@@ -130,7 +139,7 @@ func run() (runErr error) {
 		cfg.App.Env == "development" || cfg.App.Env == "dev" || cfg.App.Env == "test",
 	)
 	effectSender := svceffects.NewRouterWithConfig(
-		consumer, externalSender, eventSubject, cfg.Worker.NumShards, serviceSender,
+		publisher, externalSender, eventSubject, cfg.Worker.NumShards, serviceSender,
 	)
 	workerID := cfg.WorkerID()
 	eventsSvc := svcevents.NewService(
@@ -200,7 +209,7 @@ func run() (runErr error) {
 	}
 	sched := scheduler.NewScheduler(
 		repositories.ScheduledEvents,
-		consumer,
+		publisher,
 		clock,
 		cfg.SchedulerPollInterval(),
 		cfg.Worker.SchedulerBatchSize,

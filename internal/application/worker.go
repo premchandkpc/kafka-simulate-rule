@@ -50,7 +50,6 @@ func DefaultWorkerConfig() WorkerConfig {
 // It separates transport bootstrap from business orchestration so the main
 // entrypoint stays thin and the runtime behavior remains testable.
 type Worker struct {
-	consumer        ports.BrokerConsumer
 	events          ports.EventProcessor
 	effects         ports.EffectPublisher
 	batches         ports.BatchProcessor
@@ -65,7 +64,7 @@ type Worker struct {
 }
 
 func NewWorker(
-	consumer ports.BrokerConsumer,
+	consumer ports.ShardedConsumer,
 	events ports.EventProcessor,
 	effects ports.EffectPublisher,
 	batches ports.BatchProcessor,
@@ -132,22 +131,14 @@ func NewWorker(
 		return nil, fmt.Errorf("worker fetch batch size (%d) must not exceed max global in-flight (%d)", config.FetchBatchSize, config.MaxGlobalInFlight)
 	}
 
-	var sc ports.ShardedConsumer
-	if candidate, ok := consumer.(ports.ShardedConsumer); ok {
-		sc = candidate
-	}
 	if !config.RequireSharded {
 		return nil, errors.New("non-sharded worker mode is unsupported because event processing requires shard fencing")
 	}
 	if leaseManager == nil {
 		return nil, errors.New("lease manager is required for fenced event processing")
 	}
-	if sc == nil {
-		return nil, errors.New("consumer must implement ports.ShardedConsumer for fenced event processing")
-	}
 
 	return &Worker{
-		consumer:        consumer,
 		events:          events,
 		effects:         effects,
 		batches:         batches,
@@ -157,7 +148,7 @@ func NewWorker(
 		workerID:        workerID,
 		numShards:       numShards,
 		config:          config,
-		shardedConsumer: sc,
+		shardedConsumer: consumer,
 	}, nil
 }
 

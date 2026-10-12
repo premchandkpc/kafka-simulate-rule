@@ -391,6 +391,12 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 	if cfg.NumShards == 0 {
 		cfg.NumShards = 4096
 	}
+	if len(cfg.Subjects) == 0 {
+		cfg.Subjects = []string{"events"}
+	}
+	if cfg.Stream == "" {
+		cfg.Stream = "flowrule"
+	}
 	conn, err := connect(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
@@ -401,13 +407,22 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 		conn.Close()
 		return nil, fmt.Errorf("create jetstream: %w", err)
 	}
-
-	return &Publisher{
-		conn:      conn,
-		js:        js,
-		stream:    cfg.Stream,
-		numShards: cfg.NumShards,
-	}, nil
+	subjects := make([]string, 0, len(cfg.Subjects)*int(cfg.NumShards))
+	for _, subject := range cfg.Subjects {
+		for shard := uint32(0); shard < cfg.NumShards; shard++ {
+			subjects = append(subjects, fmt.Sprintf("%s.shard.%d", subject, shard))
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name: cfg.Stream, Subjects: subjects, Retention: jetstream.WorkQueuePolicy,
+		Storage: jetstream.FileStorage, MaxMsgs: -1, Discard: jetstream.DiscardOld,
+	}); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("ensure publisher stream: %w", err)
+	}
+	return &Publisher{conn: conn, js: js, stream: cfg.Stream, numShards: cfg.NumShards}, nil
 }
 
 func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
@@ -437,8 +452,20 @@ func (p *Publisher) PublishBatch(ctx context.Context, messages []ports.PublishMe
 	return nil
 }
 
+func (p *Publisher) Ping(ctx context.Context) error {
+	if p.conn == nil || p.conn.Status() != natslib.CONNECTED {
+		return errors.New("nats publisher connection is not established")
+	}
+	if _, err := p.js.Stream(ctx, p.stream); err != nil {
+		return fmt.Errorf("look up stream %q: %w", p.stream, err)
+	}
+	return nil
+}
+
 func (p *Publisher) Close() error {
-	p.conn.Close()
+	if p.conn != nil {
+		p.conn.Close()
+	}
 	return nil
 }
 

@@ -62,7 +62,7 @@ func run() (runErr error) {
 		MaxDeliver: cfg.Worker.NATSMaxDeliver,
 		NumShards:  cfg.Worker.NumShards,
 	}
-	publisher, err := natsadapter.NewConsumer(ctx, natsCfg)
+	publisher, err := natsadapter.NewPublisher(natsCfg)
 	if err != nil {
 		return fmt.Errorf("initialize NATS event publisher: %w", err)
 	}

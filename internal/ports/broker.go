@@ -167,9 +167,9 @@ const (
 	StreamStateDeleted StreamState = "deleted"
 )
 
-// ShardedConsumer extends BrokerConsumer with shard management capabilities
+// ShardedConsumer is the minimal worker-facing pull-consumer contract.
+// It intentionally excludes generic Subscribe/Unsubscribe operations.
 type ShardedConsumer interface {
-	BrokerConsumer
 	EnsureShardConsumer(ctx context.Context, shard uint32) error
 	RemoveShardConsumer(ctx context.Context, shard uint32) error
 	FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
