@@ -9,7 +9,7 @@ import (
 
 func validConfigForTest() *Config {
 	return &Config{
-		App:      AppConfig{HTTPAddr: "127.0.0.1:8080", ShutdownTimeout: time.Second},
+		App:      AppConfig{Env: "development", HTTPAddr: "127.0.0.1:8080", ShutdownTimeout: time.Second},
 		Database: DatabaseConfig{StorageBackend: "postgres", DSN: "postgres://localhost/flowrule"},
 		NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		Worker: WorkerConfig{
@@ -94,6 +94,7 @@ func TestLoadRejectsMalformedShutdownTimeout(t *testing.T) {
 }
 
 func TestLoadDefaultsHTTPAddrToLoopback(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	previous, wasSet := os.LookupEnv("HTTP_ADDR")
 	if err := os.Unsetenv("HTTP_ADDR"); err != nil {
 		t.Fatalf("Unsetenv(HTTP_ADDR): %v", err)
@@ -160,5 +161,18 @@ func TestLoadRejectsMalformedRequireAuth(t *testing.T) {
 	t.Setenv("REQUIRE_AUTH", "definitely-not-a-boolean")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REQUIRE_AUTH must be a boolean") {
 		t.Fatalf("Load() error = %v, want invalid REQUIRE_AUTH boolean error", err)
+	}
+}
+
+func TestLoadDefaultsEnvironmentToProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "")
+	t.Setenv("FLOWRULE_TRUSTED_PROXY_TOKEN", "test-proxy-secret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got, want := cfg.App.Env, "production"; got != want {
+		t.Fatalf("App.Env = %q, want %q", got, want)
 	}
 }
