@@ -94,7 +94,7 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 }
 
 // CompleteBatch atomically persists the completed run and all member associations
- // using a MongoDB transaction. The deployment must support replica-set transactions.
+// using a MongoDB transaction. The deployment must support replica-set transactions.
 func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
 	if run == nil || run.BatchID == "" || run.TenantID == "" || run.PartitionKey == "" || run.RuleSet == "" {
 		return fmt.Errorf("batch run identity is required")
@@ -125,7 +125,7 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 		doc := BatchRunDocFromDomain(run)
 		_, err := runs.UpdateOne(sc,
 			bson.M{
-				"batch_id":     run.BatchID,
+				"batch_id":      run.BatchID,
 				"tenant_id":     run.TenantID,
 				"partition_key": run.PartitionKey,
 				"rule_set":      run.RuleSet,
