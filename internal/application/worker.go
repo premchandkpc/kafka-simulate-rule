@@ -390,36 +390,42 @@ func (w *Worker) runSharded(ctx context.Context) {
 		// Sync consumers with current owned shards
 		w.syncConsumers(ctx)
 
-		// Fetch and process deliveries for owned shards
-		if err := w.fetchAndProcessDeliveries(ctx); err != nil {
+		// Fetch and process deliveries for owned shards. A successful empty poll
+		// is idle work, not an error, but still needs a short delay to avoid a
+		// hot loop while waiting for shard ownership or new messages.
+		didWork, err := w.fetchAndProcessDeliveries(ctx)
+		if err != nil {
 			if !errors.Is(err, ctx.Err()) {
 				log.Printf("fetch and process error: %v", err)
 			}
 			if !waitForRetry(ctx, time.Second) {
 				return
 			}
+			continue
+		}
+		if !didWork && !waitForRetry(ctx, 100*time.Millisecond) {
+			return
 		}
 	}
 }
 
 // fetchAndProcessDeliveries fetches and processes deliveries for owned shards.
-// Returns error if fetch fails, nil if successful or no deliveries.
-func (w *Worker) fetchAndProcessDeliveries(ctx context.Context) error {
+// It reports whether any deliveries were fetched and returns an error on fetch failure.
+func (w *Worker) fetchAndProcessDeliveries(ctx context.Context) (bool, error) {
 	// Fetch only shards for which this worker currently holds a lease.
 	// Consumer-side removal can fail temporarily; stale consumers must not
 	// remain in the fetch set while reconciliation retries.
 	ownedShards := w.shardService.OwnedShards()
 	if len(ownedShards) == 0 {
-		return nil // No shards owned, will retry
+		return false, nil
 	}
 
 	deliveries, err := w.shardedConsumer.FetchShards(ctx, w.config.FetchBatchSize, ownedShards)
 	if err != nil {
-		log.Printf("fetch shards: %v", err)
-		return err
+		return false, err
 	}
 	if len(deliveries) == 0 {
-		return nil
+		return false, nil
 	}
 
 	for _, delivery := range deliveries {
@@ -427,7 +433,7 @@ func (w *Worker) fetchAndProcessDeliveries(ctx context.Context) error {
 			log.Printf("process delivery error: %v", err)
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // processSingleDelivery processes a single delivery.
