@@ -62,12 +62,12 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 		return []*domain.InboxEntry{}, nil
 	}
 	filter := bson.M{
-		"tenant_id": tenantID,
+		"tenant_id":     tenantID,
 		"partition_key": partitionKey,
-		"rule_set": ruleSet,
-		"event_id": bson.M{"$in": eventIDs},
-		"status": "committed",
-		"batch_id": bson.M{"$exists": false},
+		"rule_set":      ruleSet,
+		"event_id":      bson.M{"$in": eventIDs},
+		"status":        "committed",
+		"batch_id":      bson.M{"$exists": false},
 	}
 	cursor, err := r.collection(collectionInbox).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "first_seen_at", Value: 1}, {Key: "tenant_id", Value: 1}, {Key: "event_id", Value: 1}}))
