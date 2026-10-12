@@ -106,6 +106,7 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 - Legacy subjects remain events.shard.N for unlisted rule sets and older producers.
 - Configured rule sets use events.ruleset.<sha256(event-type)>.shard.N. Hashing keeps arbitrary event types inside one NATS subject token.
 - Set the same comma-separated NATS_RULESETS in API, worker, and SDK producer environments. Each configured rule set gets a distinct durable consumer per owned shard. Filters do not overlap, which is required by WorkQueue retention.
+- Ordering is preserved within a ruleset/shard stream. Independent ruleset consumers do not promise global ordering between different event types that share a partition key; use a shared shard consumer if cross-ruleset order is a business invariant.
 - Publisher and consumer adapters are composed separately; application services depend on EventPublisher and ShardedConsumer ports rather than a combined broker implementation.
 - N is EventEnvelope.VirtualShard(NUM_SHARDS).
 - EventEnvelope.Type carries business event type such as payment.requested; it is not part of the configured broker subject.

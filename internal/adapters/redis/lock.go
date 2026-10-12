@@ -48,8 +48,8 @@ func (m *LockManager) Lock(ctx context.Context, key string, ttl time.Duration) (
 	if ctx == nil {
 		return nil, fmt.Errorf("redis lock: context is required")
 	}
-	if m == nil || m.client == nil {
-		return nil, fmt.Errorf("redis lock: client is required")
+	if m == nil {
+		return nil, fmt.Errorf("redis lock: manager is required")
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -57,6 +57,9 @@ func (m *LockManager) Lock(ctx context.Context, key string, ttl time.Duration) (
 	}
 	if ttl < minimumLockTTL {
 		return nil, fmt.Errorf("redis lock: ttl must be at least %s", minimumLockTTL)
+	}
+	if m.client == nil {
+		return nil, fmt.Errorf("redis lock: client is required")
 	}
 
 	token := uuid.NewString()
@@ -138,6 +141,9 @@ func (l *Lock) Lost() <-chan struct{} {
 }
 
 func (l *Lock) Release(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("release redis lock: context is required")
+	}
 	l.stopping.Store(true)
 	if l.watchCancel != nil {
 		l.watchCancel()
@@ -163,6 +169,9 @@ func (l *Lock) Release(ctx context.Context) error {
 }
 
 func (l *Lock) Extend(ctx context.Context, ttl time.Duration) error {
+	if ctx == nil {
+		return fmt.Errorf("extend redis lock: context is required")
+	}
 	if ttl < l.ttl {
 		return fmt.Errorf("redis lock: extension ttl must be at least the original ttl %s", l.ttl)
 	}

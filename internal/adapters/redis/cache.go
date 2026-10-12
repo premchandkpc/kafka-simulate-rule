@@ -62,6 +62,9 @@ func (c *Cache) Increment(ctx context.Context, key string, delta int64) (int64, 
 }
 
 func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	if ttl <= 0 {
+		return fmt.Errorf("cache expire: ttl must be positive")
+	}
 	err := c.client.Expire(ctx, key, ttl).Err()
 	if err != nil {
 		return fmt.Errorf("cache expire: %w", err)
