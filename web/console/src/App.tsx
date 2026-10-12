@@ -610,14 +610,33 @@ export default function App() {
   const loadDomainIntoDatabase = async (domainKey: string) => {
     setCatalogBusy(domainKey);
     setCatalogMessage("");
+    const items = CATALOG.filter(item => item.domain === domainKey);
+    let completed = 0;
+    let currentItem = "";
     try {
-      const items = CATALOG.filter(item => item.domain === domainKey);
-      for (const item of items.filter(i => i.kind === "contract")) await apiRequest(settings, "/v1/contracts", { method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source });
-      for (const item of items.filter(i => i.kind === "rule")) await apiRequest(settings, `/v1/rules/${encodeURIComponent(item.name)}/revisions`, { method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source });
-      setCatalogMessage(`${DOMAIN_LABELS[domainKey] ?? domainKey} contracts and rules saved to the database for tenant ${settings.tenant}.`);
+      if (items.length === 0) throw new Error(`No bundled contracts or rules found for domain "${domainKey}".`);
+      for (const item of items) {
+        currentItem = `${item.kind} "${item.name}"`;
+        if (item.kind === "contract") {
+          await apiRequest(settings, "/v1/contracts", {
+            method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source,
+          });
+        } else {
+          await apiRequest(settings, `/v1/rules/${encodeURIComponent(item.name)}/revisions`, {
+            method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source,
+          });
+        }
+        completed++;
+      }
+      setCatalogMessage(`${DOMAIN_LABELS[domainKey] ?? domainKey}: saved ${completed} contracts/rules to tenant ${settings.tenant}.`);
       await loadCatalog();
     } catch (e) {
-      setCatalogMessage(e instanceof Error ? e.message : String(e));
+      const reason = e instanceof Error ? e.message : String(e);
+      const partial = completed > 0
+        ? ` Import stopped after ${completed} of ${items.length} items; previous writes were not rolled back.`
+        : "";
+      setCatalogMessage(`Failed while saving ${currentItem || "domain catalog"}: ${reason}.${partial}`);
+    } finally {
       setCatalogBusy("");
     }
   };
@@ -662,13 +681,9 @@ export default function App() {
   const [entryRuleChoice, setEntryRuleChoice] = useState<Record<string, string>>({});
   const entryRuleFor = (scenario: Exclude<SimulationScenario, "all">) => entryRuleChoice[scenario] || SOURCE_RULE_BY_SCENARIO[scenario];
   const entryRuleOptions = (scenario: Exclude<SimulationScenario, "all">) => {
-    // The simulator payload is a scenario-specific sample. Only offer its matching event
-    // type; selecting another rule set would publish a payload with the wrong contract.
-    const sourceType = SOURCE_RULE_BY_SCENARIO[scenario];
-    const domain = tenantDomains.find(d => d.name === scenario);
-    const types = Array.isArray(domain?.event_types) ? domain.event_types : [];
-    const stored = new Set(activeRules.map((r: any) => r.rule_set || r.rule_id || r.ruleSet));
-    return types.includes(sourceType) && stored.has(sourceType) ? [sourceType] : [sourceType];
+    // Scenario payloads have a fixed schema. Do not offer another event type unless the
+    // simulator can generate a contract-specific payload for it.
+    return [SOURCE_RULE_BY_SCENARIO[scenario]];
   };
   const selectedSourceRules = EXAMPLE_SOURCE_RULES.filter(item => simulationScenario === "all" || item.scenario === simulationScenario).map(item => ({ ...item, rule: entryRuleFor(item.scenario) }));
   const latestSimulationEvent = simulationEvents[0];
