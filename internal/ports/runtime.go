@@ -61,15 +61,13 @@ type ShardLeaseView interface {
 }
 
 
-/*
-ShardLeaseRuntime is the worker-facing lease contract. It exposes lifecycle,
-ownership snapshots, and event-to-shard mapping without coupling application
-orchestration to the concrete lease manager.
-*/
+// ShardLeaseRuntime is the worker-facing lease contract. It exposes lifecycle,
+// ownership snapshots, and event-to-shard mapping without coupling application
+// orchestration to the concrete lease manager.
 type ShardLeaseRuntime interface {
 	ShardLeaseView
 	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
+	Stop(ctx context.Context)
 	OwnedShards() []uint32
 	VirtualShardForEvent(event *domain.EventEnvelope) uint32
 }
