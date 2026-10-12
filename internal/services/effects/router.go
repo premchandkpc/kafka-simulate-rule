@@ -14,6 +14,7 @@ import (
 type Router struct {
 	publisher   ports.EventPublisher
 	external    ports.EffectSender
+	service     ports.EffectSender
 	baseSubject string
 	numShards   uint32
 }
@@ -25,14 +26,18 @@ func NewRouter(publisher ports.EventPublisher, external ports.EffectSender) *Rou
 
 // NewRouterWithConfig creates a router aligned with the stream's subject family
 // and the shard count used by producers, consumers, and the scheduler.
-func NewRouterWithConfig(publisher ports.EventPublisher, external ports.EffectSender, baseSubject string, numShards uint32) *Router {
+func NewRouterWithConfig(publisher ports.EventPublisher, external ports.EffectSender, baseSubject string, numShards uint32, serviceSenders ...ports.EffectSender) *Router {
 	if baseSubject == "" {
 		baseSubject = "events"
 	}
 	if numShards == 0 {
 		numShards = 4096
 	}
-	return &Router{publisher: publisher, external: external, baseSubject: baseSubject, numShards: numShards}
+	router := &Router{publisher: publisher, external: external, baseSubject: baseSubject, numShards: numShards}
+	if len(serviceSenders) > 0 {
+		router.service = serviceSenders[0]
+	}
+	return router
 }
 
 func (r *Router) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
@@ -40,6 +45,12 @@ func (r *Router) Send(ctx context.Context, effect *domain.Effect, idempotencyKey
 		return fmt.Errorf("send effect: effect is nil")
 	}
 	if effect.EffectType != domain.EffectTypeEmitEvent {
+		if effect.EffectType == domain.EffectTypeServiceEvent {
+			if r.service == nil {
+				return fmt.Errorf("send subscribed service event: service sender is not configured")
+			}
+			return r.service.Send(ctx, effect, idempotencyKey)
+		}
 		if r.external == nil {
 			return fmt.Errorf("send external effect: destination is not configured")
 		}

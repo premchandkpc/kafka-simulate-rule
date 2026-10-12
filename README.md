@@ -2,13 +2,13 @@
 
 FlowRule is a Go-based, event-driven rules runtime. Rules are compiled into immutable revisions; a worker evaluates incoming events and commits an execution record plus resulting effects; effects are delivered asynchronously through an outbox.
 
-> Development status: do not expose the HTTP API to untrusted networks. Authentication and authorization are not implemented, and the current tenant middleware trusts caller-controlled headers/query values.
+> Security: do not expose the HTTP API directly to untrusted networks. Production tenant identity must come from validated JWT claims or an authenticated trusted proxy that strips and replaces trusted headers. Development-only caller-supplied tenant headers are not authentication.
 
 ## Processes
 
 | Process | Entrypoint | Responsibility |
 |---|---|---|
-| HTTP API | cmd/api | Rule revisions/activation, workflows, contracts, batches, quarantine, scheduled-event endpoints |
+| HTTP API | cmd/api | Rule revisions/activation, workflows, contracts, batches, quarantine, scheduled events, tenant domains/services, event ingestion and tracing |
 | Worker | cmd/worker | NATS JetStream consumption, shard leases/fencing, per-process key serialization, event evaluation, outbox publishing |
 | Code generator | cmd/codegen | Generate Go, Java, Protobuf, and JSON Schema artifacts from a contract already registered in storage |
 | Migration CLI | cmd/migrate | Apply pending migrations; only the up command is implemented |
@@ -21,10 +21,18 @@ The root module uses Go 1.26.0. Both sdk/go and the newer sdk/go/flowrule client
 2. The worker consumes only shards for which it owns a lease. The key queue serializes work for each partition key within this worker process and can allow concurrency across keys. This alone does not guarantee end-to-end per-key ordering across redelivery, lease handoff, or concurrent outbox publishers.
 3. Inside one storage transaction, the event service validates the fencing token, checks the inbox for duplicates, loads the active rule revision, evaluates rules, and writes the execution plus outbox effects.
 4. The worker acknowledges the broker delivery only after the transaction commits.
-5. The outbox publisher routes emitted child events back to events.shard.N. External command effects are sent to the configured HTTP destination with a stable idempotency key.
+5. The outbox publisher routes emitted child events back to events.shard.N. External command effects use the configured destination; domain subscribers receive matching event envelopes at their registered HTTP callback URLs. Both deliveries carry stable idempotency keys and are at-least-once.
 6. The scheduler claims due scheduled events and publishes them to the same subject family.
 
 NATS delivery is at-least-once. The inbox prevents duplicate event execution when storage constraints and transaction semantics hold. External effects are effectively-once only when the destination honors the idempotency key. Do not claim exactly-once delivery.
+
+## Tenant domains and receiving services
+
+The console's **Domains & services** page manages tenant-owned event domains and HTTP callback services. A domain groups event type names; a service subscribes to one or more domains. After a matching event commits a successful active-rule execution, the worker adds one service delivery per active subscriber to the same transaction's outbox. Events that have no active rule do not trigger service callbacks.
+
+Callbacks are delivered as the original JSON event envelope using `POST` with `Content-Type: application/json`, `Idempotency-Key`, `X-FlowRule-Tenant-ID`, `X-FlowRule-Service-ID`, `X-FlowRule-Effect-ID`, and `X-FlowRule-Event-ID` headers. The effect ID identifies the durable outbox delivery and remains stable across retries; the event ID identifies the source event and is also present in the envelope. Respond with a 2xx status; other statuses and transport failures are retried by the outbox. Receivers must deduplicate because delivery is at-least-once.
+
+Production callback URLs must use HTTPS and resolve to public IP addresses. HTTP and private destinations are accepted only when `APP_ENV` is development/test. The worker disables environment proxies, validates resolved addresses when dialing, uses a bounded timeout, and does not follow redirects. Domain/service CRUD is tenant-scoped by the request identity; caller-controlled tenant headers are only permitted by the development/test middleware.
 
 ## Run locally
 
@@ -85,7 +93,7 @@ Environment variable names and local defaults are documented in .env.example. AP
 - internal/domain contains business types, validation, state transitions, IDs, and hashes.
 - internal/ports defines broker, storage, transaction, and service interfaces.
 - internal/rules contains rule compilation and deterministic evaluation.
-- internal/services contains event, effects, rules, batch, workflow, and quarantine use cases.
+- internal/services contains event, effects, tenant domain/service, rules, batch, workflow, and quarantine use cases.
 - internal/application and internal/runtime contain worker orchestration, the per-key queue, shard leases, and the scheduler.
 - internal/adapters contains HTTP, PostgreSQL, MongoDB, NATS, Redis, fake destination, and HTTP destination implementations.
 - internal/storage selects and wires the configured persistence backend.
@@ -101,7 +109,7 @@ Start with docs/README.md for the documentation index.
 
 ## Important limitations
 
-- The API has no authentication/authorization or trusted tenant resolver. Caller-supplied X-Tenant-ID and tenant_id query values are not identity.
+- Production tenant resolution requires validated JWT identity or a trusted proxy token and authenticated-tenant header. The proxy boundary is not first-party authentication; do not expose the API directly to untrusted networks.
 - /health is a liveness endpoint only; it does not prove the database or NATS is healthy.
 - The API starts HTTP only. No gRPC server is implemented; the SDK's gRPC transport requires a compatible server deployed separately.
 - Migration rollback/status commands and live infrastructure-backed chaos tests are not implemented.

@@ -27,12 +27,13 @@ type TransactionManager interface {
 // atomically. Keeping this bundle narrow prevents unrelated persistence concerns
 // from leaking into the event-processing use case.
 type EventTxRepos struct {
-	Inbox       InboxRepository
-	Activations ActivationRepository
-	RuleRepo    RuleRepository
-	Executions  ExecutionRepository
-	Outbox      OutboxRepository
-	ShardLeases ShardLeaseRepository
+	Inbox          InboxRepository
+	Activations    ActivationRepository
+	RuleRepo       RuleRepository
+	Executions     ExecutionRepository
+	Outbox         OutboxRepository
+	ShardLeases    ShardLeaseRepository
+	DomainServices DomainServiceRepository
 }
 
 // RuleTxRepos contains only the repositories needed to activate a rule revision.
@@ -58,6 +59,19 @@ type RuleCompiler interface {
 // RuleEvaluator evaluates a compiled revision against an event.
 type RuleEvaluator interface {
 	Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error)
+}
+
+// DomainServiceUseCase manages tenant domains and their HTTP consumers.
+type DomainServiceUseCase interface {
+	SaveDomain(ctx context.Context, tenantID string, item *domain.TenantDomain) (*domain.TenantDomain, error)
+	GetDomain(ctx context.Context, tenantID, domainID string) (*domain.TenantDomain, error)
+	ListDomains(ctx context.Context, tenantID string) ([]*domain.TenantDomain, error)
+	DeleteDomain(ctx context.Context, tenantID, domainID string) error
+	SaveService(ctx context.Context, tenantID string, item *domain.DomainService) (*domain.DomainService, error)
+	GetService(ctx context.Context, tenantID, serviceID string) (*domain.DomainService, error)
+	ListServices(ctx context.Context, tenantID string) ([]*domain.DomainService, error)
+	DeleteService(ctx context.Context, tenantID, serviceID string) error
+	SubscribersForEvent(ctx context.Context, tenantID, eventType string) ([]*domain.DomainService, error)
 }
 
 // EventProcessor processes incoming events through the rules engine.

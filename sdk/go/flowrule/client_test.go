@@ -2,9 +2,33 @@ package flowrule
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
+
+func TestEnvelopeDataUsesRawJSON(t *testing.T) {
+	const payload = `{"total_amount":2500}`
+	var envelope Envelope
+	if err := json.Unmarshal([]byte(`{"data":{"total_amount":2500}}`), &envelope); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if string(envelope.Data) != payload {
+		t.Fatalf("Envelope.Data = %s, want %s", envelope.Data, payload)
+	}
+
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var roundTrip Envelope
+	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		t.Fatalf("round-trip json.Unmarshal() error = %v", err)
+	}
+	if string(roundTrip.Data) != payload {
+		t.Fatalf("round-tripped Envelope.Data = %s, want %s", roundTrip.Data, payload)
+	}
+}
 
 func TestSubscribeRejectsUnsupportedTransport(t *testing.T) {
 	client := &Client{transport: &httpTransport{}}

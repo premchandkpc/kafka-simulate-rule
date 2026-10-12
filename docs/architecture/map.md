@@ -18,10 +18,12 @@ flowchart LR
   Tx --> Rules[(Rule revisions and activations)]
   Tx --> Executions[(Executions)]
   Tx --> Outbox[(Outbox effects)]
+  Domains[(Tenant domains and subscriptions)] --> Events
   Outbox --> Effects[services/effects]
   Effects --> Router[Effect router]
   Router -->|emit event| NATS
   Router -->|command| Destination[Configured HTTP destination]
+  Router -->|service event| Callback[Tenant service callback]
   Scheduler[runtime/scheduler] --> Scheduled[(Scheduled events)]
   Scheduler -->|events.shard.N| NATS
   API[cmd/api] --> HTTP[HTTP router and handlers]
@@ -53,11 +55,11 @@ Security contract:
 
 1. Load config, start observability, and open/initialize storage.
 2. Construct a NATS JetStream consumer with base subject events and the configured shard count. The adapter declares filters for events.shard.N.
-3. Construct the compiler/evaluator, transactional event service, external sender and effect router.
+3. Construct the compiler/evaluator, transactional event service, domain subscription repository, external sender and effect router.
 4. Construct batch service, shard lease manager, scheduler and application.Worker.
 5. Start scheduler/worker loops; on shutdown stop loops and close consumer, storage, and observability.
 
-The effect router is part of the runtime wiring, not an optional helper: emitted child events must be published to events.shard.N using the same NUM_SHARDS as the consumer. The event type belongs in EventEnvelope.Type. Non-event command effects use the configured external destination. In development/test only, an absent effect URL may select a fake destination; other environments must fail startup if the URL is absent. LeaseManager targets ceil(NUM_SHARDS/WORKER_REPLICAS) leases per worker. WORKER_REPLICAS defaults to 1 for single-worker local deployments and must be set to the actual fixed replica count on every multi-worker deployment. This makes the assumption explicit and configurable, but does not provide dynamic membership or coordinated rebalancing.
+The effect router is part of the runtime wiring, not an optional helper: emitted child events must be published to events.shard.N using the same NUM_SHARDS as the consumer. The event type belongs in EventEnvelope.Type. Non-event command effects use the configured external destination. Service-event effects resolve a tenant-scoped active subscriber and POST the original envelope from the outbox. The callback sender disables proxies and redirects, bounds requests, and in production permits only HTTPS URLs resolving to public IPs. In development/test only, an absent effect URL may select a fake destination and HTTP/private service endpoints may be used. Other environments must fail startup if the command effect URL is absent. LeaseManager targets ceil(NUM_SHARDS/WORKER_REPLICAS) leases per worker. WORKER_REPLICAS defaults to 1 for single-worker local deployments and must be set to the actual fixed replica count on every multi-worker deployment. This makes the assumption explicit and configurable, but does not provide dynamic membership or coordinated rebalancing.
 
 ### CLI processes
 
@@ -74,6 +76,7 @@ sequenceDiagram
   participant S as Event service
   participant D as Transactional storage
   participant O as Outbox publisher
+  participant C as Tenant service callback
   P->>N: publish EventEnvelope to events.shard.N
   N->>W: deliver event for owned shard
   W->>W: validate envelope and obtain fencing token
@@ -82,6 +85,7 @@ sequenceDiagram
   S->>D: inbox lookup/insert
   S->>D: load activation and immutable revision
   S->>S: deterministic evaluation
+  S->>D: find active tenant services subscribed to event type
   S->>D: write execution and outbox effects
   S->>D: mark inbox committed
   S->>D: commit
@@ -89,10 +93,12 @@ sequenceDiagram
   W->>N: ACK after successful commit
   O->>D: claim pending effects
   O->>N: republish emitted child events
+  O->>D: resolve active tenant service endpoint
+  O->>C: POST envelope with idempotency key
   O->>D: settle or retry effect state
 ~~~
 
-The event service keeps fencing validation, deduplication, evaluation persistence, execution state, outbox writes and inbox commit state within one transaction. A conflicting inbox insert with no corresponding execution must fail closed; never create a second execution to hide inconsistent state.
+The event service keeps fencing validation, deduplication, evaluation persistence, execution state, service-subscriber lookup, outbox writes and inbox commit state within one transaction. A service callback is created only after a successful execution of an active rule; events without an active rule do not fan out to domain subscribers. A conflicting inbox insert with no corresponding execution must fail closed; never create a second execution to hide inconsistent state.
 
 ## Child-event routing contract
 
@@ -116,7 +122,8 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 | internal/ports | Broker, delivery, transaction, repository, cache, runtime and use-case interfaces |
 | internal/rules | Rule compilation, validation and deterministic predicate/action evaluation |
 | internal/services/events | Fencing, inbox dedup, rule lookup/evaluation, execution/outbox transaction |
-| internal/services/effects | Outbox claim, dispatch, retry/backoff, quarantine coordination |
+| internal/services/domainservices | Tenant domain/service validation, tenant ownership, and subscription use cases |
+| internal/services/effects | Outbox claim, child-event/command/service callback dispatch, retry/backoff, quarantine coordination |
 | internal/services/effects/router.go | Child-event broker publishing versus external command dispatch |
 | internal/services/rules | Rule revision writes, activation CAS and rule queries |
 | internal/services/batches | Batch formation, processing and query APIs |
@@ -133,6 +140,7 @@ The event service keeps fencing validation, deduplication, evaluation persistenc
 | internal/adapters/nats/jetstream.go | Stream configuration, sharded consumers, delivery ACK/NAK/retry and publishing |
 | internal/adapters/redis | Redis client and cache implementation; not wired into the primary event path |
 | internal/adapters/effects/fake.go | Fake/HTTP destinations plus helper clock/ID types; responsibilities are mixed |
+| internal/adapters/effects/domain_service_sender.go | Tenant-scoped callback lookup, SSRF-safe HTTP delivery, and idempotency headers |
 | internal/adapters/memory | In-memory contract registry |
 | internal/observability | Logging, metrics, tracing and HTTP handler |
 | internal/codegen/generator.go | Go/Java/Protobuf/JSON Schema and runtime template generation |

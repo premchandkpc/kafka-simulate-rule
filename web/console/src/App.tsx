@@ -1,13 +1,57 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./styles.css";
+import { CATALOG, DOMAIN_LABELS } from "./catalog";
 
 type Settings = { apiBase: string; tenant: string; token: string; workerMetrics: string; lokiBase: string; lokiQuery: string };
 type WorkerSnapshot = { url: string; name: string; online: boolean; checkedAt: number; inFlight: number | null; activeKeys: number | null; shards: number | null; executions: Array<{ ruleSet: string; status: string; count: number }> ; error?: string };
-type NavKey = "overview" | "api" | "codegen" | "workers" | "rules" | "logs";
+type NavKey = "overview" | "simulations" | "services" | "catalog" | "api" | "codegen" | "workers" | "rules" | "logs";
+type SimulationScenario = "all" | "ecommerce" | "banking" | "food-delivery";
+type TenantDomain = { id: string; name: string; event_types: string[] };
+type DomainService = { id: string; name: string; endpoint_url: string; domain_ids: string[]; active: boolean };
+const SOURCE_RULE_BY_SCENARIO: Record<Exclude<SimulationScenario, "all">, string> = {
+  ecommerce: "order.created",
+  banking: "transaction.initiated",
+  "food-delivery": "order.placed",
+};
+const EXAMPLE_SOURCE_RULES = [
+  { scenario: "ecommerce", label: "E-commerce", rule: SOURCE_RULE_BY_SCENARIO.ecommerce },
+  { scenario: "banking", label: "Banking", rule: SOURCE_RULE_BY_SCENARIO.banking },
+  { scenario: "food-delivery", label: "Food delivery", rule: SOURCE_RULE_BY_SCENARIO["food-delivery"] },
+] as const;
+type TraceNode = {
+  event_id: string;
+  type: string;
+  partition_key: string;
+  shard: number;
+  status: string;
+  execution?: { rule_set: string; revision: number; status: string };
+  effects: Array<{
+    effect_id: string;
+    effect_type: string;
+    name: string;
+    destination: string;
+    status: string;
+    child?: TraceNode;
+  }>;
+  truncated?: boolean;
+};
+type SimulationEvent = {
+  id: string;
+  type: string;
+  scenario: Exclude<SimulationScenario, "all">;
+  partitionKey: string;
+  shard: number;
+  summary: string;
+  sentAt: string;
+  trace?: TraceNode;
+};
 
 const DEFAULT_SETTINGS: Settings = { apiBase: "/api", tenant: "development-tenant", token: "", workerMetrics: "/worker-metrics/metrics", lokiBase: "/", lokiQuery: '{service_name=~"api|worker|console|postgres|nats|redis|loki|promtail"}' };
 const NAV: Array<{ id: NavKey; label: string; icon: string }> = [
-  { id: "overview", label: "Overview", icon: "◫" }, { id: "api", label: "API explorer", icon: "⌘" },
+  { id: "overview", label: "Overview", icon: "◫" }, { id: "simulations", label: "Simulations", icon: "⇢" },
+  { id: "services", label: "Domains & services", icon: "⌁" },
+  { id: "catalog", label: "Domain catalog", icon: "▤" },
+  { id: "api", label: "API explorer", icon: "⌘" },
   { id: "codegen", label: "Code generation", icon: "⟐" }, { id: "workers", label: "Workers & rules", icon: "▦" },
   { id: "rules", label: "Rule management", icon: "◎" }, { id: "logs", label: "Logs", icon: "≋" },
 ];
@@ -20,6 +64,11 @@ const ROUTES = [
   { method: "POST", path: "/v1/rules/{ruleSet}/revisions", description: "Compile and activate a rule revision" },
   { method: "GET", path: "/v1/workflows", description: "List workflows" },
   { method: "GET", path: "/v1/workflows/definitions", description: "List workflow definitions" },
+  { method: "GET", path: "/v1/events/{eventID}/trace", description: "Trace event executions and emitted events" },
+  { method: "GET", path: "/v1/domains", description: "List tenant event domains" },
+  { method: "POST", path: "/v1/domains", description: "Create a tenant event domain" },
+  { method: "GET", path: "/v1/services", description: "List tenant event-consuming services" },
+  { method: "POST", path: "/v1/services", description: "Create a service and domain subscriptions" },
   { method: "GET", path: "/v1/batches", description: "List batches" },
   { method: "GET", path: "/v1/quarantine", description: "List quarantined work" },
   { method: "GET", path: "/v1/scheduled-events", description: "List scheduled events" },
@@ -30,8 +79,60 @@ function readSettings(): Settings {
   catch { return DEFAULT_SETTINGS; }
 }
 function normalizeBase(value: string) { return value.trim().replace(/\/+$/, ""); }
+function encodeBase64JSON(value: unknown) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary);
+}
+function createScenarioPayload(scenario: Exclude<SimulationScenario, "all">, sequence: number) {
+  const suffix = `${Date.now().toString(36)}-${sequence}`;
+  const clientId = `client-${String((sequence - 1) % 50 + 1).padStart(4, "0")}`;
+  const postalCode = ["94102", "94103", "94107", "94110"][(sequence - 1) % 4];
+  const partitionKey = scenario === "banking" ? `account-${String((sequence - 1) % 50 + 1).padStart(4, "0")}` : scenario === "food-delivery" ? postalCode : clientId;
+  const now = new Date().toISOString();
+  if (scenario === "ecommerce") {
+    return {
+      type: "order.created", partitionKey, scenario, summary: `Order ${suffix} · $${(125 + sequence % 300).toFixed(2)}`,
+      payload: {
+        order_id: `order-${suffix}`, customer_id: clientId, total_amount: 12500 + sequence % 30000, currency: "USD",
+        items: [{ product_id: `product-${String(sequence % 40 + 1).padStart(3, "0")}`, quantity: 1 + sequence % 3, unit_price: 12500 }],
+        shipping_address: { street: `${100 + sequence} Market Street`, city: "San Francisco", state: "CA", postal_code: "94102", country: "US" },
+        created_at: now,
+      },
+    };
+  }
+  if (scenario === "banking") {
+    return {
+      type: "transaction.initiated", partitionKey, scenario, summary: `Transfer ${suffix} · $${(10000 + sequence * 10).toFixed(2)}`,
+      payload: {
+        transaction_id: `txn-${suffix}`, account_id: partitionKey, amount: 1000000 + sequence * 1000,
+        currency: "USD", transaction_type: "transfer", counterparty_account: `account-${sequence + 200}`,
+        description: `simulated-transfer-${sequence}`, initiated_at: now,
+      },
+    };
+  }
+  return {
+    type: "order.placed", partitionKey, scenario, summary: `Delivery ${suffix} · ${postalCode}`,
+    payload: {
+      order_id: `delivery-${suffix}`, customer_id: clientId, restaurant_id: `restaurant-${String(sequence % 30 + 1).padStart(3, "0")}`,
+      total_amount: 2800 + sequence * 10, currency: "USD",
+      items: [{ menu_item_id: `menu-item-${String(sequence % 40 + 1).padStart(3, "0")}`, name: "Market street bowl", quantity: 1, unit_price: 2800 }],
+      delivery_address: { street: `${200 + sequence} Oak Avenue`, city: "San Francisco", state: "CA", postal_code: postalCode },
+      created_at: now,
+    },
+  };
+}
+function countTraceNodes(node?: TraceNode): number {
+  if (!node) return 0;
+  return 1 + node.effects.reduce((count, effect) => count + countTraceNodes(effect.child), 0);
+}
+function countDeliveredEffects(node?: TraceNode): number {
+  if (!node) return 0;
+  return node.effects.reduce((count, effect) => count + (effect.status === "delivered" ? 1 : 0) + countDeliveredEffects(effect.child), 0);
+}
 function unwrap(value: any): any { return value && typeof value === "object" && "data" in value ? value.data : value; }
-function asArray(value: any): any[] { const v = unwrap(value); if (Array.isArray(v)) return v; if (!v || typeof v !== "object") return []; for (const key of ["active_rules", "revisions", "contracts", "schemas", "workflows", "events", "batches", "items", "data"]) if (Array.isArray(v[key])) return v[key]; return []; }
+function asArray(value: any): any[] { const v = unwrap(value); if (Array.isArray(v)) return v; if (!v || typeof v !== "object") return []; for (const key of ["active_rules", "revisions", "contracts", "schemas", "workflows", "events", "batches", "domains", "services", "items", "data"]) if (Array.isArray(v[key])) return v[key]; return []; }
 function fmt(value: unknown) { return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value); }
 function metricValue(text: string, name: string): number | null { const line = text.split("\n").find((row) => row.startsWith(name + " ") || row.startsWith(name + "{")); if (!line) return null; const n = Number(line.trim().split(/\s+/).pop()); return Number.isFinite(n) ? n : null; }
 function labeledMetrics(text: string, metric: string) {
@@ -92,6 +193,20 @@ async function apiRequest(settings: Settings, path: string, init: RequestInit = 
 function Status({ value }: { value: string }) { const key = value.toLowerCase().replace(/[^a-z0-9]+/g, "-"); return <span className={`status status-${key}`}><i />{value}</span>; }
 function MetricCard({ label, value, hint, icon }: { label: string; value: string | number; hint: string; icon: string }) { return <article className="metric-card"><div className="metric-top"><span>{label}</span><span className="metric-icon">{icon}</span></div><strong>{value}</strong><small>{hint}</small></article>; }
 function Empty({ title, detail }: { title: string; detail: string }) { return <div className="empty-state"><div className="empty-icon">⌁</div><strong>{title}</strong><p>{detail}</p></div>; }
+function TraceBranch({ node, depth = 0 }: { node: TraceNode; depth?: number }) {
+  return <div className={`trace-branch${depth > 0 ? " trace-branch-child" : ""}`}>
+    <div className="trace-event">
+      <div className="trace-event-top"><strong>{node.type || "Event waiting for worker"}</strong><Status value={node.status}/></div>
+      <div className="trace-event-meta"><span>id {node.event_id.slice(0, 12)}</span>{node.partition_key && <span>key {node.partition_key}</span>}{node.type && <span>events.shard.{node.shard}</span>}</div>
+      {node.execution && <small className="trace-execution">Rule set {node.execution.rule_set} · revision {node.execution.revision}</small>}
+    </div>
+    {node.effects.map(effect => <div className="trace-effect" key={effect.effect_id}>
+      <div className="trace-effect-line"><span className={`effect-mark effect-${effect.effect_type.replace(/_/g, "-")}`}>{effect.effect_type === "emit_event" ? "↗" : "⇢"}</span><div><strong>{effect.name}</strong><small>{effect.destination} · {effect.status}</small></div><Status value={effect.status}/></div>
+      {effect.child && depth < 5 && <TraceBranch node={effect.child} depth={depth + 1}/>}
+    </div>)}
+    {node.truncated && <div className="trace-truncated">Trace shortened at the display limit.</div>}
+  </div>;
+}
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(readSettings);
@@ -122,8 +237,81 @@ export default function App() {
   const [logs, setLogs] = useState<any[]>([]);
   const [logsBusy, setLogsBusy] = useState(false);
   const [logsError, setLogsError] = useState("");
+  const [tenantDomains, setTenantDomains] = useState<TenantDomain[]>([]);
+  const [tenantServices, setTenantServices] = useState<DomainService[]>([]);
+  const [registryBusy, setRegistryBusy] = useState(false);
+  const [storedContracts, setStoredContracts] = useState<any[]>([]);
+  const [storedRules, setStoredRules] = useState<any[]>([]);
+  const [catalogBusy, setCatalogBusy] = useState("");
+  const [catalogMessage, setCatalogMessage] = useState("");
+  const [catalogView, setCatalogView] = useState<{ title: string; body: string } | null>(null);
+  const [registryError, setRegistryError] = useState("");
+  const [domainDraft, setDomainDraft] = useState<TenantDomain>({ id: "", name: "", event_types: [] });
+  const [domainEventsInput, setDomainEventsInput] = useState("");
+  const [serviceDraft, setServiceDraft] = useState<DomainService>({ id: "", name: "", endpoint_url: "", domain_ids: [], active: true });
+  const [simulationScenario, setSimulationScenario] = useState<SimulationScenario>("all");
+  const [simulationPace, setSimulationPace] = useState(4000);
+  const [simulationEvents, setSimulationEvents] = useState<SimulationEvent[]>([]);
+  const [simulationRunning, setSimulationRunning] = useState(false);
+  const [simulationStopping, setSimulationStopping] = useState(false);
+  const [simulationError, setSimulationError] = useState("");
+  const [simulationTraceError, setSimulationTraceError] = useState("");
+  const [simulationNotice, setSimulationNotice] = useState("");
+  const simulationActiveRef = useRef(false);
+  const simulationStopRequestedRef = useRef(false);
+  const simulationWaitRef = useRef<AbortController | null>(null);
+  const simulationEventsRef = useRef<SimulationEvent[]>([]);
 
   const saveSettings = (next: Settings) => { setSettings(next); localStorage.setItem("flowrule-console-settings", JSON.stringify(next)); setSettingsOpen(false); setHealth("checking"); };
+  const loadDomainServices = useCallback(async () => {
+    setRegistryBusy(true);
+    setRegistryError("");
+    try {
+      const [domainsResponse, servicesResponse] = await Promise.all([
+        apiRequest(settings, "/v1/domains"),
+        apiRequest(settings, "/v1/services"),
+      ]);
+      setTenantDomains(asArray(domainsResponse) as TenantDomain[]);
+      setTenantServices(asArray(servicesResponse) as DomainService[]);
+    } catch (e) {
+      setRegistryError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRegistryBusy(false);
+    }
+  }, [settings]);
+  useEffect(() => {
+    if (nav === "services") void loadDomainServices();
+  }, [nav, loadDomainServices]);
+  const loadCatalog = useCallback(async () => {
+    setCatalogBusy("load");
+    try {
+      const [contracts, activeRules] = await Promise.all([apiRequest(settings, "/v1/contracts"), apiRequest(settings, "/v1/rules/active")]);
+      setStoredContracts(asArray(contracts));
+      setStoredRules(asArray(activeRules));
+      setCatalogMessage("");
+    } catch (e) {
+      setCatalogMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCatalogBusy("");
+    }
+  }, [settings]);
+  useEffect(() => {
+    if (nav === "catalog") void loadCatalog();
+  }, [nav, loadCatalog]);
+  const loadDomainIntoDatabase = async (domainKey: string) => {
+    setCatalogBusy(domainKey);
+    setCatalogMessage("");
+    try {
+      const items = CATALOG.filter(item => item.domain === domainKey);
+      for (const item of items.filter(i => i.kind === "contract")) await apiRequest(settings, "/v1/contracts", { method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source });
+      for (const item of items.filter(i => i.kind === "rule")) await apiRequest(settings, `/v1/rules/${encodeURIComponent(item.name)}/revisions`, { method: "POST", headers: { "Content-Type": "application/yaml" }, body: item.source });
+      setCatalogMessage(`${DOMAIN_LABELS[domainKey] ?? domainKey} contracts and rules saved to the database for tenant ${settings.tenant}.`);
+      await loadCatalog();
+    } catch (e) {
+      setCatalogMessage(e instanceof Error ? e.message : String(e));
+      setCatalogBusy("");
+    }
+  };
   const refresh = useCallback(async () => {
     setLoading(true); setError("");
     const checks = await Promise.allSettled([
@@ -156,6 +344,18 @@ export default function App() {
   const selectedContractParts = selectedContract.split("@");
   const selectedContractName = selectedContractParts[0] || "";
   const selectedContractVersion = selectedContractParts[1] || "";
+  const simulationProcessed = simulationEvents.filter(event => event.trace?.execution?.status === "completed").length;
+  const simulationDelivered = simulationEvents.reduce((total, event) => total + countDeliveredEffects(event.trace), 0);
+  const selectedSourceRules = EXAMPLE_SOURCE_RULES.filter(item => simulationScenario === "all" || item.scenario === simulationScenario);
+  const latestSimulationEvent = simulationEvents[0];
+  const liveFlowStage = !latestSimulationEvent ? -1
+    : !latestSimulationEvent.trace?.execution ? 1
+      : latestSimulationEvent.trace.effects.length > 0 ? 3 : 2;
+  const flowStepState = (step: number) => liveFlowStage < 0 ? "waiting"
+    : step < liveFlowStage ? "complete"
+      : step === liveFlowStage ? simulationRunning ? "live" : "current" : "waiting";
+  const flowConnectorState = (connector: number) => liveFlowStage > connector ? "complete"
+    : liveFlowStage === connector ? simulationRunning ? "live" : "current" : "waiting";
 
   const runApi = async () => {
     setApiBusy(true); setApiResult("");
@@ -190,6 +390,165 @@ export default function App() {
     try { await apiRequest(settings, `/v1/rules/${encodeURIComponent(id)}/revisions/${encodeURIComponent(String(revision || 1))}`, { method: "DELETE" }); await refresh(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
+  const saveDomain = async () => {
+    setRegistryError("");
+    try {
+      const eventTypes = [...new Set(domainEventsInput.split(/[,\n]+/).map(value => value.trim()).filter(Boolean))];
+      const body = { name: domainDraft.name, event_types: eventTypes };
+      const path = domainDraft.id ? `/v1/domains/${encodeURIComponent(domainDraft.id)}` : "/v1/domains";
+      await apiRequest(settings, path, { method: domainDraft.id ? "PUT" : "POST", body: JSON.stringify(body) });
+      setDomainDraft({ id: "", name: "", event_types: [] });
+      setDomainEventsInput("");
+      await loadDomainServices();
+    } catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
+  };
+  const editDomain = (item: TenantDomain) => {
+    setDomainDraft(item);
+    setDomainEventsInput(item.event_types.join(", "));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const deleteDomain = async (item: TenantDomain) => {
+    if (!window.confirm(`Delete domain "${item.name}"? Services will lose this subscription.`)) return;
+    setRegistryError("");
+    try { await apiRequest(settings, `/v1/domains/${encodeURIComponent(item.id)}`, { method: "DELETE" }); await loadDomainServices(); }
+    catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
+  };
+  const saveDomainService = async () => {
+    setRegistryError("");
+    try {
+      const body = { name: serviceDraft.name, endpoint_url: serviceDraft.endpoint_url, domain_ids: serviceDraft.domain_ids };
+      const path = serviceDraft.id ? `/v1/services/${encodeURIComponent(serviceDraft.id)}` : "/v1/services";
+      await apiRequest(settings, path, { method: serviceDraft.id ? "PUT" : "POST", body: JSON.stringify(body) });
+      setServiceDraft({ id: "", name: "", endpoint_url: "", domain_ids: [], active: true });
+      await loadDomainServices();
+    } catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
+  };
+  const editDomainService = (item: DomainService) => {
+    setServiceDraft(item);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const deleteDomainService = async (item: DomainService) => {
+    if (!window.confirm(`Deactivate service "${item.name}"? It will stop receiving new events.`)) return;
+    setRegistryError("");
+    try { await apiRequest(settings, `/v1/services/${encodeURIComponent(item.id)}`, { method: "DELETE" }); await loadDomainServices(); }
+    catch (e) { setRegistryError(e instanceof Error ? e.message : String(e)); }
+  };
+  useEffect(() => { simulationEventsRef.current = simulationEvents; }, [simulationEvents]);
+  useEffect(() => () => {
+    simulationStopRequestedRef.current = true;
+    simulationWaitRef.current?.abort();
+  }, []);
+  const refreshSimulationTrace = useCallback(async (event: SimulationEvent) => {
+    try {
+      const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
+      const trace = response as TraceNode;
+      setSimulationEvents(current => current.map(item => item.id === event.id ? {
+        ...item,
+        trace: { ...trace, effects: trace.effects || [], type: trace.type || event.type, partition_key: trace.partition_key || event.partitionKey, shard: event.shard },
+      } : item));
+      setSimulationTraceError("");
+    } catch (e) {
+      setSimulationTraceError(e instanceof Error ? e.message : String(e));
+    }
+  }, [settings]);
+  useEffect(() => {
+    let stopped = false;
+    const poll = async () => {
+      const latest = simulationEventsRef.current.slice(0, 8);
+      await Promise.all(latest.map(async event => {
+        try {
+          const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(event.id)}/trace`));
+          if (!stopped) {
+            const trace = response as TraceNode;
+            setSimulationEvents(current => current.map(item => item.id === event.id ? {
+              ...item,
+              trace: { ...trace, effects: trace.effects || [], type: trace.type || event.type, partition_key: trace.partition_key || event.partitionKey, shard: event.shard },
+            } : item));
+            setSimulationTraceError("");
+          }
+        } catch (e) {
+          if (!stopped) setSimulationTraceError(e instanceof Error ? e.message : String(e));
+        }
+      }));
+    };
+    const interval = window.setInterval(() => void poll(), 3000);
+    return () => { stopped = true; window.clearInterval(interval); };
+  }, [settings]);
+  const startSimulation = async () => {
+    if (simulationActiveRef.current) return;
+    if (!settings.tenant.trim()) {
+      setSimulationError("Set a tenant in Settings before starting a simulation.");
+      return;
+    }
+    simulationActiveRef.current = true;
+    simulationStopRequestedRef.current = false;
+    setSimulationRunning(true);
+    setSimulationStopping(false);
+    setSimulationError("");
+    setSimulationTraceError("");
+    setSimulationNotice("");
+
+    const scenarios: Array<Exclude<SimulationScenario, "all">> = simulationScenario === "all"
+      ? ["ecommerce", "banking", "food-delivery"]
+      : [simulationScenario];
+    const currentRules = new Set(activeRules.map(rule => rule.rule_set || rule.rule_id || rule.ruleSet));
+    const missingRules = [...new Set(scenarios.map(scenario => SOURCE_RULE_BY_SCENARIO[scenario]))].filter(rule => !currentRules.has(rule));
+    if (missingRules.length > 0) {
+      setSimulationNotice(`No active source rules for this tenant: ${missingRules.join(", ")}. Events will still be sent, but may not create downstream events.`);
+    }
+
+    let sequence = 0;
+    try {
+      while (!simulationStopRequestedRef.current) {
+        const scenario = scenarios[sequence % scenarios.length];
+        sequence++;
+        const source = createScenarioPayload(scenario, sequence);
+        const eventID = crypto.randomUUID();
+        const response = unwrap(await apiRequest(settings, `/v1/events/${encodeURIComponent(source.type)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            id: eventID,
+            type: source.type,
+            tenant_id: settings.tenant.trim(),
+            partition_key: source.partitionKey,
+            occurred_at: new Date().toISOString(),
+            data: encodeBase64JSON(source.payload),
+            headers: { source: "flowrule-console-simulation", scenario },
+          }),
+        }));
+        const event: SimulationEvent = {
+          id: response.event_id || eventID, type: source.type, scenario, partitionKey: source.partitionKey,
+          shard: response.shard, summary: source.summary, sentAt: new Date().toISOString(),
+        };
+        setSimulationEvents(current => [event, ...current].slice(0, 30));
+        void refreshSimulationTrace(event);
+
+        if (simulationStopRequestedRef.current) break;
+        const wait = new AbortController();
+        simulationWaitRef.current = wait;
+        await new Promise<void>(resolve => {
+          const timer = window.setTimeout(resolve, simulationPace);
+          wait.signal.addEventListener("abort", () => { window.clearTimeout(timer); resolve(); }, { once: true });
+        });
+        simulationWaitRef.current = null;
+      }
+    } catch (e) {
+      if (!simulationStopRequestedRef.current) {
+        setSimulationError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      simulationActiveRef.current = false;
+      simulationWaitRef.current = null;
+      simulationStopRequestedRef.current = false;
+      setSimulationRunning(false);
+      setSimulationStopping(false);
+    }
+  };
+  const stopSimulation = () => {
+    simulationStopRequestedRef.current = true;
+    setSimulationStopping(true);
+    simulationWaitRef.current?.abort();
+  };
   const loadLogs = async () => {
     if (!settings.lokiBase.trim()) { setLogsError("Configure a Loki-compatible query URL in Settings to browse runtime logs. The API currently does not expose a log-tail endpoint."); setLogs([]); return; }
     setLogsBusy(true); setLogsError("");
@@ -212,7 +571,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="connection-line"><span className={health === "online" ? "dot green" : health === "offline" ? "dot red" : "dot amber"} />API {health}</div><button className="settings-link" onClick={() => setSettingsOpen(true)}>⚙ Settings</button><div className="version-label">FlowRule Console · React</div></div>
     </aside>
     <main className="main-area">
-      <header className="topbar"><div><div className="breadcrumbs">FlowRule <span>/</span> {NAV.find(item => item.id === nav)?.label}</div><h1>{({ overview: "Runtime overview", api: "API explorer", codegen: "Contract code generation", workers: "Workers & rules", rules: "Rule management", logs: "Runtime logs" } as Record<NavKey,string>)[nav]}</h1></div><div className="top-actions"><span className="live-indicator"><i /> AUTO REFRESH · 10S</span><button className="icon-button" title="Refresh data" onClick={() => void refresh()} disabled={loading}>↻</button><button className="button secondary" onClick={() => setSettingsOpen(true)}>⚙ Settings</button><div className="avatar">FR</div></div></header>
+      <header className="topbar"><div><div className="breadcrumbs">FlowRule <span>/</span> {NAV.find(item => item.id === nav)?.label}</div><h1>{({ overview: "Runtime overview", simulations: "Domain simulations", services: "Domains & services", api: "API explorer", codegen: "Contract code generation", workers: "Workers & rules", rules: "Rule management", logs: "Runtime logs" } as Record<NavKey,string>)[nav]}</h1></div><div className="top-actions"><span className="live-indicator"><i /> AUTO REFRESH · 10S</span><button className="icon-button" title="Refresh data" onClick={() => void refresh()} disabled={loading}>↻</button><button className="button secondary" onClick={() => setSettingsOpen(true)}>⚙ Settings</button><div className="avatar">FR</div></div></header>
       {error && <div className="alert error"><strong>API connection issue</strong><span>{error}</span><button onClick={() => setError("")}>×</button></div>}
       {nav === "overview" && <section className="page-content">
         <div className="welcome-row"><div><div className="eyebrow">SYSTEM SNAPSHOT</div><h2>Runtime at a glance</h2><p>Rules, workers, and contract generation in one place.</p></div><div className="updated">Last refreshed <strong>{lastRefresh?.toLocaleTimeString() || "—"}</strong></div></div>
@@ -220,6 +579,99 @@ export default function App() {
         <div className="content-grid"><section className="panel"><div className="panel-heading"><div><h3>Worker fleet</h3><p>Process-level telemetry, refreshed every 10 seconds</p></div><button className="text-button" onClick={() => setNav("workers")}>View workers ↗</button></div>{workers.length === 0 ? <Empty title="No worker endpoints configured" detail="Open Settings and add one private /metrics URL per worker process. The UI does not invent worker health."/> : <div className="worker-list">{workers.slice(0,4).map(worker => <div className="worker-row" key={worker.url}><div className="worker-symbol">▦</div><div className="worker-main"><strong>{worker.name}</strong><small>{worker.url}</small></div><Status value={worker.online ? "Online" : "Unreachable"}/><div className="worker-stat"><strong>{worker.inFlight ?? "—"}</strong><small>in flight</small></div><div className="worker-stat"><strong>{worker.shards ?? "—"}</strong><small>shards owned</small></div></div>)}</div>}</section>
         <section className="panel"><div className="panel-heading"><div><h3>Active rule sets</h3><p>Current activation state from the API</p></div><button className="text-button" onClick={() => setNav("rules")}>Manage ↗</button></div>{activeRules.length === 0 ? <Empty title="No active rules returned" detail={health === "online" ? "No active rules were found for this tenant." : "Connect to the API to load active rules."}/> : <div className="rule-mini-list">{activeRules.slice(0,6).map((rule,i) => <div className="rule-mini" key={rule.rule_id || rule.rule_set || rule.id || i}><div className="rule-symbol">R</div><div className="rule-main"><strong>{rule.rule_id || rule.rule_set || rule.ruleSet || rule.id || `Rule set ${i+1}`}</strong><small>Revision {rule.revision ?? rule.active_revision ?? "—"}</small></div><Status value={rule.status || "Active"}/></div>)}</div>}</section></div>
         <section className="panel"><div className="panel-heading"><div><h3>Quick actions</h3><p>Jump directly to a common operation</p></div></div><div className="quick-grid"><button onClick={() => setNav("api")}><span>⌘</span><strong>Explore API</strong><small>Inspect routes and send requests</small><b>→</b></button><button onClick={() => setNav("codegen")}><span>⟐</span><strong>Generate a client</strong><small>Go, Java, Protobuf, JSON Schema</small><b>→</b></button><button onClick={() => setNav("rules")}><span>◎</span><strong>Deploy a rule</strong><small>Validate and activate a revision</small><b>→</b></button><button onClick={() => setNav("logs")}><span>≋</span><strong>Inspect logs</strong><small>Query your configured Loki source</small><b>→</b></button></div></section>
+      </section>}
+      {nav === "simulations" && <section className="page-content simulation-page">
+        <div className="simulation-hero">
+          <div className="simulation-hero-copy"><div className="eyebrow">LIVE EVENT FLOW</div><h2>Send a service event through the real worker.</h2><p>The simulator publishes the existing example-domain events to this tenant. Follow the actual shard, active rule set, execution, and outbox destinations below.</p></div>
+          <div className="simulation-controls">
+            <label>Domain<select value={simulationScenario} disabled={simulationRunning} onChange={event => setSimulationScenario(event.target.value as SimulationScenario)}><option value="all">Rotate all example domains</option><option value="ecommerce">E-commerce</option><option value="banking">Banking</option><option value="food-delivery">Food delivery</option></select></label>
+            <label>Publish pace<select value={simulationPace} disabled={simulationRunning} onChange={event => setSimulationPace(Number(event.target.value))}><option value={4000}>Slow · every 4 seconds</option><option value={7000}>Very slow · every 7 seconds</option><option value={10000}>Extra slow · every 10 seconds</option></select></label>
+            {simulationRunning
+              ? <button className="button stop-button" onClick={stopSimulation} disabled={simulationStopping}>{simulationStopping ? "Stopping…" : "■ Stop simulation"}</button>
+              : <button className="button primary" onClick={() => void startSimulation()}>▶ Start simulation</button>}
+          </div>
+        </div>
+        {simulationNotice && <div className="alert warning"><strong>Rule availability</strong><span>{simulationNotice}</span></div>}
+        {simulationError && <div className="alert error"><strong>Simulation stopped</strong><span>{simulationError}</span><button onClick={() => setSimulationError("")}>×</button></div>}
+        {simulationTraceError && <div className="alert warning"><strong>Trace temporarily unavailable</strong><span>{simulationTraceError}</span></div>}
+        <div className="simulation-flow" aria-label="Live event processing path">
+          <div className={`simulation-flow-step flow-${flowStepState(0)}`}><span className="flow-step-icon">A</span><span><strong>Source service</strong><small>{latestSimulationEvent ? `${latestSimulationEvent.scenario} · ${latestSimulationEvent.type}` : "Example producer sends the event"}</small></span></div><span className={`flow-connector flow-${flowConnectorState(0)}`}>→</span>
+          <div className={`simulation-flow-step flow-${flowStepState(1)}`}><span className="flow-step-icon">N</span><span><strong>NATS JetStream</strong><small>{latestSimulationEvent ? `events.shard.${latestSimulationEvent.shard}` : "Shared tenant shard routing"}</small></span></div><span className={`flow-connector flow-${flowConnectorState(1)}`}>→</span>
+          <div className={`simulation-flow-step flow-${flowStepState(2)}`}><span className="flow-step-icon">W</span><span><strong>Worker + rule set</strong><small>{latestSimulationEvent?.trace?.execution ? `${latestSimulationEvent.trace.execution.rule_set} · ${latestSimulationEvent.trace.execution.status}` : "Waiting for matching rule set"}</small></span></div><span className={`flow-connector flow-${flowConnectorState(2)}`}>→</span>
+          <div className={`simulation-flow-step flow-${flowStepState(3)}`}><span className="flow-step-icon">B</span><span><strong>Outbox destination</strong><small>{latestSimulationEvent?.trace?.effects[0] ? `${latestSimulationEvent.trace.effects[0].destination} · ${latestSimulationEvent.trace.effects[0].status}` : "Child event or configured service"}</small></span></div>
+          <div className="simulation-flow-status" aria-live="polite"><i className={simulationRunning ? "flow-status-live" : ""}/><span>{simulationRunning ? `Live · publishing every ${simulationPace / 1000}s until stopped` : latestSimulationEvent ? `Latest event · ${latestSimulationEvent.trace?.status || "accepted"}` : "Ready · start a simulation to follow a live event"}</span></div>
+        </div>
+        <div className="metric-grid simulation-metrics">
+          <MetricCard label="Simulation" value={simulationRunning ? simulationStopping ? "Stopping" : "Running" : "Stopped"} hint={`Tenant · ${settings.tenant || "not configured"}`} icon={simulationRunning ? "●" : "○"}/>
+          <MetricCard label="Events tracked" value={simulationEvents.length} hint="Recent simulator events, newest first" icon="↗"/>
+          <MetricCard label="Worker processed" value={simulationProcessed} hint="Completed executions in current event list" icon="⚙"/>
+          <MetricCard label="Effects delivered" value={simulationDelivered} hint="Outbox deliveries in observed traces" icon="⇢"/>
+        </div>
+        <section className="panel source-rules-panel">
+          <div className="panel-heading"><div><h3>Source rule sets for this tenant</h3><p>Events are still published when a source rule is missing, but no rule execution can be shown for that event.</p></div><button className="text-button" onClick={() => void refresh()}>Refresh rules ↻</button></div>
+          <div className="source-rule-list">{selectedSourceRules.map(({ label, rule }) => {
+            const active = activeRules.some(item => (item.rule_set || item.rule_id || item.ruleSet) === rule);
+            return <div className="source-rule" key={rule}><span className="rule-symbol">R</span><span><strong>{label}</strong><small>{rule}</small></span><Status value={active ? "Active" : "Missing"}/></div>;
+          })}</div>
+        </section>
+        <section className="panel observed-flows-panel">
+          <div className="panel-heading"><div><h3>Observed service-to-worker flows</h3><p>Each row is a real event sent to the API. Expand its trace to see which worker rule ran and where the outbox routed the result.</p></div><span className="tracked-count">{simulationEvents.length} tracked</span></div>
+          {simulationEvents.length === 0
+            ? <Empty title="No simulation events yet" detail="Choose a domain and start the simulation. This view will populate as the API accepts events and the worker records executions."/>
+            : <div className="simulation-event-list">{simulationEvents.slice(0, 12).map(event => <details className="simulation-event" key={event.id} open={simulationEvents.indexOf(event) === 0}>
+              <summary><span className={`scenario-badge scenario-${event.scenario}`}>{event.scenario === "food-delivery" ? "Delivery" : event.scenario}</span><span className="simulation-event-main"><strong>{event.summary}</strong><small>Source service → {event.type} · partition {event.partitionKey} · shard {event.shard}</small></span><Status value={event.trace?.status || "queued"}/><time>{new Date(event.sentAt).toLocaleTimeString()}</time></summary>
+              <div className="trace-content"><div className="trace-legend"><span>Source event</span><span>→ actual worker execution</span><span>→ outbox route / next service</span></div>{event.trace
+                ? <TraceBranch node={event.trace}/>
+                : <div className="trace-pending">Event accepted by the API. Waiting for the worker’s inbox and execution record…</div>}</div>
+            </details>)}</div>}
+        </section>
+        <p className="simulation-footnote">Outbox destinations are shown exactly as configured. Emitted child events are followed to their next worker/rule-set execution; external service commands appear with their configured destination.</p>
+      </section>}
+      {nav === "services" && <section className="page-content registry-page">
+        <div className="page-intro"><h2>Tenant domains and receiving services</h2><p>Group event types into domains, then subscribe services to those domains. Matching events are delivered from the worker’s durable outbox.</p></div>
+        {registryError && <div className="alert error"><strong>Registry request failed</strong><span>{registryError}</span><button onClick={() => setRegistryError("")}>×</button></div>}
+        <div className="registry-grid">
+          <section className="panel">
+            <div className="panel-heading"><div><h3>{domainDraft.id ? "Update domain" : "Create a domain"}</h3><p>A domain names the event types a service can subscribe to.</p></div></div>
+            <label>Domain name<input value={domainDraft.name} onChange={event => setDomainDraft({ ...domainDraft, name: event.target.value })} placeholder="commerce"/></label>
+            <label>Event types <span className="muted">(comma or newline separated)</span><textarea value={domainEventsInput} onChange={event => setDomainEventsInput(event.target.value)} placeholder={"order.created, order.cancelled\nshipment.delivered"} rows={4}/></label>
+            <div className="registry-actions"><button className="button primary" onClick={() => void saveDomain()} disabled={registryBusy || !domainDraft.name.trim() || !domainEventsInput.trim()}>{domainDraft.id ? "Save domain changes" : "＋ Create domain"}</button>{domainDraft.id && <button className="button secondary" onClick={() => {setDomainDraft({id:"",name:"",event_types:[]});setDomainEventsInput("");}}>Cancel edit</button>}</div>
+          </section>
+          <section className="panel">
+            <div className="panel-heading"><div><h3>{serviceDraft.id ? "Update service" : "Connect a service"}</h3><p>HTTP callbacks are retried from the durable outbox; receivers should deduplicate by Idempotency-Key.</p></div></div>
+            <label>Service name<input value={serviceDraft.name} onChange={event => setServiceDraft({ ...serviceDraft, name: event.target.value })} placeholder="order-fulfillment"/></label>
+            <label>Callback URL<input type="url" value={serviceDraft.endpoint_url} onChange={event => setServiceDraft({ ...serviceDraft, endpoint_url: event.target.value })} placeholder="https://service.example.com/events"/></label>
+            <label>Subscribed domains<select multiple value={serviceDraft.domain_ids} onChange={event => setServiceDraft({ ...serviceDraft, domain_ids: Array.from(event.target.selectedOptions, option => option.value) })}>{tenantDomains.map(item => <option key={item.id} value={item.id}>{item.name} · {item.event_types.join(", ")}</option>)}</select></label>
+            <div className="registry-actions"><button className="button primary" onClick={() => void saveDomainService()} disabled={registryBusy || !serviceDraft.name.trim() || !serviceDraft.endpoint_url.trim() || serviceDraft.domain_ids.length === 0}>{serviceDraft.id ? "Save service changes" : "＋ Create service"}</button>{serviceDraft.id && <button className="button secondary" onClick={() => setServiceDraft({id:"",name:"",endpoint_url:"",domain_ids:[],active:true})}>Cancel edit</button>}</div>
+            <div className="info-callout"><strong>Callback safety</strong><p>Production endpoints must use HTTPS and resolve to public addresses. HTTP and private destinations are allowed only in development. Redirects are not followed.</p></div>
+          </section>
+        </div>
+        <section className="panel registry-list-panel">
+          <div className="panel-heading"><div><h3>Event domains</h3><p>Tenant · {settings.tenant || "not configured"}</p></div><button className="text-button" onClick={() => void loadDomainServices()} disabled={registryBusy}>{registryBusy ? "Refreshing…" : "↻ Refresh"}</button></div>
+          {tenantDomains.length === 0 ? <Empty title={registryBusy ? "Loading domains" : "No domains yet"} detail="Create a domain above with the event types that receiving services should consume."/> : <div className="registry-list">{tenantDomains.map(item => <article className="registry-row" key={item.id}><div className="registry-symbol">D</div><div className="registry-main"><strong>{item.name}</strong><small>{item.event_types.join(" · ")}</small><code>{item.id}</code></div><button className="button secondary" onClick={() => editDomain(item)}>Edit</button><button className="button danger-outline" onClick={() => void deleteDomain(item)}>Delete</button></article>)}</div>}
+        </section>
+        <section className="panel registry-list-panel">
+          <div className="panel-heading"><div><h3>Receiving services</h3><p>Subscribed services receive matching events only after the worker commits a successful rule execution.</p></div><span className="tracked-count">{tenantServices.length} registered</span></div>
+          {tenantServices.length === 0 ? <Empty title="No receiving services yet" detail="Connect a callback URL and choose one or more domains to subscribe."/> : <div className="registry-list">{tenantServices.map(item => <article className="registry-row" key={item.id}><div className="registry-symbol service-symbol">S</div><div className="registry-main"><strong>{item.name} <Status value={item.active ? "Active" : "Inactive"}/></strong><small>{item.endpoint_url}</small><span className="subscription-tags">{item.domain_ids.map(id => <span key={id}>{tenantDomains.find(domain => domain.id === id)?.name || id}</span>)}</span></div><button className="button secondary" onClick={() => editDomainService(item)}>Edit</button><button className="button danger-outline" onClick={() => void deleteDomainService(item)} disabled={!item.active}>{item.active ? "Deactivate" : "Inactive"}</button></article>)}</div>}
+        </section>
+      </section>}
+      {nav === "catalog" && <section className="page-content registry-page">
+        <div className="page-intro page-intro-row"><div><h2>Domain catalog</h2><p>Contracts and rules for each example domain, as stored in the FlowRule database for tenant {settings.tenant}.</p></div><button className="button" onClick={() => void loadCatalog()} disabled={catalogBusy !== ""}>{catalogBusy === "load" ? "Refreshing…" : "Refresh"}</button></div>
+        {catalogMessage && <div className="notice" role="status">{catalogMessage}</div>}
+        {Object.keys(DOMAIN_LABELS).map(domainKey => {
+          const items = CATALOG.filter(item => item.domain === domainKey);
+          const storedContractNames = new Set(storedContracts.map((c: any) => c.name));
+          const storedRuleNames = new Set(storedRules.map((r: any) => r.rule_set));
+          const isStored = (item: typeof items[number]) => item.kind === "contract" ? storedContractNames.has(item.name) : storedRuleNames.has(item.name);
+          const missing = items.filter(item => !isStored(item)).length;
+          return <section className="panel" key={domainKey}>
+            <div className="panel-heading"><div><h3>{DOMAIN_LABELS[domainKey]}</h3><p>{items.length - missing} of {items.length} definitions in the database</p></div><button className="button primary" onClick={() => void loadDomainIntoDatabase(domainKey)} disabled={catalogBusy !== ""}>{catalogBusy === domainKey ? "Saving…" : missing ? "Save to database" : "Save again"}</button></div>
+            <div className="table-wrap"><table><thead><tr><th>Type</th><th>Name</th><th>Database</th><th></th></tr></thead><tbody>
+              {items.map(item => { const stored = isStored(item); const detail = item.kind === "contract" ? storedContracts.find((c: any) => c.name === item.name) : storedRules.find((r: any) => r.rule_set === item.name); return <tr key={item.kind + item.name}><td>{item.kind}</td><td>{item.name}</td><td><Status value={stored ? "Stored" : "Not stored"}/></td><td><button className="text-button" onClick={() => setCatalogView({ title: `${item.kind} ${item.name}`, body: stored ? JSON.stringify(detail, null, 2) : item.source })}>{stored ? "View stored" : "View source"}</button></td></tr>; })}
+            </tbody></table></div>
+          </section>;
+        })}
+        {catalogView && <section className="panel"><div className="panel-heading"><div><h3>{catalogView.title}</h3></div><button className="text-button" onClick={() => setCatalogView(null)}>Close</button></div><pre className="response-box">{catalogView.body}</pre></section>}
       </section>}
       {nav === "api" && <section className="page-content"><div className="page-intro"><h2>Explore the management API</h2><p>Send requests against the running FlowRule API. Mutating requests use your configured tenant and token.</p></div><div className="api-layout"><section className="panel endpoint-panel"><div className="panel-heading"><div><h3>Known endpoints</h3><p>Routes registered by the current API</p></div></div>{ROUTES.map(route => <button className={apiPath === route.path ? "endpoint selected-endpoint" : "endpoint"} key={route.method+route.path} onClick={() => {setApiPath(route.path);setApiMethod(route.method);}}><span className={`method method-${route.method.toLowerCase()}`}>{route.method}</span><span><strong>{route.path}</strong><small>{route.description}</small></span></button>)}</section><section className="panel request-panel"><div className="panel-heading"><div><h3>Request builder</h3><p>Base URL: {normalizeBase(settings.apiBase)}</p></div></div><div className="form-row"><label>Method<select value={apiMethod} onChange={e=>setApiMethod(e.target.value)}>{["GET","POST","DELETE","PUT","PATCH"].map(m=><option key={m}>{m}</option>)}</select></label><label className="grow">Path<input value={apiPath} onChange={e=>setApiPath(e.target.value)} placeholder="/v1/rules/active"/></label></div><label>JSON body {apiMethod === "GET" || apiMethod === "DELETE" ? <span className="muted">(not sent for this method)</span> : null}<textarea className="code-editor request-editor" value={apiBody} onChange={e=>setApiBody(e.target.value)} spellCheck={false}/></label><div className="request-actions"><button className="button primary" onClick={() => void runApi()} disabled={apiBusy}>{apiBusy ? "Sending…" : "▶ Send request"}</button><span className="muted">X-Tenant-ID is included automatically</span></div><div className="response-heading"><h4>Response</h4>{apiResult && <button className="text-button" onClick={() => navigator.clipboard?.writeText(apiResult)}>Copy</button>}</div><pre className="response-box">{apiResult || "Send a request to inspect its response."}</pre></section></div></section>}
       {nav === "codegen" && <section className="page-content"><div className="page-intro"><h2>Contracts → generated artifacts</h2><p>Register a schema, select a stored version, and invoke the existing server-side generator.</p></div><div className="content-grid codegen-grid"><section className="panel"><div className="panel-heading"><div><h3>Register contract</h3><p>Requires contracts:admin outside local development</p></div></div><label>Contract name<input value={contractName} onChange={e=>setContractName(e.target.value)} placeholder="transaction.initiated"/></label><label>Version<input value={contractVersion} onChange={e=>setContractVersion(e.target.value)} placeholder="v1"/></label><label>Schema payload (JSON)<textarea className="code-editor schema-editor" value={contractSchema} onChange={e=>setContractSchema(e.target.value)} spellCheck={false}/></label><button className="button primary" disabled={codegenBusy} onClick={() => void createContract()}>{codegenBusy ? "Working…" : "＋ Register contract"}</button></section><section className="panel"><div className="panel-heading"><div><h3>Generate code</h3><p>Generated artifacts are written on the API server</p></div></div><label>Registered contract<select value={selectedContract} onChange={e=>setSelectedContract(e.target.value)}><option value="">Select a contract version…</option>{contracts.map((c,i)=>{const name=c.name || c.contract_name || "unnamed"; const version=c.version || "v1";return <option key={name+version+i} value={name+"@"+version}>{name} · {version}</option>;})}</select></label><label>Target language<select value={language} onChange={e=>setLanguage(e.target.value)}>{[["go","Go"],["java","Java"],["protobuf","Protocol Buffers"],["jsonschema","JSON Schema"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><div className="info-callout"><strong>Server-side output</strong><p>For safety, output stays inside the API server's managed temporary directory. This API returns generated file paths, not file contents or a download archive.</p></div><button className="button primary" disabled={codegenBusy || !selectedContract} onClick={() => void generate()}>{codegenBusy ? "Generating…" : "⚡ Generate artifacts"}</button>{generated && <div className="result-panel"><div className="result-heading"><strong>{generated.error ? "Operation failed" : generated.operation || "Generation result"}</strong><Status value={generated.error ? "Error" : "Complete"}/></div><pre className="response-box">{JSON.stringify(generated.error ? {error:generated.error} : generated, null, 2)}</pre></div>}</section></div></section>}

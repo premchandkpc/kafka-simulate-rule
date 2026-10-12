@@ -160,7 +160,9 @@ func (t *natsTransport) Subscribe(ctx context.Context, ruleSet string, handler E
 		}
 		subscriptions = append(subscriptions, subscription)
 	}
-	if err := conn.FlushWithContext(ctx); err != nil {
+	flushCtx, cancel := context.WithTimeout(ctx, cfg.SendTimeout)
+	defer cancel()
+	if err := conn.FlushWithContext(flushCtx); err != nil {
 		return fmt.Errorf("activate NATS subscriptions: %w", err)
 	}
 

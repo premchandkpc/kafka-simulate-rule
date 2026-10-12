@@ -67,6 +67,7 @@ func (s *Service) PublishBatch(ctx context.Context, batchSize int) error {
 		effect := &domain.Effect{
 			ID:          ef.ID,
 			ExecutionID: ef.ExecutionID,
+			TenantID:    ef.TenantID,
 			Destination: ef.Destination,
 			Name:        ef.Name,
 			Payload:     ef.Payload,

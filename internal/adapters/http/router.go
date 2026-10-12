@@ -18,6 +18,10 @@ type RouterConfig struct {
 	AuthValidator  *auth.Validator
 	RequireAuth    bool
 	RequiredScopes []string
+	InboxRepo      ports.InboxRepository
+	ExecutionRepo  ports.ExecutionRepository
+	OutboxRepo     ports.OutboxRepository
+	DomainServices ports.DomainServiceUseCase
 }
 
 // Router holds all HTTP handlers and middleware
@@ -92,10 +96,16 @@ func NewRouterWithPublisher(
 	// Scheduled event handlers
 	scheduledHandler := handlers.NewScheduledHandler(scheduledRepo)
 	scheduledHandler.RegisterRoutes(mux)
+	domainServicesHandler := handlers.NewDomainServiceHandler(config.DomainServices)
+	domainServicesHandler.RegisterRoutes(mux)
 
 	// Event ingestion used by the Go SDK's HTTP transport.
 	eventHandler := handlers.NewEventIngestionHandler(publisher, numShards)
 	eventHandler.RegisterRoutes(mux)
+	if config.InboxRepo != nil && config.ExecutionRepo != nil && config.OutboxRepo != nil {
+		traceHandler := handlers.NewEventTraceHandler(config.InboxRepo, config.ExecutionRepo, config.OutboxRepo, numShards)
+		traceHandler.RegisterRoutes(mux)
+	}
 
 	return &Router{handler: handler}
 }
