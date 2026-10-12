@@ -29,7 +29,7 @@ func validConfigForTest() *Config {
 			LeaseTTLMS:              3,
 			LeaseRenewalIntervalMS:  1,
 			NATSAckWaitMS:           1500,
-			NATSMaxDeliver:          1,
+			NATSMaxDeliver:          -1,
 			HotKeyThreshold:         1,
 			HotKeyCheckIntervalMS:   2500,
 		},
@@ -174,5 +174,23 @@ func TestLoadDefaultsEnvironmentToProduction(t *testing.T) {
 	}
 	if got, want := cfg.App.Env, "production"; got != want {
 		t.Fatalf("App.Env = %q, want %q", got, want)
+	}
+}
+
+
+func TestValidateRejectsFiniteNATSMaxDeliverUntilRecoveryExists(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.Worker.NATSMaxDeliver = 10
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "NATS_MAX_DELIVER must be -1 (unlimited)") {
+		t.Fatalf("Validate() error = %v, want finite NATS delivery limit rejection", err)
+	}
+}
+
+func TestValidateAllowsUnlimitedNATSMaxDeliver(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.Worker.NATSMaxDeliver = -1
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want unlimited NATS delivery limit to be accepted", err)
 	}
 }
