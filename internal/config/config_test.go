@@ -177,7 +177,6 @@ func TestLoadDefaultsEnvironmentToProduction(t *testing.T) {
 	}
 }
 
-
 func TestValidateRejectsFiniteNATSMaxDeliverUntilRecoveryExists(t *testing.T) {
 	cfg := validConfigForTest()
 	cfg.Worker.NATSMaxDeliver = 10
