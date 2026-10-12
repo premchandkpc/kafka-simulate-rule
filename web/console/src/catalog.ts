@@ -38,7 +38,7 @@ export function layoutRuleFlow(parsed: Map<string, FlowRuleBranch[]>, startRuleS
   }
   const reached = Math.max(...levels.values());
   const nodes: FlowNode[] = [...levels.entries()].map(([ruleSet, level]) => ({ ruleSet, level, branches: parsed.get(ruleSet) ?? [] }));
-  // Rule sets no other rule set hands off to are resumed by a service replying with their event type.
+  // Rule sets this entry flow never emits to are not reachable from it. Whether an external service triggers them is not known from rules alone.
   for (const [ruleSet, branches] of parsed) if (!levels.has(ruleSet)) nodes.push({ ruleSet, level: reached + 1, branches, viaService: true });
   return nodes.sort((a, b) => a.level - b.level || a.ruleSet.localeCompare(b.ruleSet));
 }

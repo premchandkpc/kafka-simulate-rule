@@ -250,3 +250,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .studio-event{font-family:ui-monospace,monospace;font-size:12px;overflow-wrap:anywhere}
 @media(max-width:1200px){.studio-grid{grid-template-columns:1fr}}
 .studio-actions{flex:none;display:flex;gap:6px;align-items:center}.studio-actions .text-button,.studio-actions .button{white-space:nowrap}.studio-editor .panel-heading h3{overflow-wrap:anywhere}
+
+.simulation-flow-step.flow-failed{border-color:#d64545;background:#fdf0f0}.simulation-flow-step.flow-failed .flow-step-icon{background:#d64545;color:#fff}.flow-connector.flow-failed{color:#d64545}

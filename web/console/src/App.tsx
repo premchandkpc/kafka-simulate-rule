@@ -380,7 +380,7 @@ function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { se
     {loadError && <div className="notice" role="alert">{loadError}</div>}
     {!loadError && nodes.length === 0 && <Empty title="No rule sets in the database" detail={`Save the ${DOMAIN_LABELS[scenario] || scenario} domain from the Domain catalog page to see its flow.`} />}
     <div className="rule-flow-map">{levels.map(level => <div className="rule-flow-column" key={level}>
-      <div className="rule-flow-level">{level === 0 ? "Entry" : nodes.some(n => n.level === level && n.viaService) ? "Resumed by a service reply" : `Hop ${level}`}</div>
+      <div className="rule-flow-level">{level === 0 ? "Entry" : nodes.some(n => n.level === level && n.viaService) ? "Not emitted by this flow" : `Hop ${level}`}</div>
       {nodes.filter(node => node.level === level).map(node => {
         const emitted = seen.ran.get(node.ruleSet);
         return <div className={`rule-flow-node ${emitted ? "flow-complete" : "flow-waiting"}${emitted && running ? " flow-live" : ""}`} key={node.ruleSet}>
@@ -634,11 +634,14 @@ export default function App() {
   const latestSimulationEvent = simulationEvents[0];
   const liveFlowStage = !latestSimulationEvent ? -1
     : !latestSimulationEvent.trace?.execution ? 1
-      : latestSimulationEvent.trace.effects.length > 0 ? 3 : 2;
-  const flowStepState = (step: number) => liveFlowStage < 0 ? "waiting"
+      : latestSimulationEvent.trace.effects.length === 0 ? 2
+        : latestSimulationEvent.trace.effects.every(e => e.status.toLowerCase() === "delivered") ? 4 : 3;
+  const latestEffectStatuses = (latestSimulationEvent?.trace?.effects ?? []).map(e => e.status.toLowerCase());
+  const outboxFailed = latestEffectStatuses.some(s => s === "failed" || s === "quarantined");
+  const flowStepState = (step: number) => step === 3 && outboxFailed ? "failed" : liveFlowStage < 0 ? "waiting"
     : step < liveFlowStage ? "complete"
       : step === liveFlowStage ? simulationRunning ? "live" : "current" : "waiting";
-  const flowConnectorState = (connector: number) => liveFlowStage > connector ? "complete"
+  const flowConnectorState = (connector: number) => connector === 2 && outboxFailed ? "failed" : liveFlowStage > connector ? "complete"
     : liveFlowStage === connector ? simulationRunning ? "live" : "current" : "waiting";
 
   const runApi = async () => {
