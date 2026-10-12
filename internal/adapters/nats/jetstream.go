@@ -548,8 +548,6 @@ func (p *Publisher) Ping(ctx context.Context) error {
 	return nil
 }
 
-
-
 func (p *Publisher) Close() error {
 	if p.conn != nil {
 		p.conn.Close()
