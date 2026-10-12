@@ -19,7 +19,7 @@ type memBatches struct {
 
 type testLeaseProvider struct{}
 
-func (testLeaseProvider) IsOwner(uint32) bool { return true }
+func (testLeaseProvider) IsOwner(uint32) bool                  { return true }
 func (testLeaseProvider) GetFencingToken(uint32) (int64, bool) { return 1, true }
 
 func newMemBatches() *memBatches {
@@ -442,7 +442,6 @@ func TestBatchService_CreateBatchFailsWhenProcessorIsNotConfigured(t *testing.T)
 	}
 }
 
-
 func TestCreateBatchRequiresEveryRequestedEvent(t *testing.T) {
 	batches := newMemBatches()
 	events := newMemEventProcessor()
@@ -490,7 +489,6 @@ func TestCreateBatchRejectsBatchAboveConfiguredMaximum(t *testing.T) {
 		t.Fatalf("processed %d batch envelopes for an oversized request", len(events.envelopes))
 	}
 }
-
 
 func TestCreateBatchRequiresLeaseProvider(t *testing.T) {
 	batches := newMemBatches()
