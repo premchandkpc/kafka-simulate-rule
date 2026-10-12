@@ -24,7 +24,7 @@ type TraceNode = {
   partition_key: string;
   shard: number;
   status: string;
-  execution?: { rule_set: string; revision: number; status: string };
+  execution?: { rule_set: string; revision: number; status: string; created_at?: string; completed_at?: string };
   effects: Array<{
     effect_id: string;
     effect_type: string;
@@ -34,6 +34,16 @@ type TraceNode = {
     child?: TraceNode;
   }>;
   truncated?: boolean;
+};
+
+type SimulationLogEntry = {
+  timestamp: string;
+  level: string;
+  service: string;
+  message: string;
+  labels: Record<string, string>;
+  eventId?: string;
+  scenario?: string;
 };
 type SimulationEvent = {
   id: string;
@@ -551,6 +561,9 @@ export default function App() {
   const [logs, setLogs] = useState<any[]>([]);
   const [logsBusy, setLogsBusy] = useState(false);
   const [logsError, setLogsError] = useState("");
+  const [simulationLogs, setSimulationLogs] = useState<SimulationLogEntry[]>([]);
+  const [simulationLogsBusy, setSimulationLogsBusy] = useState(false);
+  const [simulationLogsError, setSimulationLogsError] = useState("");
   const [tenantDomains, setTenantDomains] = useState<TenantDomain[]>([]);
   const [tenantServices, setTenantServices] = useState<DomainService[]>([]);
   const [registryBusy, setRegistryBusy] = useState(false);
@@ -944,6 +957,363 @@ export default function App() {
     } catch (e) { setLogsError(e instanceof Error ? e.message : String(e)); } finally { setLogsBusy(false); }
   };
 
+  const loadSimulationMetrics = async () => {
+    if (!settings.workerMetrics.trim()) {
+      setSimulationLogsError("Configure worker metrics endpoint in Settings to view simulation metrics.");
+      return;
+    }
+    try {
+      const endpoints = settings.workerMetrics.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+      const allMetrics: string[] = [];
+      for (const url of endpoints) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const text = await response.text();
+            allMetrics.push(text);
+          }
+        } catch { /* ignore individual worker failures */ }
+      }
+      const combined = allMetrics.join("\n");
+      // Parse metrics for current simulation scenarios
+      const scenarioMetrics: Record<string, any> = {};
+      const scenarios = simulationScenario === "all" ? ["ecommerce", "banking", "food-delivery"] : [simulationScenario];
+      for (const scenario of scenarios) {
+        const sourceRule = SOURCE_RULE_BY_SCENARIO[scenario as Exclude<SimulationScenario, "all">];
+        if (!sourceRule) continue;
+        scenarioMetrics[scenario] = {
+          eventsReceived: parseMetric(combined, `flowrule_events_received_total{rule_set="${sourceRule}"}`),
+          executionsTotal: parseMetric(combined, `flowrule_executions_total{rule_set="${sourceRule}"}`),
+          executionDuration: parseMetric(combined, `flowrule_execution_duration_seconds_sum{rule_set="${sourceRule}"}`),
+          executionCount: parseMetric(combined, `flowrule_execution_duration_seconds_count{rule_set="${sourceRule}"}`),
+          outboxPending: parseMetric(combined, `flowrule_outbox_effects_pending{rule_set="${sourceRule}"}`),
+        };
+      }
+      return scenarioMetrics;
+    } catch (e) {
+      setSimulationLogsError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  };
+
+  const loadSimulationLogs = async () => {
+    if (!settings.lokiBase.trim()) {
+      setSimulationLogsError("Configure a Loki-compatible query URL in Settings to browse simulation logs.");
+      return;
+    }
+    setSimulationLogsBusy(true);
+    setSimulationLogsError("");
+    try {
+      const end = Date.now() * 1_000_000;
+      const start = end - 10 * 60 * 1_000_000_000; // Last 10 minutes
+      const scenarios = simulationScenario === "all" ? ["ecommerce", "banking", "food-delivery"] : [simulationScenario];
+      const scenarioFilter = scenarios.map(s => `scenario="${s}"`).join("|");
+      const query = `{service_name=~"flowrule-.*"} |~ "${scenarioFilter}" | json`;
+      const url = new URL(normalizeBase(settings.lokiBase) + "/loki/api/v1/query_range", window.location.origin);
+      url.searchParams.set("query", query);
+      url.searchParams.set("start", String(start));
+      url.searchParams.set("end", String(end));
+      url.searchParams.set("limit", "200");
+      url.searchParams.set("direction", "backward");
+      const result = await readResponse(await fetch(url.toString(), { headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {} }));
+      const streams = result?.data?.result || [];
+      const logs = streams.flatMap((stream: any) => (stream.values || []).map((entry: any[]) => ({
+        ts: Number(entry[0]),
+        timestamp: new Date(Number(entry[0]) / 1_000_000).toLocaleString(),
+        level: parseLogLevel(entry[1]),
+        service: stream.stream?.service_name || "unknown",
+        message: parseLogMessage(entry[1]),
+        labels: stream.stream || {},
+        eventId: parseEventId(entry[1]),
+        scenario: parseScenario(entry[1]),
+      }))).sort((a: any, b: any) => b.ts - a.ts);
+      setSimulationLogs(logs);
+    } catch (e) {
+      setSimulationLogsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSimulationLogsBusy(false);
+    }
+  };
+
+  const parseMetric = (text: string, metricName: string): number => {
+    const lines = text.split("\n");
+    for (const line of lines) {
+      if (line.startsWith(metricName + " ") || line.startsWith(metricName + "{")) {
+        const parts = line.trim().split(/\s+/);
+        const value = Number(parts[parts.length - 1]);
+        return Number.isFinite(value) ? value : 0;
+      }
+    }
+    return 0;
+  };
+
+  const parseLogLevel = (line: string): string => {
+    const levelMatch = line.match(/"level"\s*:\s*"(\w+)"/);
+    return levelMatch ? levelMatch[1].toUpperCase() : "INFO";
+  };
+
+  const parseLogMessage = (line: string): string => {
+    const msgMatch = line.match(/"msg"\s*:\s*"([^"]*)"/);
+    return msgMatch ? msgMatch[1] : line.slice(0, 200);
+  };
+
+  const parseEventId = (line: string): string | undefined => {
+    const match = line.match(/"event_id"\s*:\s*"([^"]*)"/);
+    return match ? match[1] : undefined;
+  };
+
+  const parseScenario = (line: string): string | undefined => {
+    const match = line.match(/"scenario"\s*:\s*"([^"]*)"/);
+    return match ? match[1] : undefined;
+  };
+
+  // ===== NEW SIMULATION COMPONENTS =====
+
+  function SimulationMetricsPanel({ settings, scenario, running }: { settings: Settings; scenario: SimulationScenario; running: boolean }) {
+    const [metrics, setMetrics] = useState<Record<string, any> | null>(null);
+    const [error, setError] = useState("");
+    const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+
+    const fetchMetrics = useCallback(async () => {
+      if (!settings.workerMetrics.trim()) return;
+      try {
+        const endpoints = settings.workerMetrics.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        let combined = "";
+        for (const url of endpoints) {
+          try {
+            const response = await fetch(url);
+            if (response.ok) combined += await response.text();
+          } catch { /* ignore */ }
+        }
+        const scenarioMetrics: Record<string, any> = {};
+        const scenarios = scenario === "all" ? ["ecommerce", "banking", "food-delivery"] : [scenario];
+        for (const sc of scenarios) {
+          const sourceRule = SOURCE_RULE_BY_SCENARIO[sc as Exclude<SimulationScenario, "all">];
+          if (!sourceRule) continue;
+          scenarioMetrics[sc] = {
+            eventsReceived: parseMetric(combined, `flowrule_events_received_total{rule_set="${sourceRule}"}`),
+            eventsRejected: parseMetric(combined, `flowrule_events_received_total{rule_set="${sourceRule}",status="rejected"}`),
+            executionsTotal: parseMetric(combined, `flowrule_executions_total{rule_set="${sourceRule}"}`),
+            executionsSuccess: parseMetric(combined, `flowrule_executions_total{rule_set="${sourceRule}",status="completed"}`),
+            executionsFailed: parseMetric(combined, `flowrule_executions_total{rule_set="${sourceRule}",status="failed"}`),
+            avgExecDuration: calculateAvg(combined, sourceRule),
+            outboxPending: parseMetric(combined, `flowrule_outbox_effects_pending{rule_set="${sourceRule}"}`),
+            outboxDelivered: parseMetric(combined, `flowrule_outbox_retries_total{destination=".*",effect_type="emit_event"}`),
+            outboxRetries: parseMetric(combined, `flowrule_outbox_retries_total{rule_set="${sourceRule}"}`),
+            quarantineTotal: parseMetric(combined, `flowrule_quarantine_total{rule_set="${sourceRule}"}`),
+          };
+        }
+        setMetrics(scenarioMetrics);
+        setLastRefresh(new Date());
+        setError("");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }, [settings, scenario]);
+
+    useEffect(() => {
+      if (!running) return;
+      fetchMetrics();
+      const interval = window.setInterval(fetchMetrics, 5000);
+      return () => window.clearInterval(interval);
+    }, [running, fetchMetrics]);
+
+    useEffect(() => {
+      fetchMetrics();
+    }, [fetchMetrics]);
+
+    if (!settings.workerMetrics.trim()) {
+      return <section className="panel metrics-panel"><div className="panel-heading"><h3>Simulation Metrics</h3></div><div className="metrics-empty">Configure worker metrics endpoint in Settings to see real-time metrics.</div></section>;
+    }
+
+    const scenarios = scenario === "all" ? ["ecommerce", "banking", "food-delivery"] : [scenario];
+
+    return <section className="panel metrics-panel">
+      <div className="panel-heading">
+        <div><h3>Real-time Metrics</h3><p>Per-scenario Prometheus metrics from worker fleet</p></div>
+        <div className="metrics-actions">
+          <small className="last-refresh">{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading…"}</small>
+          <button className="text-button" onClick={fetchMetrics} disabled={!running}>↻ Refresh</button>
+        </div>
+      </div>
+      {error && <div className="notice notice-error">{error}</div>}
+      <div className="metrics-grid">
+        {scenarios.map(sc => {
+          const m = metrics?.[sc] || {};
+          const successRate = m.executionsTotal > 0 ? ((m.executionsSuccess / m.executionsTotal) * 100).toFixed(1) : "—";
+          return <article className="metric-card scenario-card" key={sc}>
+            <div className="metric-top"><span className="scenario-label">{sc === "food-delivery" ? "Food Delivery" : sc}</span><span className="metric-icon">📊</span></div>
+            <div className="metrics-detail">
+              <div className="metric-row"><span>Events received</span><strong>{m.eventsReceived || 0}</strong></div>
+              <div className="metric-row"><span>Events rejected</span><strong style={{color: m.eventsRejected > 0 ? "var(--red)" : "inherit"}}>{m.eventsRejected || 0}</strong></div>
+              <div className="metric-row"><span>Executions</span><strong>{m.executionsTotal || 0}</strong></div>
+              <div className="metric-row"><span>Success rate</span><strong>{successRate}%</strong></div>
+              <div className="metric-row"><span>Avg duration</span><strong>{m.avgExecDuration ? m.avgExecDuration.toFixed(3) + "s" : "—"}</strong></div>
+              <div className="metric-row"><span>Outbox pending</span><strong>{m.outboxPending || 0}</strong></div>
+              <div className="metric-row"><span>Outbox retries</span><strong>{m.outboxRetries || 0}</strong></div>
+              <div className="metric-row"><span>Quarantined</span><strong style={{color: m.quarantineTotal > 0 ? "var(--red)" : "inherit"}}>{m.quarantineTotal || 0}</strong></div>
+            </div>
+          </article>;
+        })}
+      </div>
+    </section>;
+  }
+
+  function SimulationLogsPanel({ settings, scenario, running, logs, busy, error, onRefresh }: { settings: Settings; scenario: SimulationScenario; running: boolean; logs: SimulationLogEntry[]; busy: boolean; error: string; onRefresh: () => void }) {
+    const [filterLevel, setFilterLevel] = useState<string>("all");
+    const [filterText, setFilterText] = useState("");
+    const [autoRefresh, setAutoRefresh] = useState(running);
+
+    useEffect(() => {
+      if (!running || !autoRefresh) return;
+      onRefresh();
+      const interval = window.setInterval(onRefresh, 10000);
+      return () => window.clearInterval(interval);
+    }, [running, autoRefresh, onRefresh]);
+
+    const filteredLogs = logs.filter(log => {
+      if (filterLevel !== "all" && log.level.toLowerCase() !== filterLevel.toLowerCase()) return false;
+      if (filterText && !log.message.toLowerCase().includes(filterText.toLowerCase()) && !log.eventId?.toLowerCase().includes(filterText.toLowerCase())) return false;
+      return true;
+    });
+
+    return <section className="panel logs-panel">
+      <div className="panel-heading">
+        <div><h3>Simulation Logs</h3><p>Loki logs filtered by scenario, correlated with event traces</p></div>
+        <div className="logs-actions">
+          <label className="filter-label">
+            Level
+            <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)} style={{marginLeft: 8}}>
+              <option value="all">All</option>
+              <option value="error">Error</option>
+              <option value="warn">Warn</option>
+              <option value="info">Info</option>
+              <option value="debug">Debug</option>
+            </select>
+          </label>
+          <label className="filter-label">
+            Search
+            <input type="text" value={filterText} onChange={e => setFilterText(e.target.value)} placeholder="event ID, message..." style={{marginLeft: 8, width: 200}} />
+          </label>
+          <label className="filter-label">
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
+            <span style={{marginLeft: 4}}>Auto-refresh ({running ? "live" : "paused"})</span>
+          </label>
+          <button className="text-button" onClick={onRefresh} disabled={busy}>{busy ? "Loading…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+      {error && <div className="notice notice-error">{error}</div>}
+      {!settings.lokiBase.trim() && <div className="metrics-empty">Configure Loki endpoint in Settings to see simulation logs.</div>}
+      <div className="logs-list">
+        {filteredLogs.length === 0 ? (
+          <div className="logs-empty">No logs found. Start a simulation and ensure Loki is configured.</div>
+        ) : (
+          filteredLogs.slice(0, 50).map((log, idx) => (
+            <div className={`log-row log-${log.level.toLowerCase()}`} key={idx}>
+              <time>{log.timestamp}</time>
+              <span className="log-service">{log.service}</span>
+              <span className={`log-level log-level-${log.level.toLowerCase()}`}>{log.level}</span>
+              {log.scenario && <span className="log-scenario">{log.scenario}</span>}
+              {log.eventId && <span className="log-event-id" title={log.eventId}>{log.eventId.slice(0, 12)}…</span>}
+              <code className="log-message">{log.message}</code>
+            </div>
+          ))
+        )}
+      </div>
+    </section>;
+  }
+
+  function EnhancedTraceBranch({ node, depth = 0 }: { node: TraceNode; depth?: number }) {
+    const execution = node.execution;
+    const isCompleted = execution?.status === "completed";
+    const hasErrors = node.effects.some(e => e.status.toLowerCase() === "failed" || e.status.toLowerCase() === "quarantined");
+
+    return <div className={`trace-branch${depth > 0 ? " trace-branch-child" : ""}`}>
+      <div className="trace-event">
+        <div className="trace-event-top">
+          <div className="trace-event-info">
+            <strong>{node.type || "Event waiting for worker"}</strong>
+            <span className="trace-scenario-badge">{node.partition_key ? `partition: ${node.partition_key}` : ""}</span>
+            <span className="trace-shard-badge">{node.shard ? `shard: ${node.shard}` : ""}</span>
+          </div>
+          <Status value={node.status}/>
+        </div>
+        <div className="trace-event-meta">
+          <span>id {node.event_id.slice(0, 12)}</span>
+          {node.partition_key && <span>key {node.partition_key}</span>}
+          {node.shard && <span>events.shard.{node.shard}</span>}
+          {execution?.created_at && <span>created {new Date(execution.created_at).toLocaleTimeString()}</span>}
+          {execution?.completed_at && <span>completed {new Date(execution.completed_at).toLocaleTimeString()}</span>}
+        </div>
+        {execution && (
+          <div className="trace-execution-detail">
+            <small className="trace-execution">Rule set: <strong>{execution.rule_set}</strong> · revision {execution.revision} · status: {execution.status}</small>
+            {execution.created_at && execution.completed_at && (
+              <small className="trace-duration">
+                Duration: {((new Date(execution.completed_at).getTime() - new Date(execution.created_at).getTime()) / 1000).toFixed(3)}s
+              </small>
+            )}
+          </div>
+        )}
+      </div>
+      {node.effects.map(effect => {
+        const isEmitEvent = effect.effect_type === "emit_event";
+        const isExternal = effect.effect_type === "external_command";
+        const childStatus = effect.child?.status;
+        const childExecution = effect.child?.execution;
+        return <div className="trace-effect" key={effect.effect_id}>
+          <div className="trace-effect-line">
+            <span className={`effect-mark effect-${effect.effect_type.replace(/_/g, "-")}`}>
+              {isEmitEvent ? "↗" : isExternal ? "⇢" : "⚡"}
+            </span>
+            <div className="effect-detail">
+              <div className="effect-header">
+                <strong>{effect.name}</strong>
+                <small>{effect.effect_type} → {effect.destination}</small>
+              </div>
+              <div className="effect-status-row">
+                <Status value={effect.status}/>
+                {effect.child && <span className="effect-child-status">→ child: {effect.child.type} ({childStatus})</span>}
+              </div>
+            </div>
+          </div>
+          {effect.child && depth < 5 && (
+            <div className="trace-effect-child">
+              <EnhancedTraceBranch node={effect.child} depth={depth + 1} />
+            </div>
+          )}
+          {isEmitEvent && childExecution && (
+            <div className="effect-decision">
+              <small>📋 Rule <strong>{childExecution.rule_set}</strong> evaluated this child event</small>
+            </div>
+          )}
+          {isExternal && (
+            <div className="effect-external">
+              <small>📤 External command sent to <strong>{effect.destination}</strong> — receiver must deduplicate by Idempotency-Key</small>
+            </div>
+          )}
+          {hasErrors && effect.status.toLowerCase() === "failed" && (
+            <div className="effect-error">
+              <small>⚠️ Delivery failed — will retry per outbox policy; may be quarantined after max retries</small>
+            </div>
+          )}
+          {hasErrors && effect.status.toLowerCase() === "quarantined" && (
+            <div className="effect-quarantined">
+              <small>🔒 Quarantined — manual intervention required; check quarantine API</small>
+            </div>
+          )}
+        </div>;
+      })}
+      {node.truncated && <div className="trace-truncated">Trace shortened at the display limit (max 100 nodes, 5 levels deep).</div>}
+    </div>;
+  }
+
+  const calculateAvg = (text: string, ruleSet: string): number | null => {
+    const sum = parseMetric(text, `flowrule_execution_duration_seconds_sum{rule_set="${ruleSet}"}`);
+    const count = parseMetric(text, `flowrule_execution_duration_seconds_count{rule_set="${ruleSet}"}`);
+    return count > 0 ? sum / count : null;
+  };
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">F</div><div><strong>FlowRule</strong><small>CONTROL PLANE</small></div></div>
@@ -977,6 +1347,8 @@ export default function App() {
         {simulationError && <div className="alert error"><strong>Simulation stopped</strong><span>{simulationError}</span><button onClick={() => setSimulationError("")}>×</button></div>}
         {simulationTraceRefreshedAt && !simulationTraceError && <small className="trace-refreshed">Traces last refreshed {simulationTraceRefreshedAt}</small>}
         {simulationTraceError && <div className="alert warning"><strong>Trace temporarily unavailable</strong><span>{simulationTraceError}</span></div>}
+        
+        {/* Step-by-step flow visualization */}
         <div className="simulation-flow" aria-label="Live event processing path">
           <div className={`simulation-flow-step flow-${flowStepState(0)}`}><span className="flow-step-icon">A</span><span><strong>Source service</strong><small>{latestSimulationEvent ? `${latestSimulationEvent.scenario} · ${latestSimulationEvent.type}` : "Example producer sends the event"}</small></span></div><span className={`flow-connector flow-${flowConnectorState(0)}`}>→</span>
           <div className={`simulation-flow-step flow-${flowStepState(1)}`}><span className="flow-step-icon">N</span><span><strong>NATS JetStream</strong><small>{latestSimulationEvent ? `events.shard.${latestSimulationEvent.shard}` : "Shared tenant shard routing"}</small></span></div><span className={`flow-connector flow-${flowConnectorState(1)}`}>→</span>
@@ -984,12 +1356,32 @@ export default function App() {
           <div className={`simulation-flow-step flow-${flowStepState(3)}`}><span className="flow-step-icon">B</span><span><strong>Outbox destination</strong><small>{latestSimulationEvent?.trace?.effects[0] ? `${latestSimulationEvent.trace.effects[0].destination} · ${latestSimulationEvent.trace.effects[0].status}` : "Child event or configured service"}</small></span></div>
           <div className="simulation-flow-status" aria-live="polite"><i className={simulationRunning ? "flow-status-live" : ""}/><span>{simulationRunning ? `Live · publishing every ${simulationPace / 1000}s until stopped` : latestSimulationEvent ? `Latest event · ${latestSimulationEvent.trace?.status || "accepted"}` : "Ready · start a simulation to follow a live event"}</span></div>
         </div>
+        
+        {/* Real-time metrics panel */}
+        <SimulationMetricsPanel 
+          settings={settings} 
+          scenario={simulationScenario} 
+          running={simulationRunning}
+        />
+        
         <div className="metric-grid simulation-metrics">
           <MetricCard label="Simulation" value={simulationRunning ? simulationStopping ? "Stopping" : "Running" : "Stopped"} hint={`Tenant · ${settings.tenant || "not configured"}`} icon={simulationRunning ? "●" : "○"}/>
           <MetricCard label="Events tracked" value={simulationEvents.length} hint="Recent simulator events, newest first" icon="↗"/>
           <MetricCard label="Worker processed" value={simulationProcessed} hint="Completed executions in current event list" icon="⚙"/>
           <MetricCard label="Effects delivered" value={simulationDelivered} hint="Outbox deliveries in observed traces" icon="⇢"/>
         </div>
+        
+        {/* Logs panel */}
+        <SimulationLogsPanel 
+          settings={settings} 
+          scenario={simulationScenario} 
+          running={simulationRunning}
+          logs={simulationLogs}
+          busy={simulationLogsBusy}
+          error={simulationLogsError}
+          onRefresh={loadSimulationLogs}
+        />
+        
         {selectedSourceRules.map(({ scenario, label, rule }) => <div className="entry-rule-picker" key={`pick-${scenario}`}><span>{label} source event type</span><code>{rule}</code></div>)}
         {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} settings={settings} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
         <section className="panel source-rules-panel">
@@ -1006,8 +1398,8 @@ export default function App() {
             : <div className="simulation-event-list">{simulationEvents.slice(0, 12).map(event => <details className="simulation-event" key={event.id} open={simulationEvents.indexOf(event) === 0}>
               <summary><span className={`scenario-badge scenario-${event.scenario}`}>{event.scenario === "food-delivery" ? "Delivery" : event.scenario}</span><span className="simulation-event-main"><strong>{event.summary}</strong><small>Source service → {event.type} · partition {event.partitionKey} · shard {event.shard}</small></span><Status value={event.trace?.status || "queued"}/><time>{new Date(event.sentAt).toLocaleTimeString()}</time></summary>
               <div className="trace-content"><div className="trace-legend"><span>Source event</span><span>→ actual worker execution</span><span>→ outbox route / next service</span></div>{event.trace
-                ? <TraceBranch node={event.trace}/>
-                : <div className="trace-pending">Event accepted by the API. Waiting for the worker’s inbox and execution record…</div>}</div>
+                ? <EnhancedTraceBranch node={event.trace}/>
+                : <div className="trace-pending">Event accepted by the API. Waiting for the worker's inbox and execution record…</div>}</div>
             </details>)}</div>}
         </section>
         <p className="simulation-footnote">Outbox destinations are shown exactly as configured. Emitted child events are followed to their next worker/rule-set execution; external service commands appear with their configured destination.</p>

@@ -257,3 +257,89 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 /* Explicitly distinguish terminal/unhandled emissions from subscribed service routes. */
 .rule-flow-emit.to-terminal{border-style:dashed;opacity:.78}
 .entry-rule-picker code{font-size:12px;padding:4px 8px;border-radius:6px;background:var(--surface-muted,rgba(127,127,127,.12));}
+
+/* ===== NEW SIMULATION COMPONENTS STYLES ===== */
+
+.metrics-panel, .logs-panel { margin: 18px 0; }
+.metrics-empty, .logs-empty { padding: 24px; text-align: center; color: var(--muted, #7a8699); background: #fafbfc; border: 1px dashed var(--line, #d9dee7); border-radius: 8px; }
+.metrics-actions, .logs-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.last-refresh { color: var(--muted, #7a8699); font-size: 11px; font-family: 'DM Mono', monospace; }
+.filter-label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted, #7a8699); }
+.filter-label select, .filter-label input { font-size: 11px; padding: 4px 8px; border: 1px solid var(--line, #d9dee7); border-radius: 4px; background: white; }
+
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.scenario-card { border-left: 4px solid var(--blue, #4263eb); }
+.scenario-card:nth-child(2) { border-left-color: var(--green, #16845b); }
+.scenario-card:nth-child(3) { border-left-color: var(--amber, #ba7b20); }
+.scenario-label { font-weight: 600; text-transform: capitalize; color: var(--navy, #142337); }
+.metrics-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 8px; font-size: 11px; }
+.metric-row { display: contents; }
+.metric-row span { color: var(--muted, #7a8699); }
+.metric-row strong { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--navy, #142337); }
+
+.logs-list { display: grid; gap: 4px; max-height: 400px; overflow-y: auto; }
+.log-row { display: grid; grid-template-columns: 110px 100px 70px 80px 100px 1fr; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line, #d9dee7); border-radius: 6px; background: white; font-size: 11px; transition: background 0.1s; }
+.log-row:hover { background: #f8f9fc; }
+.log-row time { color: var(--muted, #7a8699); font-family: 'DM Mono', monospace; font-size: 10px; white-space: nowrap; }
+.log-service { color: var(--blue, #4263eb); font-weight: 500; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-level { display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; min-width: 55px; }
+.log-level-error { background: #fee; color: #c00; }
+.log-level-warn { background: #ffc; color: #a60; }
+.log-level-info { background: #eef; color: #00c; }
+.log-level-debug { background: #f5f5f5; color: #666; }
+.log-scenario { padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; background: #eff2ff; color: #5469dc; }
+.log-event-id { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted, #7a8699); background: #f5f7fb; padding: 2px 6px; border-radius: 3px; }
+.log-message { color: var(--navy, #142337); font-size: 11px; overflow-wrap: anywhere; word-break: break-word; background: #fafbfc; padding: 4px 8px; border-radius: 4px; font-family: 'DM Mono', monospace; }
+
+/* Enhanced trace styles */
+.trace-event-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trace-scenario-badge, .trace-shard-badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #eef2ff; color: #5269df; font-family: 'DM Mono', monospace; }
+.trace-shard-badge { background: #eaf7f1; color: #25845f; }
+.trace-execution-detail { margin-top: 8px; padding: 8px; background: #f8f9fc; border-radius: 6px; border: 1px solid #eef1f6; }
+.trace-execution-detail small { display: block; margin-bottom: 4px; }
+.trace-duration { color: var(--green, #16845b); font-weight: 600; font-family: 'DM Mono', monospace; }
+.trace-effect-child { margin-left: 16px; padding-left: 12px; border-left: 2px dashed #dfe5fa; }
+.effect-detail { flex: 1; min-width: 0; }
+.effect-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.effect-header strong { color: #34435a; font-size: 11px; }
+.effect-header small { color: var(--muted, #7a8699); font-size: 10px; }
+.effect-status-row { display: flex; align-items: center; gap: 10px; }
+.effect-child-status { font-size: 10px; color: var(--blue, #4263eb); background: #eef2ff; padding: 2px 6px; border-radius: 3px; font-family: 'DM Mono', monospace; }
+.effect-decision { margin-top: 8px; padding: 6px 10px; background: #fff8e7; border-radius: 4px; border-left: 3px solid var(--amber, #ba7b20); font-size: 10px; }
+.effect-external { margin-top: 8px; padding: 6px 10px; background: #eef7f1; border-radius: 4px; border-left: 3px solid var(--green, #16845b); font-size: 10px; }
+.effect-error { margin-top: 8px; padding: 6px 10px; background: #fff0f0; border-radius: 4px; border-left: 3px solid var(--red, #cb4c4c); font-size: 10px; }
+.effect-quarantined { margin-top: 8px; padding: 6px 10px; background: #f5e6ff; border-radius: 4px; border-left: 3px solid #9b59b6; font-size: 10px; }
+
+/* Status badge improvements for simulation */
+.status-queued, .status-published { background: #fff6e7; color: #a66a13; }
+.status-processing, .status-running { background: #eef2ff; color: #4263eb; }
+.status-completed, .status-delivered { background: #eaf7f1; color: #16845b; }
+.status-failed { background: #fff0f0; color: #cb4c4c; }
+.status-quarantined { background: #f5e6ff; color: #9b59b6; }
+.status-missing { background: #fff0f0; color: #bf4545; }
+
+/* Flow step states */
+.simulation-flow-step.flow-waiting .flow-step-icon { background: #f5f5f5; color: #aaa; }
+.simulation-flow-step.flow-current .flow-step-icon { background: #eef2ff; color: #4263eb; box-shadow: 0 0 0 3px #4263eb20; }
+.simulation-flow-step.flow-live .flow-step-icon { background: #eef2ff; color: #4263eb; box-shadow: 0 0 0 4px #4263eb14; animation: flow-live-pulse 1.6s ease-in-out infinite; }
+.simulation-flow-step.flow-complete .flow-step-icon { background: #eaf7f1; color: #16845b; }
+.simulation-flow-step.flow-failed .flow-step-icon { background: #cb4c4c; color: white; }
+.flow-connector.flow-waiting { color: #d0d5dd; }
+.flow-connector.flow-current { color: #4263eb; }
+.flow-connector.flow-live { color: #4263eb; animation: flow-arrow-pulse 1.15s ease-in-out infinite; }
+.flow-connector.flow-complete { color: #16845b; }
+.flow-connector.flow-failed { color: #cb4c4c; }
+
+@media (max-width: 900px) {
+  .log-row { grid-template-columns: 100px 80px 65px 70px 90px 1fr; font-size: 10px; }
+  .metrics-grid { grid-template-columns: 1fr; }
+  .metrics-detail { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .log-row { grid-template-columns: 1fr; gap: 4px; }
+  .log-row > * { grid-column: 1 / -1; }
+  .log-row time, .log-row .log-service, .log-row .log-level, .log-row .log-scenario, .log-row .log-event-id { display: inline-block; margin-right: 8px; }
+  .log-row code { margin-top: 4px; }
+  .metrics-detail { grid-template-columns: 1fr; }
+  .metrics-actions, .logs-actions { flex-direction: column; align-items: flex-start; }
+}
