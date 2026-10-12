@@ -10,17 +10,12 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
-type shardLeaseProvider interface {
-	IsOwner(shard uint32) bool
-	GetFencingToken(shard uint32) (int64, bool)
-}
-
 type Service struct {
 	batches       ports.BatchRepository
 	events        ports.EventProcessor
 	clock         ports.Clock
 	cfg           domain.BatchConfig
-	leaseProvider shardLeaseProvider
+	leaseProvider ports.ShardLeaseView
 	workerID      string
 	numShards     uint32
 }
@@ -48,7 +43,7 @@ func NewServiceWithLeaseProvider(
 	events ports.EventProcessor,
 	clock ports.Clock,
 	cfg domain.BatchConfig,
-	leaseProvider shardLeaseProvider,
+	leaseProvider ports.ShardLeaseView,
 	workerID string,
 	numShards uint32,
 ) *Service {
