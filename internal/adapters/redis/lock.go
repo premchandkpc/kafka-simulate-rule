@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/ports"
@@ -40,9 +41,16 @@ type Lock struct {
 	done        chan struct{}
 	lost        chan struct{}
 	lostOnce    sync.Once
+	stopping    atomic.Bool
 }
 
 func (m *LockManager) Lock(ctx context.Context, key string, ttl time.Duration) (ports.LockGuard, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("redis lock: context is required")
+	}
+	if m == nil || m.client == nil {
+		return nil, fmt.Errorf("redis lock: client is required")
+	}
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil, fmt.Errorf("redis lock: key is required")
@@ -103,6 +111,9 @@ func (l *Lock) renewLoop() {
 	for {
 		select {
 		case <-l.watchCtx.Done():
+			if !l.stopping.Load() {
+				l.markLost()
+			}
 			return
 		case <-ticker.C:
 			result, err := script.Run(l.watchCtx, l.client, []string{l.redisKey}, l.token, l.ttl.Milliseconds()).Int()
@@ -127,6 +138,7 @@ func (l *Lock) Lost() <-chan struct{} {
 }
 
 func (l *Lock) Release(ctx context.Context) error {
+	l.stopping.Store(true)
 	if l.watchCancel != nil {
 		l.watchCancel()
 	}
