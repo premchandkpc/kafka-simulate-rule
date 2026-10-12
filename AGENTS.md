@@ -421,13 +421,59 @@ Whenever a contract, configuration option, service or runtime behavior changes, 
 - Use consistent terminology across code, schemas, docs, logs, metrics, CLI flags and environment variables. Do not casually rename a tenant, partition key, shard, rule revision or execution status in only one layer.
 - Constants should represent stable, meaningful values. Do not create a constant for a one-off literal that is clearer in place; do centralize values that are shared contracts or must remain synchronized.
 
-### 12.2 File size and function structure
+### 12.2 Function decomposition, logical chunks and file structure
 
-- Prefer small cohesive functions with explicit inputs and outputs. Extract a function when it names a meaningful operation or removes genuine repetition, not merely to reduce line count.
-- Large functions are a review signal, not an automatic mandate to split. Preserve a clear top-to-bottom narrative and separate validation, policy, I/O and settlement where that improves reasoning.
-- Keep one primary responsibility per file where practical. Multiple related types may share a file when they form one cohesive implementation.
-- Avoid files that combine unrelated concerns simply because they are all used by the same command.
-- Do not split every struct or method into a separate file mechanically. Optimize for discoverability, cohesion and safe change boundaries.
+Functions should read like a short, understandable explanation of one operation. Split by **responsibility and control-flow meaning**, not by an arbitrary line count.
+
+#### How to decompose a function
+
+- Start by identifying the function's observable responsibility, invariants, inputs, outputs and side effects. A function should have one cohesive reason to change.
+- Keep the parent function as an orchestration outline when a workflow has distinct phases. Name each extracted function after the business or technical operation it performs, so the call sequence explains the flow.
+- Split at meaningful boundaries such as:
+  1. Input normalization and validation.
+  2. Loading required state or dependencies.
+  3. Applying a domain decision or pure transformation.
+  4. Performing a transaction or external I/O operation.
+  5. Persisting/settling the result and translating errors.
+  6. Emitting logs, metrics or other post-operation signals when those have a clear lifecycle.
+- Keep domain policy separate from transport, persistence and vendor-specific mechanics. Put pure calculations and validation in functions that can be tested without network/database setup where practical.
+- Extract a block when it has a meaningful name, a coherent contract, independent edge cases, genuine reuse, or a distinct side-effect/error boundary. A helper need not be reused to be valuable if it makes a complex operation easier to reason about.
+- Keep tightly coupled steps together when separating them would hide an invariant, split an atomic transaction, obscure ordering/locking, or force callers to understand implementation details.
+- Make data dependencies explicit in parameters and return values. Avoid helpers that rely on mutable package globals, hidden context values, broad structs used as parameter bags, or surprising mutation of caller-owned data.
+- Preserve error meaning and operation context. Return errors to the layer that can decide whether to retry, quarantine, translate to an API response or abort a transaction. Do not log and swallow an error or retry inside a helper without an explicit contract.
+- In concurrent code, make ownership, cancellation, synchronization and settlement boundaries visible. Do not split code in a way that separates an ACK from the durable operation that justifies it, or separates a fencing check from the protected state transition.
+- Prefer a clear top-to-bottom path over deeply nested branches. Use guard clauses when they simplify flow, but do not flatten code at the cost of hiding important invariants.
+
+#### Function size and abstraction quality
+
+- Large functions are a **review signal**, not an automatic mandate to split. Assess cognitive load, number of responsibilities, nested branching, repeated logic, side effects and difficulty testing before deciding.
+- Do not split every few lines into a one-line wrapper, create a chain of trivial functions, or extract a helper whose name merely restates the next statement. That increases navigation cost without improving cohesion.
+- Do not keep a long function intact merely to avoid adding a helper. If a reviewer must hold validation, domain policy, I/O, retries and response mapping in working memory at once, separate the meaningful phases.
+- Avoid boolean mode flags and many optional parameters when they make a helper's behavior ambiguous. Prefer separate cohesive operations or a small typed input when that clarifies a real multi-field contract.
+- Keep functions' inputs and outputs narrow. If a helper needs many unrelated dependencies, it may belong in another type/package or the caller may be combining responsibilities.
+- Do not introduce speculative generic frameworks or shared helpers for behavior that only looks similar. Compare invariants, error behavior, ordering and ownership before reusing logic.
+- Avoid unnecessary abstractions that only rename a single expression. Abstraction should improve intent, isolation, reuse, testability or safety.
+
+#### Files and package boundaries
+
+- Keep one primary responsibility per file where practical. Group related methods together when they implement one cohesive type or workflow; do not create one file per function or struct mechanically.
+- Split a file when it contains distinct responsibilities with different change reasons, unrelated dependencies, separate lifecycle ownership or an independently discoverable concern.
+- Keep a type's closely related methods near each other unless the file becomes hard to navigate or the methods naturally belong to separate cohesive concerns. Use descriptive filenames that identify the responsibility, not vague names such as `misc.go`, `helpers.go` or `utils.go`.
+- Do not move code across layers merely to shorten a file. Place it according to ownership and dependency direction in Sections 3, 4 and 11.
+- Before moving or extracting code, search for all callers and related implementations/tests. Update tests, docs and package/file maps where behavior or ownership changes. Avoid unrelated renames and formatting churn.
+
+#### Required review for non-trivial function refactors
+
+Before:
+- State the original function's responsibilities and the distinct logical chunks being separated.
+- Identify transaction, ordering, locking, retry, context-cancellation and resource-ownership boundaries.
+- Check whether the extraction changes behavior, error propagation, call order or allocation/performance characteristics.
+
+After:
+- Review the complete call graph and diff; ensure the top-level function remains easy to follow and each helper has a clear contract.
+- Add or update tests for extracted pure logic and for observable behavior, including failure paths and boundaries. Do not test private helper call counts as a substitute for behavior.
+- Run formatting, focused tests and all applicable package/module checks. For concurrency or persistence changes, select race/integration tests that can prove the affected guarantees.
+- Explain why the new boundaries improve readability, cohesion, reuse or testability. Function count and line count alone are not success criteria.
 
 ### 12.3 Formatting and comments
 
