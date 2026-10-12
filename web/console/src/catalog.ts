@@ -22,5 +22,3 @@ export const CATALOG: CatalogItem[] = Object.entries(files).flatMap(([path, sour
   return [{ domain: match[1], kind: match[2] === "contracts" ? "contract" : "rule", name: match[3], source } as CatalogItem];
 }).sort((a, b) => a.domain.localeCompare(b.domain) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
 
-export { branchesFromRevision, layoutRuleFlow } from "./flow-layout";
-export type { FlowNode, FlowReachability, FlowRuleBranch } from "./flow-layout";
