@@ -29,8 +29,28 @@ type contractSchemaRow struct {
 	Compatibility string          `db:"compatibility"`
 	Owner         string          `db:"owner"`
 	Deprecated    bool            `db:"deprecated"`
-	CreatedAt     string          `db:"created_at"`
-	UpdatedAt     string          `db:"updated_at"`
+	CreatedAt     time.Time       `db:"created_at"`
+	UpdatedAt     time.Time       `db:"updated_at"`
+}
+
+func (cr contractSchemaRow) toDomain() (*domain.ContractSchema, error) {
+	var fields map[string]domain.ContractField
+	if err := json.Unmarshal(cr.Fields, &fields); err != nil {
+		return nil, fmt.Errorf("unmarshal fields: %w", err)
+	}
+
+	return &domain.ContractSchema{
+		Name:          cr.Name,
+		Version:       cr.Version,
+		Namespace:     cr.Namespace,
+		Description:   cr.Description,
+		Fields:        fields,
+		Compatibility: cr.Compatibility,
+		Owner:         cr.Owner,
+		Deprecated:    cr.Deprecated,
+		CreatedAt:     cr.CreatedAt,
+		UpdatedAt:     cr.UpdatedAt,
+	}, nil
 }
 
 func (r *ContractRegistry) Register(ctx context.Context, schema *domain.ContractSchema) error {
@@ -73,26 +93,11 @@ func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*doma
 		return nil, fmt.Errorf("get contract: %w", err)
 	}
 
-	var fields map[string]domain.ContractField
-	if err := json.Unmarshal(cr.Fields, &fields); err != nil {
-		return nil, fmt.Errorf("unmarshal fields: %w", err)
+	schema, err := cr.toDomain()
+	if err != nil {
+		return nil, err
 	}
-
-	createdAt, _ := time.Parse(time.RFC3339Nano, cr.CreatedAt)
-	updatedAt, _ := time.Parse(time.RFC3339Nano, cr.UpdatedAt)
-
-	return &domain.ContractSchema{
-		Name:          cr.Name,
-		Version:       cr.Version,
-		Namespace:     cr.Namespace,
-		Description:   cr.Description,
-		Fields:        fields,
-		Compatibility: cr.Compatibility,
-		Owner:         cr.Owner,
-		Deprecated:    cr.Deprecated,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
-	}, nil
+	return schema, nil
 }
 
 func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.ContractSchema, error) {
@@ -125,26 +130,14 @@ func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.Con
 			return nil, fmt.Errorf("scan contract: %w", err)
 		}
 
-		var fields map[string]domain.ContractField
-		if err := json.Unmarshal(cr.Fields, &fields); err != nil {
-			return nil, fmt.Errorf("unmarshal fields: %w", err)
+		schema, err := cr.toDomain()
+		if err != nil {
+			return nil, err
 		}
-
-		createdAt, _ := time.Parse(time.RFC3339Nano, cr.CreatedAt)
-		updatedAt, _ := time.Parse(time.RFC3339Nano, cr.UpdatedAt)
-
-		schemas = append(schemas, &domain.ContractSchema{
-			Name:          cr.Name,
-			Version:       cr.Version,
-			Namespace:     cr.Namespace,
-			Description:   cr.Description,
-			Fields:        fields,
-			Compatibility: cr.Compatibility,
-			Owner:         cr.Owner,
-			Deprecated:    cr.Deprecated,
-			CreatedAt:     createdAt,
-			UpdatedAt:     updatedAt,
-		})
+		schemas = append(schemas, schema)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate contracts: %w", err)
 	}
 	return schemas, nil
 }
