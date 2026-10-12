@@ -79,6 +79,7 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 			"amount":               float64(rng.Intn(2_000_000) + 500),
 			"currency":             "USD",
 			"transaction_type":     []string{"transfer", "payment", "withdrawal"}[rng.Intn(3)],
+			"channel":              []string{"mobile", "web", "branch", "api"}[rng.Intn(4)],
 			"counterparty_account": counterparty,
 			"description":          fmt.Sprintf("simulated-transfer-%04d", sequence),
 			"initiated_at":         now.Format(time.RFC3339Nano),
