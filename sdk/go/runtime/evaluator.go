@@ -2,10 +2,10 @@ package runtime
 
 // Effect represents an effect to be emitted
 type Effect struct {
-	Type           string         `json:"type"`
-	Payload        map[string]any `json:"payload"`
-	PartitionKey   string         `json:"partition_key"`
-	PartitionKeyPolicy string      `json:"partition_key_policy,omitempty"`
+	Type               string         `json:"type"`
+	Payload            map[string]any `json:"payload"`
+	PartitionKey       string         `json:"partition_key"`
+	PartitionKeyPolicy string         `json:"partition_key_policy,omitempty"`
 }
 
 // CompiledRule represents a pre-compiled rule for fast evaluation
@@ -21,9 +21,9 @@ type ConditionFunc func(payload map[string]any) bool
 
 // EffectTemplate defines an effect to emit with template substitution
 type EffectTemplate struct {
-	EventType           string
-	PartitionKeyPolicy  string
-	DataTemplate        map[string]string
+	EventType          string
+	PartitionKeyPolicy string
+	DataTemplate       map[string]string
 }
 
 // Evaluator evaluates rules against a payload
@@ -43,8 +43,8 @@ func (e *Evaluator) Evaluate(payload map[string]any) ([]Effect, error) {
 		if rule.Condition(payload) {
 			for _, effTmpl := range rule.Effects {
 				effect := Effect{
-					Type:          effTmpl.EventType,
-					PartitionKey:  computePartitionKey(payload, effTmpl.PartitionKeyPolicy),
+					Type:         effTmpl.EventType,
+					PartitionKey: computePartitionKey(payload, effTmpl.PartitionKeyPolicy),
 				}
 				effect.Payload = substituteTemplate(effTmpl.DataTemplate, payload)
 				effects = append(effects, effect)

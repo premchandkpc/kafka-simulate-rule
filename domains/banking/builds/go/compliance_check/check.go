@@ -5,13 +5,13 @@ package compliance_check
 // Request for a sanctions and limit check
 // Check represents the compliance.check contract v2.0
 type Check struct {
-	AccountId string `json:"account_id"`
-	Amount float64 `json:"amount"`
-	CheckId string `json:"check_id"`
-	CounterpartyCountry string `json:"counterparty_country,omitempty"`
-	Currency string `json:"currency"`
-	InitiatedAt string `json:"initiated_at"`
-	RiskFactors []string `json:"risk_factors,omitempty"`
-	TransactionId string `json:"transaction_id"`
-	TransactionType string `json:"transaction_type"`
+	AccountId           string   `json:"account_id"`
+	Amount              float64  `json:"amount"`
+	CheckId             string   `json:"check_id"`
+	CounterpartyCountry string   `json:"counterparty_country,omitempty"`
+	Currency            string   `json:"currency"`
+	InitiatedAt         string   `json:"initiated_at"`
+	RiskFactors         []string `json:"risk_factors,omitempty"`
+	TransactionId       string   `json:"transaction_id"`
+	TransactionType     string   `json:"transaction_type"`
 }

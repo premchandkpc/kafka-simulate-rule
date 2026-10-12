@@ -5,9 +5,9 @@ package notification_requested
 // Message to send to the account holder
 // Requested represents the notification.requested contract v1.0
 type Requested struct {
-	AccountId string `json:"account_id"`
+	AccountId      string `json:"account_id"`
 	NotificationId string `json:"notification_id"`
-	RequestedAt string `json:"requested_at"`
-	Template string `json:"template"`
-	TransactionId string `json:"transaction_id"`
+	RequestedAt    string `json:"requested_at"`
+	Template       string `json:"template"`
+	TransactionId  string `json:"transaction_id"`
 }

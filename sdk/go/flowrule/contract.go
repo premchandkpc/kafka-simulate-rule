@@ -17,11 +17,11 @@ type ContractRegistry struct {
 
 // Contract represents a JSON schema contract
 type Contract struct {
-	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
-	Schema      map[string]interface{} `json:"schema"`
-	Required    []string               `json:"required,omitempty"`
-	PartitionKey string                `json:"partition_key,omitempty"`
+	Name         string                 `json:"name"`
+	Version      string                 `json:"version"`
+	Schema       map[string]interface{} `json:"schema"`
+	Required     []string               `json:"required,omitempty"`
+	PartitionKey string                 `json:"partition_key,omitempty"`
 }
 
 // NewContractRegistry creates a new registry, optionally loading from a directory

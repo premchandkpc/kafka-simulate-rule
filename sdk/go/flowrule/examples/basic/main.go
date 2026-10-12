@@ -12,12 +12,12 @@ import (
 
 // OrderCreated represents an order created event
 type OrderCreated struct {
-	OrderID     string  `json:"order_id" partition_key:"true"`
-	CustomerID  string  `json:"customer_id"`
-	Total       float64 `json:"total"`
-	Currency    string  `json:"currency"`
-	Items       []OrderItem `json:"items"`
-	CreatedAt   time.Time `json:"created_at"`
+	OrderID    string      `json:"order_id" partition_key:"true"`
+	CustomerID string      `json:"customer_id"`
+	Total      float64     `json:"total"`
+	Currency   string      `json:"currency"`
+	Items      []OrderItem `json:"items"`
+	CreatedAt  time.Time   `json:"created_at"`
 }
 
 // OrderItem represents an item in an order
@@ -29,11 +29,11 @@ type OrderItem struct {
 
 // PaymentRequested represents a payment requested event (child event)
 type PaymentRequested struct {
-	PaymentID   string  `json:"payment_id" partition_key:"true"`
-	OrderID     string  `json:"order_id"`
-	Amount      float64 `json:"amount"`
-	Currency    string  `json:"currency"`
-	Method      string  `json:"method"`
+	PaymentID string  `json:"payment_id" partition_key:"true"`
+	OrderID   string  `json:"order_id"`
+	Amount    float64 `json:"amount"`
+	Currency  string  `json:"currency"`
+	Method    string  `json:"method"`
 }
 
 func main() {
@@ -97,7 +97,7 @@ func main() {
 		flowrule.WithWorkflowID("wf-abc-123"),
 		flowrule.WithCorrelationID("corr-xyz-789"),
 		flowrule.WithHeaders(map[string]string{
-			"source": "web",
+			"source":  "web",
 			"version": "v2",
 		}),
 	)

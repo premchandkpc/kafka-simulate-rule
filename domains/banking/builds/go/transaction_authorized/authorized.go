@@ -5,10 +5,10 @@ package transaction_authorized
 // Transaction cleared every control and may settle
 // Authorized represents the transaction.authorized contract v1.0
 type Authorized struct {
-	AccountId string `json:"account_id"`
-	Amount float64 `json:"amount"`
-	AuthorizedAt string `json:"authorized_at"`
-	AuthorizedBy string `json:"authorized_by"`
-	Currency string `json:"currency"`
-	TransactionId string `json:"transaction_id"`
+	AccountId     string  `json:"account_id"`
+	Amount        float64 `json:"amount"`
+	AuthorizedAt  string  `json:"authorized_at"`
+	AuthorizedBy  string  `json:"authorized_by"`
+	Currency      string  `json:"currency"`
+	TransactionId string  `json:"transaction_id"`
 }

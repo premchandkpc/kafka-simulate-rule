@@ -38,19 +38,19 @@ type Config struct {
 	GRPCTimeout  time.Duration `env:"FLOWRULE_GRPC_TIMEOUT,default=10s"`
 
 	// HTTP configuration
-	HTTPAddr     string        `env:"FLOWRULE_HTTP_ADDR,default=http://localhost:8080"`
-	HTTPTimeout  time.Duration `env:"FLOWRULE_HTTP_TIMEOUT,default=10s"`
+	HTTPAddr    string        `env:"FLOWRULE_HTTP_ADDR,default=http://localhost:8080"`
+	HTTPTimeout time.Duration `env:"FLOWRULE_HTTP_TIMEOUT,default=10s"`
 
 	// Local (embedded) configuration
-	RuleSet     string `env:"FLOWRULE_RULESET"`
-	RuleSource  string `env:"FLOWRULE_RULE_SOURCE"`
+	RuleSet        string `env:"FLOWRULE_RULESET"`
+	RuleSource     string `env:"FLOWRULE_RULE_SOURCE"`
 	RuleSourcePath string `env:"FLOWRULE_RULE_SOURCE_PATH"` // file path to rule source
 
 	// Common
-	NumShards     uint32        `env:"NUM_SHARDS,default=4096"`
-	SendTimeout   time.Duration `env:"FLOWRULE_SEND_TIMEOUT,default=5s"`
-	MaxRetries    int           `env:"FLOWRULE_MAX_RETRIES,default=3"`
-	RetryBackoff  time.Duration `env:"FLOWRULE_RETRY_BACKOFF,default=100ms"`
+	NumShards    uint32        `env:"NUM_SHARDS,default=4096"`
+	SendTimeout  time.Duration `env:"FLOWRULE_SEND_TIMEOUT,default=5s"`
+	MaxRetries   int           `env:"FLOWRULE_MAX_RETRIES,default=3"`
+	RetryBackoff time.Duration `env:"FLOWRULE_RETRY_BACKOFF,default=100ms"`
 
 	// Contract validation (opt-in)
 	ValidateContracts bool   `env:"FLOWRULE_VALIDATE_CONTRACTS,default=false"`
@@ -67,29 +67,29 @@ type Config struct {
 // LoadConfig loads configuration from environment variables
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		Transport:     TransportType(getEnv("FLOWRULE_TRANSPORT", "nats")),
-		TenantID:      getEnv("FLOWRULE_TENANT_ID", ""),
-		NATSURL:       getEnv("NATS_URL", "nats://localhost:4222"),
-		NATSStream:    getEnv("NATS_STREAM", "flowrule"),
-		NATSAckWait:   getDurationEnv("NATS_ACK_WAIT", 30*time.Second),
-		NATSMaxDeliv:  getIntEnv("NATS_MAX_DELIVER", 10),
-		GRPCAddr:      getEnv("FLOWRULE_GRPC_ADDR", "localhost:9090"),
-		GRPCInsecure:  getBoolEnv("FLOWRULE_GRPC_INSECURE", true),
-		GRPCTimeout:   getDurationEnv("FLOWRULE_GRPC_TIMEOUT", 10*time.Second),
-		HTTPAddr:      getEnv("FLOWRULE_HTTP_ADDR", "http://localhost:8080"),
-		HTTPTimeout:   getDurationEnv("FLOWRULE_HTTP_TIMEOUT", 10*time.Second),
-		RuleSet:       getEnv("FLOWRULE_RULESET", ""),
-		RuleSource:    getEnv("FLOWRULE_RULE_SOURCE", ""),
-		RuleSourcePath: getEnv("FLOWRULE_RULE_SOURCE_PATH", ""),
-		NumShards:     uint32(getIntEnv("NUM_SHARDS", 4096)),
-		SendTimeout:   getDurationEnv("FLOWRULE_SEND_TIMEOUT", 5*time.Second),
-		MaxRetries:    getIntEnv("FLOWRULE_MAX_RETRIES", 3),
-		RetryBackoff:  getDurationEnv("FLOWRULE_RETRY_BACKOFF", 100*time.Millisecond),
-		ValidateContracts: getBoolEnv("FLOWRULE_VALIDATE_CONTRACTS", false),
-		ContractRegistry:  getEnv("FLOWRULE_CONTRACT_REGISTRY", ""),
+		Transport:             TransportType(getEnv("FLOWRULE_TRANSPORT", "nats")),
+		TenantID:              getEnv("FLOWRULE_TENANT_ID", ""),
+		NATSURL:               getEnv("NATS_URL", "nats://localhost:4222"),
+		NATSStream:            getEnv("NATS_STREAM", "flowrule"),
+		NATSAckWait:           getDurationEnv("NATS_ACK_WAIT", 30*time.Second),
+		NATSMaxDeliv:          getIntEnv("NATS_MAX_DELIVER", 10),
+		GRPCAddr:              getEnv("FLOWRULE_GRPC_ADDR", "localhost:9090"),
+		GRPCInsecure:          getBoolEnv("FLOWRULE_GRPC_INSECURE", true),
+		GRPCTimeout:           getDurationEnv("FLOWRULE_GRPC_TIMEOUT", 10*time.Second),
+		HTTPAddr:              getEnv("FLOWRULE_HTTP_ADDR", "http://localhost:8080"),
+		HTTPTimeout:           getDurationEnv("FLOWRULE_HTTP_TIMEOUT", 10*time.Second),
+		RuleSet:               getEnv("FLOWRULE_RULESET", ""),
+		RuleSource:            getEnv("FLOWRULE_RULE_SOURCE", ""),
+		RuleSourcePath:        getEnv("FLOWRULE_RULE_SOURCE_PATH", ""),
+		NumShards:             uint32(getIntEnv("NUM_SHARDS", 4096)),
+		SendTimeout:           getDurationEnv("FLOWRULE_SEND_TIMEOUT", 5*time.Second),
+		MaxRetries:            getIntEnv("FLOWRULE_MAX_RETRIES", 3),
+		RetryBackoff:          getDurationEnv("FLOWRULE_RETRY_BACKOFF", 100*time.Millisecond),
+		ValidateContracts:     getBoolEnv("FLOWRULE_VALIDATE_CONTRACTS", false),
+		ContractRegistry:      getEnv("FLOWRULE_CONTRACT_REGISTRY", ""),
 		PartitionKeyExtractor: getEnv("FLOWRULE_PARTITION_KEY_EXTRACTOR", ""),
-		EnableTracing:  getBoolEnv("FLOWRULE_ENABLE_TRACING", false),
-		ServiceName:    getEnv("FLOWRULE_SERVICE_NAME", "flowrule-client"),
+		EnableTracing:         getBoolEnv("FLOWRULE_ENABLE_TRACING", false),
+		ServiceName:           getEnv("FLOWRULE_SERVICE_NAME", "flowrule-client"),
 	}
 
 	// Parse NATS subjects

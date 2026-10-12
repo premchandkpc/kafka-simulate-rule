@@ -5,7 +5,7 @@ package food_prepared
 // Event emitted when food is prepared and ready for pickup
 // Prepared represents the food.prepared contract v1.0
 type Prepared struct {
-	OrderId string `json:"order_id"`
-	PreparedAt string `json:"prepared_at"`
+	OrderId      string `json:"order_id"`
+	PreparedAt   string `json:"prepared_at"`
 	RestaurantId string `json:"restaurant_id"`
 }
