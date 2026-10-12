@@ -144,6 +144,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	if filter.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id is required")
 	}
+	filter.Limit, filter.Offset = normalizeQuarantinePagination(filter.Limit, filter.Offset)
 	coll := r.collection(collectionQuarantine)
 
 	f := bson.D{{Key: "tenant_id", Value: filter.TenantID}}
@@ -253,4 +254,17 @@ func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 		Error:      d.ErrorMessage,
 		CreatedAt:  d.CreatedAt,
 	}
+}
+
+func normalizeQuarantinePagination(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }

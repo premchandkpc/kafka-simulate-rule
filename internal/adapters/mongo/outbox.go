@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -51,6 +52,9 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 }
 
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
+	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
+		return nil, err
+	}
 	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 
@@ -314,6 +318,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 }
 
 func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
+	limit = normalizeOutboxLimit(limit)
 	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
 
@@ -348,4 +353,27 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 	}
 
 	return effects, nil
+}
+
+func validateClaimArguments(batchSize int, owner string, claimTTL time.Duration) error {
+	if batchSize <= 0 || batchSize > 1000 {
+		return fmt.Errorf("claim batch size must be between 1 and 1000")
+	}
+	if strings.TrimSpace(owner) == "" {
+		return fmt.Errorf("claim owner is required")
+	}
+	if claimTTL <= 0 {
+		return fmt.Errorf("claim TTL must be > 0")
+	}
+	return nil
+}
+
+func normalizeOutboxLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	if limit > 500 {
+		return 500
+	}
+	return limit
 }
