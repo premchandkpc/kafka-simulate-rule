@@ -74,6 +74,32 @@ func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID
 	return nil
 }
 
+func (m *memBatches) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if run == nil || len(eventIDs) == 0 || len(eventIDs) != run.MemberCount {
+		return errors.New("batch run and exact member IDs are required")
+	}
+	members := make([]*domain.InboxEntry, 0, len(eventIDs))
+	for _, id := range eventIDs {
+		key := run.TenantID + "|" + id
+		entry := m.entries[key]
+		if entry == nil || entry.Status != domain.InboxStatusCommitted {
+			return errors.New("batch member missing or not committed")
+		}
+		if entry.BatchID != "" && entry.BatchID != run.BatchID {
+			return errors.New("batch member already assigned to another batch")
+		}
+		members = append(members, entry)
+	}
+	copyRun := *run
+	m.runs[run.BatchID] = &copyRun
+	for _, entry := range members {
+		entry.BatchID = run.BatchID
+	}
+	return nil
+}
+
 func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
