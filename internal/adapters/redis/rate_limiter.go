@@ -64,4 +64,22 @@ func (r *RateLimiter) Reset(ctx context.Context, key string) error {
 	return nil
 }
 
+func (r *RateLimiter) Limit(ctx context.Context, key string) (int, error) {
+	key = "ratelimit:" + key
+	count, err := r.client.ZCard(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("rate limit count: %w", err)
+	}
+	return int(count), nil
+}
+
+func (r *RateLimiter) Remaining(ctx context.Context, key string) (int, error) {
+	key = "ratelimit:" + key
+	count, err := r.client.ZCard(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("rate limit count: %w", err)
+	}
+	return int(count), nil
+}
+
 var _ ports.RateLimiter = (*RateLimiter)(nil)

@@ -44,6 +44,52 @@ type Lock struct {
 	stopping    atomic.Bool
 }
 
+func (m *LockManager) Acquire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	_, err := m.Lock(ctx, key, ttl)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *LockManager) Extend(ctx context.Context, key, token string, ttl time.Duration) (bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false, fmt.Errorf("redis lock extend: key is required")
+	}
+	script := redis.NewScript(`
+		if redis.call("get", KEYS[1]) == ARGV[1] then
+			return redis.call("pexpire", KEYS[1], ARGV[2])
+		else
+			return 0
+		end
+	`)
+	result, err := script.Run(ctx, m.client, []string{"lock:" + key}, token, ttl.Milliseconds()).Int()
+	if err != nil {
+		return false, fmt.Errorf("extend redis lock: %w", err)
+	}
+	return result == 1, nil
+}
+
+func (m *LockManager) Release(ctx context.Context, key, token string) (bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false, fmt.Errorf("redis lock release: key is required")
+	}
+	script := redis.NewScript(`
+		if redis.call("get", KEYS[1]) == ARGV[1] then
+			return redis.call("del", KEYS[1])
+		else
+			return 0
+		end
+	`)
+	result, err := script.Run(ctx, m.client, []string{"lock:" + key}, token).Int()
+	if err != nil {
+		return false, fmt.Errorf("release redis lock: %w", err)
+	}
+	return result == 1, nil
+}
+
 func (m *LockManager) Lock(ctx context.Context, key string, ttl time.Duration) (ports.LockGuard, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("redis lock: context is required")

@@ -80,4 +80,20 @@ func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	return dur, nil
 }
 
+func (c *Cache) Keys(ctx context.Context, pattern string) ([]string, error) {
+	keys, err := c.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("cache keys: %w", err)
+	}
+	return keys, nil
+}
+
+func (c *Cache) Flush(ctx context.Context) error {
+	err := c.client.FlushDB(ctx).Err()
+	if err != nil {
+		return fmt.Errorf("cache flush: %w", err)
+	}
+	return nil
+}
+
 var _ ports.Cache = (*Cache)(nil)
