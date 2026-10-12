@@ -210,7 +210,7 @@ func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRu
 		return fmt.Errorf("batch ID %q already belongs to a different tenant or scope", run.BatchID)
 	}
 
-	tag, err := tx.Exec(ctx, `
+	tag, err = tx.Exec(ctx, `
 		UPDATE inbox
 		SET batch_id = $5
 		WHERE tenant_id = $1
