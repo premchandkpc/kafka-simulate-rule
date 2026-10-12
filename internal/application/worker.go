@@ -428,7 +428,7 @@ func (w *Worker) runSharded(ctx context.Context) {
 
 			vshard := w.leaseManager.VirtualShardForEvent(env)
 			if !w.leaseManager.IsOwner(vshard) {
-				if err := settleNak(ctx, delivery, retryDelayForDelivery(w.config.RetryDelay, delivery)); err != nil {
+				if err := settleRetry(ctx, delivery, retryDelayForDelivery(w.config.RetryDelay, delivery)); err != nil {
 					log.Printf("delayed retry for non-owned shard %d: %v", vshard, err)
 				}
 				continue
@@ -441,7 +441,7 @@ func (w *Worker) runSharded(ctx context.Context) {
 
 			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
 				log.Printf("keyqueue submit failed: %v", err)
-				if err := settleNak(ctx, delivery, retryDelayForDelivery(w.config.RetryDelay, delivery)); err != nil {
+				if err := settleRetry(ctx, delivery, retryDelayForDelivery(w.config.RetryDelay, delivery)); err != nil {
 					log.Printf("delayed retry after queue submission failure: %v", err)
 				}
 				continue
@@ -490,7 +490,7 @@ func (w *Worker) runNonSharded(ctx context.Context) {
 
 			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
 				log.Printf("keyqueue submit failed: %v", err)
-				if err := settleNak(ctx, delivery, retryDelayForDelivery(w.config.RetryDelay, delivery)); err != nil {
+				if err := settleRetry(ctx, delivery, retryDelayForDelivery(w.config.RetryDelay, delivery)); err != nil {
 					log.Printf("nak failed: %v", err)
 				}
 				continue
@@ -533,7 +533,7 @@ func waitForRetry(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
-func settleNak(ctx context.Context, delivery ports.Delivery, delay time.Duration) error {
+func settleRetry(ctx context.Context, delivery ports.Delivery, delay time.Duration) error {
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	return delivery.Retry(settleCtx, delay)
