@@ -73,6 +73,9 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 		}
 		effects = append(effects, ef)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate outbox rows: %w", err)
+	}
 	return effects, nil
 }
 
@@ -163,6 +166,9 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 		}
 		effects = append(effects, ef)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate outbox rows: %w", err)
+	}
 	return effects, nil
 }
 
@@ -189,6 +195,9 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 			return nil, fmt.Errorf("scan outbox: %w", err)
 		}
 		effects = append(effects, ef)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate outbox rows: %w", err)
 	}
 	return effects, nil
 }
@@ -368,6 +377,9 @@ func (r *ShardLeaseRepository) ListOwned(ctx context.Context, owner string) ([]*
 			return nil, fmt.Errorf("scan lease: %w", err)
 		}
 		leases = append(leases, lease)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate owned leases: %w", err)
 	}
 	return leases, nil
 }
