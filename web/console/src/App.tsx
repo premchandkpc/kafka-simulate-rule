@@ -419,7 +419,7 @@ function RuleFlowMap({ settings, scenario, startRuleSet, events, running }: { se
               const next = stored.has(type);
               const subscribed = serviceEventTypes.has(type);
               const taken = emitted?.has(type) ?? false;
-              const destination = next ? "next rule set" : subscribed ? "subscribed service" : "terminal / unhandled";
+              const destination = next && subscribed ? "rule set + subscribed service" : next ? "next rule set" : subscribed ? "subscribed service" : "terminal / unhandled";
               return <span className={`rule-flow-emit ${next ? "to-rule" : subscribed ? "to-service" : "to-terminal"}${taken ? " taken" : ""}`} key={type} title={destination}>→ {type}<em>{destination}</em></span>;
             })}
           </div>)}
