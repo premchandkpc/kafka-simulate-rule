@@ -169,11 +169,9 @@ func IsRetryable(err error) bool {
 }
 
 func IsPermanent(err error) bool {
-	if errors.Is(err, ErrEvaluationError) ||
-		errors.Is(err, ErrFactSnapshotRequired) ||
-		errors.Is(err, ErrInvalidFactPath) {
-		return true
-	}
 	cls := ClassifyError(err)
-	return cls == ErrorClassValidation || cls == ErrorClassRule || cls == ErrorClassAuthorization
+	return cls == ErrorClassValidation ||
+		cls == ErrorClassRule ||
+		cls == ErrorClassEvaluation ||
+		cls == ErrorClassAuthorization
 }
