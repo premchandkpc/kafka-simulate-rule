@@ -27,6 +27,7 @@ type DistributedLock interface {
 type LockGuard interface {
 	Key() string
 	Token() string
+	Lost() <-chan struct{}
 	Release(ctx context.Context) error
 	Extend(ctx context.Context, ttl time.Duration) error
 }
