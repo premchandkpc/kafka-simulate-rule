@@ -17,6 +17,11 @@ type memBatches struct {
 	runs    map[string]*domain.BatchRun
 }
 
+type testLeaseProvider struct{}
+
+func (testLeaseProvider) IsOwner(uint32) bool { return true }
+func (testLeaseProvider) GetFencingToken(uint32) (int64, bool) { return 1, true }
+
 func newMemBatches() *memBatches {
 	return &memBatches{
 		entries: make(map[string]*domain.InboxEntry),
@@ -157,7 +162,7 @@ func TestBatchService_Accumulate(t *testing.T) {
 		Window:   0,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -224,7 +229,7 @@ func TestBatchService_AccumulateBelowThreshold(t *testing.T) {
 		Window:   0,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -265,7 +270,7 @@ func TestBatchService_Window(t *testing.T) {
 		Window:   5 * time.Second,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -304,7 +309,7 @@ func TestBatchService_WindowNotElapsed(t *testing.T) {
 		Window:   5 * time.Second,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -340,7 +345,7 @@ func TestBatchService_NoneMode(t *testing.T) {
 		Window:   5 * time.Second,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -471,5 +476,26 @@ func TestCreateBatchRejectsBatchAboveConfiguredMaximum(t *testing.T) {
 	}
 	if len(events.envelopes) != 0 {
 		t.Fatalf("processed %d batch envelopes for an oversized request", len(events.envelopes))
+	}
+}
+
+
+func TestCreateBatchRequiresLeaseProvider(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	now := time.Now().UTC()
+	batches.entries["tenant-1|evt-1"] = &domain.InboxEntry{
+		TenantID: "tenant-1", EventID: "evt-1", PartitionKey: "pk-1",
+		RuleSet: "order.created", Status: domain.InboxStatusCommitted,
+		FirstSeenAt: now, Payload: []byte(`{"id":"evt-1"}`),
+	}
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 10})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1"})
+	if err == nil {
+		t.Fatal("CreateBatch processed an event without shard lease context")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes without lease context", len(events.envelopes))
 	}
 }
