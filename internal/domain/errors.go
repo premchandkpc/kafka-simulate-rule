@@ -173,5 +173,8 @@ func IsRetryable(err error) bool {
 
 func IsPermanent(err error) bool {
 	cls := ClassifyError(err)
-	return cls == ErrorClassValidation || cls == ErrorClassRule || cls == ErrorClassAuthorization
+	return cls == ErrorClassValidation ||
+		cls == ErrorClassRule ||
+		cls == ErrorClassEvaluation ||
+		cls == ErrorClassAuthorization
 }

@@ -17,6 +17,11 @@ type memBatches struct {
 	runs    map[string]*domain.BatchRun
 }
 
+type testLeaseProvider struct{}
+
+func (testLeaseProvider) IsOwner(uint32) bool                  { return true }
+func (testLeaseProvider) GetFencingToken(uint32) (int64, bool) { return 1, true }
+
 func newMemBatches() *memBatches {
 	return &memBatches{
 		entries: make(map[string]*domain.InboxEntry),
@@ -34,6 +39,26 @@ func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.In
 			if len(result) >= limit {
 				break
 			}
+		}
+	}
+	return result, nil
+}
+
+func (m *memBatches) ListUnbatchedByIDs(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wanted := make(map[string]struct{}, len(eventIDs))
+	for _, id := range eventIDs {
+		wanted[id] = struct{}{}
+	}
+	var result []*domain.InboxEntry
+	for _, e := range m.entries {
+		if e.TenantID != tenantID || e.PartitionKey != partitionKey || e.RuleSet != ruleSet ||
+			e.Status != domain.InboxStatusCommitted || e.BatchID != "" {
+			continue
+		}
+		if _, ok := wanted[e.EventID]; ok {
+			result = append(result, e)
 		}
 	}
 	return result, nil
@@ -93,9 +118,12 @@ func (m *memBatches) ListRuns(ctx context.Context, tenantID, ruleSet string, lim
 }
 
 type memEventProcessor struct {
-	mu         sync.Mutex
-	envelopes  []*domain.EventEnvelope
-	executions map[string]*domain.Execution
+	mu            sync.Mutex
+	envelopes     []*domain.EventEnvelope
+	executions    map[string]*domain.Execution
+	fencingTokens []int64
+	shards        []uint32
+	workerIDs     []string
 }
 
 func newMemEventProcessor() *memEventProcessor {
@@ -108,6 +136,9 @@ func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventE
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.envelopes = append(m.envelopes, envelope)
+	m.fencingTokens = append(m.fencingTokens, fencingToken)
+	m.shards = append(m.shards, shard)
+	m.workerIDs = append(m.workerIDs, workerID)
 	exec := &domain.Execution{
 		ID:           "exec-" + envelope.ID,
 		EventID:      envelope.ID,
@@ -137,7 +168,7 @@ func TestBatchService_Accumulate(t *testing.T) {
 		Window:   0,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -166,6 +197,12 @@ func TestBatchService_Accumulate(t *testing.T) {
 
 	if len(events.envelopes) != 1 {
 		t.Fatalf("expected 1 envelope, got %d", len(events.envelopes))
+	}
+	if events.fencingTokens[0] <= 0 {
+		t.Fatalf("fencing token = %d, want a positive lease token", events.fencingTokens[0])
+	}
+	if events.workerIDs[0] != "worker-1" {
+		t.Fatalf("worker ID = %q, want worker-1", events.workerIDs[0])
 	}
 	env := events.envelopes[0]
 	if env.Type != "order.created.batch" {
@@ -204,7 +241,7 @@ func TestBatchService_AccumulateBelowThreshold(t *testing.T) {
 		Window:   0,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -245,7 +282,7 @@ func TestBatchService_Window(t *testing.T) {
 		Window:   5 * time.Second,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -284,7 +321,7 @@ func TestBatchService_WindowNotElapsed(t *testing.T) {
 		Window:   5 * time.Second,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -320,7 +357,7 @@ func TestBatchService_NoneMode(t *testing.T) {
 		Window:   5 * time.Second,
 	}
 
-	svc := NewService(batches, events, clock, cfg)
+	svc := NewServiceWithLeaseProvider(batches, events, clock, cfg, testLeaseProvider{}, "worker-1", 4096)
 
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -402,5 +439,73 @@ func TestBatchService_CreateBatchFailsWhenProcessorIsNotConfigured(t *testing.T)
 	_, err := svc.CreateBatch(context.Background(), "tenant-a", "partition", "orders", []string{"event-1"})
 	if !errors.Is(err, domain.ErrBatchProcessingUnavailable) {
 		t.Fatalf("CreateBatch() error = %v, want ErrBatchProcessingUnavailable", err)
+	}
+}
+
+func TestCreateBatchRequiresEveryRequestedEvent(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	now := time.Now().UTC()
+	batches.entries["tenant-1|evt-1"] = &domain.InboxEntry{
+		TenantID: "tenant-1", EventID: "evt-1", PartitionKey: "pk-1",
+		RuleSet: "order.created", Status: domain.InboxStatusCommitted,
+		FirstSeenAt: now, Payload: []byte(`{"id":"evt-1"}`),
+	}
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 10})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1", "evt-missing"})
+	if err == nil {
+		t.Fatal("CreateBatch accepted a partial set of requested events")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes before validating membership", len(events.envelopes))
+	}
+}
+
+func TestCreateBatchRejectsDuplicateEventIDs(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 10})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1", "evt-1"})
+	if err == nil {
+		t.Fatal("CreateBatch accepted duplicate event IDs")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes for duplicate IDs", len(events.envelopes))
+	}
+}
+
+func TestCreateBatchRejectsBatchAboveConfiguredMaximum(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 1})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1", "evt-2"})
+	if err == nil {
+		t.Fatal("CreateBatch accepted a request larger than MaxBatch")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes for an oversized request", len(events.envelopes))
+	}
+}
+
+func TestCreateBatchRequiresLeaseProvider(t *testing.T) {
+	batches := newMemBatches()
+	events := newMemEventProcessor()
+	now := time.Now().UTC()
+	batches.entries["tenant-1|evt-1"] = &domain.InboxEntry{
+		TenantID: "tenant-1", EventID: "evt-1", PartitionKey: "pk-1",
+		RuleSet: "order.created", Status: domain.InboxStatusCommitted,
+		FirstSeenAt: now, Payload: []byte(`{"id":"evt-1"}`),
+	}
+	service := NewService(batches, events, domain.SystemClock{}, domain.BatchConfig{MaxBatch: 10})
+
+	_, err := service.CreateBatch(context.Background(), "tenant-1", "pk-1", "order.created", []string{"evt-1"})
+	if err == nil {
+		t.Fatal("CreateBatch processed an event without shard lease context")
+	}
+	if len(events.envelopes) != 0 {
+		t.Fatalf("processed %d batch envelopes without lease context", len(events.envelopes))
 	}
 }

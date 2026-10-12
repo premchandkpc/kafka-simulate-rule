@@ -92,7 +92,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Env:             getEnv("APP_ENV", "development"),
+			Env:             getEnvNonEmpty("APP_ENV", "production"),
 			LogLevel:        getEnv("LOG_LEVEL", "info"),
 			HTTPAddr:        getEnv("HTTP_ADDR", "127.0.0.1:8080"),
 			ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
@@ -134,7 +134,7 @@ func Load() (*Config, error) {
 			LeaseRenewalIntervalMS:  toInt(getIntEnv("LEASE_RENEWAL_INTERVAL_MS", 10000)),
 			EffectDestinationURL:    getEnv("EFFECT_DESTINATION_URL", ""),
 			NATSAckWaitMS:           toInt(getIntEnv("NATS_ACK_WAIT_MS", 30000)),
-			NATSMaxDeliver:          toInt(getIntEnv("NATS_MAX_DELIVER", 10)),
+			NATSMaxDeliver:          getIntEnv("NATS_MAX_DELIVER", -1),
 			HotKeyThreshold:         toInt(getIntEnv("HOT_KEY_THRESHOLD", 1000)),
 			HotKeyCheckIntervalMS:   toInt(getIntEnv("HOT_KEY_CHECK_INTERVAL_MS", 10000)),
 		},
@@ -202,7 +202,7 @@ func (c *Config) Validate() error {
 	// first-party JWT authentication or an explicitly configured trusted proxy.
 	// TenantExtractor independently validates the proxy token on every request.
 	env := strings.ToLower(strings.TrimSpace(c.App.Env))
-	localEnv := env == "" || env == "development" || env == "dev" || env == "test"
+	localEnv := env == "development" || env == "dev" || env == "test"
 	if !localEnv && !c.Auth.RequireAuth && strings.TrimSpace(os.Getenv("FLOWRULE_TRUSTED_PROXY_TOKEN")) == "" {
 		return fmt.Errorf("production authentication is not configured: set REQUIRE_AUTH=true with JWT_SECRET or configure FLOWRULE_TRUSTED_PROXY_TOKEN for a trusted proxy")
 	}
@@ -264,8 +264,8 @@ func (c *Config) Validate() error {
 	if c.Worker.NATSAckWaitMS <= 0 {
 		return fmt.Errorf("NATS_ACK_WAIT_MS must be > 0")
 	}
-	if c.Worker.NATSMaxDeliver <= 0 {
-		return fmt.Errorf("NATS_MAX_DELIVER must be > 0")
+	if c.Worker.NATSMaxDeliver != -1 {
+		return fmt.Errorf("NATS_MAX_DELIVER must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
 	}
 	if c.Worker.HotKeyThreshold <= 0 {
 		return fmt.Errorf("HOT_KEY_THRESHOLD must be > 0")
@@ -329,6 +329,13 @@ func validateRawEnv() error {
 		}
 	}
 	return nil
+}
+
+func getEnvNonEmpty(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func getEnv(key, fallback string) string {

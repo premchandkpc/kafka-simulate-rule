@@ -154,8 +154,6 @@ func run() (runErr error) {
 		MaxBatch: cfg.Worker.BatchMax,
 		Window:   cfg.BatchWindow(),
 	}
-	batchSvc := batches.NewService(repositories.Batches, eventsSvc, clock, batchCfg)
-
 	leaseManager := shard.NewLeaseManagerWithReplicaCountAndRenewInterval(
 		repositories.ShardLeases,
 		clock,
@@ -164,6 +162,15 @@ func run() (runErr error) {
 		cfg.Worker.WorkerReplicas,
 		cfg.LeaseTTL(),
 		cfg.LeaseRenewalInterval(),
+	)
+	batchSvc := batches.NewServiceWithLeaseProvider(
+		repositories.Batches,
+		eventsSvc,
+		clock,
+		batchCfg,
+		leaseManager,
+		workerID,
+		cfg.Worker.NumShards,
 	)
 	workerConfig := application.DefaultWorkerConfig()
 	workerConfig.MaxGlobalInFlight = cfg.Worker.MaxGlobalInFlight

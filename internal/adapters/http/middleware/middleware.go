@@ -64,7 +64,7 @@ func tenantForRequest(r *http.Request) (string, int) {
 		return tenantID, http.StatusOK
 	}
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-	if env == "" || env == "development" || env == "dev" || env == "test" {
+	if env == "development" || env == "dev" || env == "test" {
 		tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
 		if tenantID == "" {
 			tenantID = strings.TrimSpace(r.URL.Query().Get("tenant_id"))

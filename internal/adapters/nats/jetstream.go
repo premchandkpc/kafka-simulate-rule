@@ -59,7 +59,10 @@ func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 		cfg.AckWait = 30 * time.Second
 	}
 	if cfg.MaxDeliver == 0 {
-		cfg.MaxDeliver = 10
+		cfg.MaxDeliver = -1
+	}
+	if cfg.MaxDeliver != -1 {
+		return nil, fmt.Errorf("NATS MaxDeliver must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
 	}
 
 	conn, err := connect(cfg)
@@ -452,6 +455,14 @@ func (d *jetstreamDelivery) Event() (*domain.EventEnvelope, error) {
 
 func (d *jetstreamDelivery) Raw() []byte {
 	return d.msg.Data()
+}
+
+func (d *jetstreamDelivery) Attempt() uint64 {
+	metadata, err := d.msg.Metadata()
+	if err != nil || metadata == nil || metadata.NumDelivered == 0 {
+		return 1
+	}
+	return metadata.NumDelivered
 }
 
 func (d *jetstreamDelivery) Ack(_ context.Context) error {

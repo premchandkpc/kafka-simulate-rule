@@ -2,10 +2,42 @@ package rules
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/flowrule/flowrule/internal/domain"
 )
+
+func TestEvaluateTypeMismatchIsPermanent(t *testing.T) {
+	revision, err := NewCompiler(DefaultLimits()).Compile(json.RawMessage(`{
+		"rule_set": "order-policy",
+		"revision": 1,
+		"mode": "first_match",
+		"rules": [{
+			"id": "amount-check",
+			"priority": 1,
+			"when": {"path": "$.amount", "op": "gt", "value": "not-a-number"},
+			"then": [{"emit": {"topic": "orders.review", "data": {}}}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	_, err = NewEvaluator(domain.SystemClock{}).Evaluate(revision, &domain.EventEnvelope{
+		ID: "evt-type-mismatch", Type: "order.created", TenantID: "tenant-a",
+		PartitionKey: "order-1", Data: json.RawMessage(`{"amount": 100}`),
+	}, nil)
+	if err == nil {
+		t.Fatal("Evaluate() error = nil, want deterministic type mismatch")
+	}
+	if !errors.Is(err, domain.ErrEvaluationError) {
+		t.Fatalf("Evaluate() error = %v, want ErrEvaluationError", err)
+	}
+	if !domain.IsPermanent(err) {
+		t.Fatalf("IsPermanent(%v) = false, want true", err)
+	}
+}
 
 func TestEvaluateSimpleEq(t *testing.T) {
 	compiler := NewCompiler(DefaultLimits())

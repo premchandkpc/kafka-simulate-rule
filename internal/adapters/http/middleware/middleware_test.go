@@ -26,6 +26,22 @@ func TestTenantExtractorDevelopmentUsesTenantHeader(t *testing.T) {
 	}
 }
 
+func TestTenantExtractorMissingAppEnvFailsClosed(t *testing.T) {
+	t.Setenv("APP_ENV", "")
+	t.Setenv(trustedProxyTokenEnv, "")
+	req := httptest.NewRequest(http.MethodGet, "/v1/rules/active", nil)
+	req.Header.Set("X-Tenant-ID", "attacker-selected-tenant")
+	rec := httptest.NewRecorder()
+
+	TenantExtractor(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler must not be called when APP_ENV is unset")
+	})).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestTenantExtractorProductionRejectsCallerTenantHeader(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv(trustedProxyTokenEnv, "proxy-secret")
