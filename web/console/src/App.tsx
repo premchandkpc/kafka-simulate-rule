@@ -165,9 +165,11 @@ function sampleForContract(contract: any): Record<string, unknown> {
 type RuleCheck = { valid: boolean; error?: string; rule_set?: string; revision?: number; match_mode?: string; rule_count: number; evaluation_error?: string;
   decision?: { matched_rules: string[]; effects: Array<{ name: string; destination: string; effect_type: string; payload: any }>; explanations?: Array<{ rule_id: string; rule_name?: string; matched: boolean; priority: number; reason: string; actions?: string[] }> } };
 
-function RuleStudio({ settings, activeRules, contracts, onChanged }: { settings: Settings; activeRules: any[]; contracts: any[]; onChanged: () => Promise<void> }) {
+function RuleStudio({ settings, activeRules, contracts: allContracts, onChanged }: { settings: Settings; activeRules: any[]; contracts: any[]; onChanged: () => Promise<void> }) {
+  const [domains, setDomains] = useState<any[]>([]);
+  const [domainName, setDomainName] = useState("");
   const [ruleSet, setRuleSet] = useState("");
-  const [source, setSource] = useState(JSON.stringify(RULE_TEMPLATE, null, 2));
+  const [source, setSource] = useState("");
   const [sample, setSample] = useState('{\n  "transaction_id": "txn-1",\n  "amount": 2500000\n}');
   const [check, setCheck] = useState<RuleCheck | null>(null);
   const [checking, setChecking] = useState(false);
@@ -175,6 +177,17 @@ function RuleStudio({ settings, activeRules, contracts, onChanged }: { settings:
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [revisions, setRevisions] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
+
+  const domain = domains.find(d => d.name === domainName);
+  const eventTypes: string[] = useMemo(() => domain?.event_types ?? [], [domain]);
+  const contracts = useMemo(() => allContracts.filter(c => eventTypes.includes(c.name)), [allContracts, eventTypes]);
+  const activeIds = new Set(activeRules.map(r => r.rule_set || r.rule_id));
+  const domainRules = activeRules.filter(r => eventTypes.includes(r.rule_set || r.rule_id));
+  const unruled = eventTypes.filter(t => !activeIds.has(t));
+
+  useEffect(() => {
+    apiRequest(settings, "/v1/domains").then(r => { const list = asArray(r); setDomains(list); setDomainName(prev => prev || list[0]?.name || ""); }).catch(() => setDomains([]));
+  }, [settings]);
 
   const sourceDoc = useMemo(() => { try { return JSON.parse(source); } catch { return null; } }, [source]);
   const sampleError = useMemo(() => { try { JSON.parse(sample); return ""; } catch (e) { return e instanceof Error ? e.message : "Invalid JSON"; } }, [sample]);
@@ -217,6 +230,20 @@ function RuleStudio({ settings, activeRules, contracts, onChanged }: { settings:
     } catch (e) { setMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) }); }
   };
 
+  useEffect(() => {
+    setCheck(null); setRevisions([]); setMessage(null);
+    const first = domainRules[0];
+    if (first) void openRevision(first.rule_set || first.rule_id, first.revision, false);
+    else { setRuleSet(""); setSource(""); }
+  }, [domainName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startNew = (eventType: string) => {
+    const contract = contracts.find(c => c.name === eventType);
+    setRevisions([]); setCheck(null); setRuleSet(eventType);
+    setSource(JSON.stringify({ rule_set: eventType, revision: 1, mode: "all_matches", rules: [{ id: "first_rule", name: "First rule", priority: 100, when: { path: `$.${Object.keys(contract?.fields ?? { id: 1 })[0]}`, op: "exists" }, then: [{ emit_event: { type: eventTypes.find(t => t !== eventType) ?? eventType, partition_key_policy: "inherit", data: {} } }] }] }, null, 2));
+    setSample(JSON.stringify(sampleForContract(contract), null, 2));
+  };
+
   const format = () => { if (sourceDoc) setSource(JSON.stringify(sourceDoc, null, 2)); };
   const fillSample = () => {
     const name = ruleSet.trim() || sourceDoc?.rule_set;
@@ -242,35 +269,47 @@ function RuleStudio({ settings, activeRules, contracts, onChanged }: { settings:
 
   const stale = check !== null && checkedSource !== source;
   const jsonProblem = source.trim() && !sourceDoc ? "The editor holds JSON. Fix the syntax before checking." : "";
-  const canDeploy = !!check?.valid && !stale && !busy && !jsonProblem && !!(ruleSet.trim() || sourceDoc?.rule_set);
+  const outOfDomain = !!sourceDoc?.rule_set && !eventTypes.includes(sourceDoc.rule_set);
+  const mismatch = !!ruleSet && !!sourceDoc?.rule_set && sourceDoc.rule_set !== ruleSet;
+  const canDeploy = !!check?.valid && !stale && !busy && !jsonProblem && !outOfDomain && !mismatch && !!ruleSet;
   const pathWarnings = useMemo(() => {
     const warnings: string[] = [];
     const name = ruleSet.trim() || sourceDoc?.rule_set;
     const contract = contracts.find(c => c.name === name);
-    if (!contract || !sourceDoc?.rules) return warnings;
-    const known = new Set(Object.keys(contract.fields ?? {}));
-    const visit = (p: any) => { if (!p) return; if (p.path) { const top = String(p.path).replace(/^\$\./, "").split(".")[0]; if (!known.has(top)) warnings.push(`${p.path} is not a field of contract ${contract.name} ${contract.version}`); } (p.all ?? p.any ?? []).forEach(visit); if (p.not) visit(p.not); };
-    sourceDoc.rules.forEach((r: any) => visit(r.when));
+    if (!sourceDoc?.rules) return warnings;
+    const known = new Set(Object.keys(contract?.fields ?? {}));
+    const visit = (p: any) => { if (!p || !contract) return; if (p.path) { const top = String(p.path).replace(/^\$\./, "").split(".")[0]; if (!known.has(top)) warnings.push(`${p.path} is not a field of contract ${contract.name} ${contract.version}`); } (p.all ?? p.any ?? []).forEach(visit); if (p.not) visit(p.not); };
+    sourceDoc.rules.forEach((r: any) => {
+      visit(r.when);
+      (r.then ?? []).forEach((act: any) => { const t = act.emit_event?.type ?? act.emit?.type; if (t && !eventTypes.includes(t)) warnings.push(`${r.id} emits ${t}, which is not an event type of the ${domainName} domain`); });
+    });
     return [...new Set(warnings)];
-  }, [sourceDoc, ruleSet, contracts]);
+  }, [sourceDoc, ruleSet, contracts, eventTypes, domainName]);
 
   return <section className="page-content rule-studio">
-    <div className="page-intro"><h2>Rule studio</h2><p>Open a stored rule set, edit it, check it against sample event data, then activate it as a new revision. Nothing is saved until you activate.</p></div>
+    <div className="page-intro"><h2>Rule studio</h2><p>Rules belong to a domain. Pick a domain, open one of its rule sets, check it against sample event data, then activate it as a new revision. Nothing is saved until you activate.</p></div>
+    <div className="studio-domains" role="tablist" aria-label="Domain">
+      {domains.map(d => { const n = activeRules.filter(r => (d.event_types ?? []).includes(r.rule_set || r.rule_id)).length; return <button key={d.id} role="tab" aria-selected={d.name === domainName} className={d.name === domainName ? "active" : ""} onClick={() => setDomainName(d.name)}><strong>{d.name}</strong><small>{n} rule sets · {(d.event_types ?? []).length} event types</small></button>; })}
+      {domains.length === 0 && <p className="studio-muted">No domains yet. Create one under Domains &amp; services or save an example domain from the Domain catalog.</p>}
+    </div>
     {message && <div className={`notice ${message.tone === "error" ? "notice-error" : ""}`} role="status">{message.text}</div>}
     <div className="studio-grid">
       <aside className="panel studio-list">
-        <div className="panel-heading"><div><h3>Stored rule sets</h3><p>{activeRules.length} active</p></div><button className="text-button" onClick={() => { setRuleSet(""); setSource(JSON.stringify(RULE_TEMPLATE, null, 2)); setRevisions([]); setCheck(null); }}>+ New</button></div>
-        {activeRules.length === 0 ? <Empty title="No active rule sets" detail="Start from the template, or save a domain from the Domain catalog."/> :
-          <ul className="studio-rules">{activeRules.map(item => { const id = item.rule_set || item.rule_id; return <li key={id} className={ruleSet === id ? "selected" : ""}>
+        <div className="panel-heading"><div><h3>{domainName || "Domain"} rule sets</h3><p>{domainRules.length} active</p></div></div>
+        {domainRules.length === 0 ? <Empty title="No active rule sets" detail="Add one for an event type below."/> :
+          <ul className="studio-rules">{domainRules.map(item => { const id = item.rule_set || item.rule_id; return <li key={id} className={ruleSet === id ? "selected" : ""}>
             <button className="studio-rule-open" onClick={() => void openRevision(id, item.revision, false)}><strong>{id}</strong><small>revision {item.revision}</small></button>
             <button className="text-button danger-text" onClick={() => void deactivate(id, item.revision)}>Deactivate</button>
           </li>; })}</ul>}
+        {unruled.length > 0 && <><h4 className="studio-sub">Event types without rules</h4><ul className="studio-rules">{unruled.map(t => <li key={t}><span className="studio-event">{t}</span><button className="text-button" onClick={() => startNew(t)}>+ Add rules</button></li>)}</ul></>}
         {revisions.length > 0 && <><h4 className="studio-sub">Revisions of {ruleSet}</h4><ul className="studio-rules">{revisions.map(r => <li key={r.revision}><button className="studio-rule-open" onClick={() => void openRevision(ruleSet, r.revision, false)}><strong>Revision {r.revision}</strong><small>{r.match_mode} · {(r.compiled ?? []).length} rules</small></button><button className="text-button" onClick={() => void openRevision(ruleSet, r.revision, true)}>Edit as new</button></li>)}</ul></>}
       </aside>
       <section className="panel studio-editor">
         <div className="panel-heading"><div><h3>{ruleSet || sourceDoc?.rule_set || "New rule set"}</h3><p>Revision {sourceDoc?.revision ?? "—"} · {sourceDoc?.mode ?? "first_match"}</p></div>
           <div className="studio-actions"><button className="text-button" onClick={format} disabled={!sourceDoc}>Format</button><button className="button" onClick={() => void runCheck()} disabled={checking}>{checking ? "Checking…" : "Check"}</button><button className="button primary" onClick={() => void deploy()} disabled={!canDeploy} title={canDeploy ? "" : "Check the rule successfully first"}>{busy ? "Activating…" : "Activate revision"}</button></div></div>
-        <label>Rule set<input value={ruleSet} onChange={e => setRuleSet(e.target.value)} placeholder={sourceDoc?.rule_set || "transaction.initiated"}/></label>
+        <label>Event type ({domainName})<select value={ruleSet} onChange={e => e.target.value ? startNew(e.target.value) : setRuleSet("")}><option value="">Select an event type…</option>{eventTypes.map(t => <option key={t} value={t}>{t}</option>)}</select></label>
+        {outOfDomain && <div className="notice notice-error">{sourceDoc?.rule_set} is not an event type of the {domainName} domain.</div>}
+        {mismatch && !outOfDomain && <div className="notice notice-error">The source says rule_set {sourceDoc?.rule_set}, but {ruleSet} is selected.</div>}
         <label>Rule source (JSON)<textarea className="code-editor rule-editor" value={source} onChange={e => setSource(e.target.value)} spellCheck={false}/></label>
         {jsonProblem && <div className="notice notice-error">{jsonProblem}</div>}
         <div className="panel-heading studio-sample-head"><div><h3>Sample event data</h3><p>Evaluated against the rule on every check</p></div><button className="text-button" onClick={fillSample}>Fill from contract</button></div>
@@ -799,7 +838,7 @@ export default function App() {
         <div className="welcome-row"><div><div className="eyebrow">SYSTEM SNAPSHOT</div><h2>Runtime at a glance</h2><p>Rules, workers, and contract generation in one place.</p></div><div className="updated">Last refreshed <strong>{lastRefresh?.toLocaleTimeString() || "—"}</strong></div></div>
         <div className="metric-grid"><MetricCard label="API status" value={health === "online" ? "Online" : health === "offline" ? "Offline" : "Checking"} hint={normalizeBase(settings.apiBase)} icon="⌘"/><MetricCard label="Active rules" value={ruleCount} hint="From the tenant-scoped rules API" icon="◎"/><MetricCard label="Workers online" value={workers.length ? `${onlineWorkers}/${workers.length}` : "Not configured"} hint="Worker Prometheus endpoints" icon="▦"/><MetricCard label="Rule executions" value={workers.length ? executionTotal.toLocaleString() : "—"} hint="Cumulative counters from configured workers" icon="↗"/></div>
         <div className="content-grid"><section className="panel"><div className="panel-heading"><div><h3>Worker fleet</h3><p>Process-level telemetry, refreshed every 10 seconds</p></div><button className="text-button" onClick={() => setNav("workers")}>View workers ↗</button></div>{workers.length === 0 ? <Empty title="No worker endpoints configured" detail="Open Settings and add one private /metrics URL per worker process. The UI does not invent worker health."/> : <div className="worker-list">{workers.slice(0,4).map(worker => <div className="worker-row" key={worker.url}><div className="worker-symbol">▦</div><div className="worker-main"><strong>{worker.name}</strong><small>{worker.url}</small></div><Status value={worker.online ? "Online" : "Unreachable"}/><div className="worker-stat"><strong>{worker.inFlight ?? "—"}</strong><small>in flight</small></div><div className="worker-stat"><strong>{worker.shards ?? "—"}</strong><small>shards owned</small></div></div>)}</div>}</section>
-        <section className="panel"><div className="panel-heading"><div><h3>Active rule sets</h3><p>Current activation state from the API</p></div><button className="text-button" onClick={() => setNav("rules")}>Manage ↗</button></div>{activeRules.length === 0 ? <Empty title="No active rules returned" detail={health === "online" ? "No active rules were found for this tenant." : "Connect to the API to load active rules."}/> : <div className="rule-mini-list">{activeRules.slice(0,6).map((rule,i) => <div className="rule-mini" key={rule.rule_id || rule.rule_set || rule.id || i}><div className="rule-symbol">R</div><div className="rule-main"><strong>{rule.rule_id || rule.rule_set || rule.ruleSet || rule.id || `Rule set ${i+1}`}</strong><small>Revision {rule.revision ?? rule.active_revision ?? "—"}</small></div><Status value={rule.status || "Active"}/></div>)}</div>}</section></div>
+        <section className="panel"><div className="panel-heading"><div><h3>Active rule sets</h3><p>Current activation state from the API</p></div><button className="text-button" onClick={() => setNav("rules")}>Manage ↗</button></div>{activeRules.length === 0 ? <Empty title="No active rules returned" detail={health === "online" ? "No active rules were found for this tenant." : "Connect to the API to load active rules."}/> : <div className="rule-mini-list">{activeRules.slice(0,6).map((rule,i) => <div className="rule-mini" key={rule.rule_id || rule.rule_set || rule.id || i}><div className="rule-symbol">R</div><div className="rule-main"><strong>{rule.rule_id || rule.rule_set || rule.ruleSet || rule.id || `Rule set ${i+1}`}</strong><small>{tenantDomains.find(d => (d.event_types ?? []).includes(rule.rule_set || rule.rule_id))?.name ?? "no domain"} · revision {rule.revision ?? rule.active_revision ?? "—"}</small></div><Status value={rule.status || "Active"}/></div>)}</div>}</section></div>
         <section className="panel"><div className="panel-heading"><div><h3>Quick actions</h3><p>Jump directly to a common operation</p></div></div><div className="quick-grid"><button onClick={() => setNav("api")}><span>⌘</span><strong>Explore API</strong><small>Inspect routes and send requests</small><b>→</b></button><button onClick={() => setNav("codegen")}><span>⟐</span><strong>Generate a client</strong><small>Go, Java, Protobuf, JSON Schema</small><b>→</b></button><button onClick={() => setNav("rules")}><span>◎</span><strong>Deploy a rule</strong><small>Validate and activate a revision</small><b>→</b></button><button onClick={() => setNav("logs")}><span>≋</span><strong>Inspect logs</strong><small>Query your configured Loki source</small><b>→</b></button></div></section>
       </section>}
       {nav === "simulations" && <section className="page-content simulation-page">
