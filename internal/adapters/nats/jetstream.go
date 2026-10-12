@@ -457,6 +457,14 @@ func (d *jetstreamDelivery) Raw() []byte {
 	return d.msg.Data()
 }
 
+func (d *jetstreamDelivery) Attempt() uint64 {
+	metadata, err := d.msg.Metadata()
+	if err != nil || metadata == nil || metadata.NumDelivered == 0 {
+		return 1
+	}
+	return metadata.NumDelivered
+}
+
 func (d *jetstreamDelivery) Ack(_ context.Context) error {
 	return d.msg.Ack()
 }
