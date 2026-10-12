@@ -101,7 +101,12 @@ func TestDomainServiceSenderDoesNotFollowRedirects(t *testing.T) {
 
 func TestDomainServiceSenderHonorsCallerDeadline(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
+		select {
+		case <-r.Context().Done():
+			w.WriteHeader(http.StatusRequestTimeout)
+		case <-time.After(250 * time.Millisecond):
+			w.WriteHeader(http.StatusOK)
+		}
 	}))
 	defer server.Close()
 

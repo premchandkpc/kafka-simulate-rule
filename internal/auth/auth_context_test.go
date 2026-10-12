@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestContextWithClaimsPreservesTenantAndScopes(t *testing.T) {
@@ -34,5 +36,29 @@ func TestContextWithNilClaimsDoesNotInventIdentity(t *testing.T) {
 	}
 	if HasScope(ctx, "admin") {
 		t.Fatal("nil claims must not grant scopes")
+	}
+}
+
+func TestValidatorAcceptsSingleStringAudienceClaim(t *testing.T) {
+	v := NewValidator([]byte("secret"), "flowrule", "flowrule-api")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &Claims{
+		TenantID: "tenant-a",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:   "flowrule",
+			Audience: jwt.ClaimStrings{"flowrule-api"},
+		},
+	})
+
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("SignedString() error = %v", err)
+	}
+
+	claims, err := v.Validate(context.Background(), tokenString)
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if claims.TenantID != "tenant-a" {
+		t.Fatalf("Validate().TenantID = %q, want tenant-a", claims.TenantID)
 	}
 }

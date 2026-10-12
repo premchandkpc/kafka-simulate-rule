@@ -20,13 +20,8 @@ var (
 
 // Claims represents the JWT claims for FlowRule
 type Claims struct {
-	TenantID  string   `json:"tenant_id"`
-	Scopes    []string `json:"scopes,omitempty"`
-	Subject   string   `json:"sub,omitempty"`
-	IssuedAt  int64    `json:"iat,omitempty"`
-	ExpiresAt int64    `json:"exp,omitempty"`
-	Issuer    string   `json:"iss,omitempty"`
-	Audience  []string `json:"aud,omitempty"`
+	TenantID string   `json:"tenant_id"`
+	Scopes   []string `json:"scopes,omitempty"`
 	jwt.RegisteredClaims
 }
 
