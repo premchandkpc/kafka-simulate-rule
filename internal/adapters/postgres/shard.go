@@ -168,7 +168,7 @@ func (r *ShardLeaseRepository) ListOwned(ctx context.Context, owner string) ([]*
 	rows, err := r.db.Query(ctx, `
 		SELECT virtual_shard, owner, fencing_token, expires_at, routing_epoch
 		FROM shard_leases
-		WHERE owner = $1
+		WHERE owner = $1 AND expires_at > NOW()
 	`, owner)
 	if err != nil {
 		return nil, fmt.Errorf("list owned leases: %w", err)
