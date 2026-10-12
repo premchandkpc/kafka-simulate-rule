@@ -48,6 +48,11 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, domain.ErrFencingTokenMismatch
 	}
 
+	return s.processInTransaction(ctx, envelope, fencingToken, shard, workerID)
+}
+
+// processInTransaction executes the event processing within a transaction.
+func (s *Service) processInTransaction(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
 	tx, err := s.beginTx.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -70,6 +75,44 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, fmt.Errorf("fencing token validation failed: %w", err)
 	}
 
+	// F2: Deduplicate event via inbox
+	existingExec, err := s.deduplicateEvent(ctx, repos, envelope)
+	if err != nil {
+		return nil, err
+	}
+	if existingExec != nil {
+		return existingExec, nil
+	}
+
+	// Load rule activation and revision
+	revision, err := s.loadActiveRevision(ctx, repos, envelope)
+	if err != nil {
+		return nil, err
+	}
+
+	// Evaluate rules
+	decision, err := s.evaluator.Evaluate(revision, envelope, nil)
+	if err != nil {
+		return nil, fmt.Errorf("evaluate: %w", err)
+	}
+
+	// Persist execution and outbox effects
+	execution, err := s.persistExecutionAndOutbox(ctx, repos, envelope, revision, decision)
+	if err != nil {
+		return nil, err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return execution, nil
+}
+
+// deduplicateEvent checks inbox for duplicate and inserts new entry.
+// Returns existing execution if duplicate, nil if new event.
+func (s *Service) deduplicateEvent(ctx context.Context, repos ports.EventTxRepos, envelope *domain.EventEnvelope) (*domain.Execution, error) {
 	entry, err := repos.Inbox.Get(ctx, envelope.TenantID, envelope.ID)
 	if err != nil {
 		return nil, fmt.Errorf("check inbox: %w", err)
@@ -115,7 +158,11 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		// F2: Fall-through with nil execution = conflict
 		return nil, domain.ErrInboxDuplicate
 	}
+	return nil, nil
+}
 
+// loadActiveRevision loads the active rule revision for the event.
+func (s *Service) loadActiveRevision(ctx context.Context, repos ports.EventTxRepos, envelope *domain.EventEnvelope) (*domain.RuleRevision, error) {
 	ruleSet := envelope.Type
 	activation, err := repos.Activations.Get(ctx, envelope.TenantID, ruleSet)
 	if err != nil {
@@ -135,20 +182,19 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 	if revision == nil {
 		return nil, domain.ErrRuleNotFound
 	}
+	return revision, nil
+}
 
-	decision, err := s.evaluator.Evaluate(revision, envelope, nil)
-	if err != nil {
-		return nil, fmt.Errorf("evaluate: %w", err)
-	}
-
-	executionID := domain.ComputeExecutionID(envelope.TenantID, envelope.ID, ruleSet, revision.Revision)
+// persistExecutionAndOutbox creates execution record and outbox effects.
+func (s *Service) persistExecutionAndOutbox(ctx context.Context, repos ports.EventTxRepos, envelope *domain.EventEnvelope, revision *domain.RuleRevision, decision *domain.Decision) (*domain.Execution, error) {
+	executionID := domain.ComputeExecutionID(envelope.TenantID, envelope.ID, envelope.Type, revision.Revision)
 	now := s.clock.Now()
 
 	execution := &domain.Execution{
 		ID:           executionID,
 		EventID:      envelope.ID,
 		TenantID:     envelope.TenantID,
-		RuleSet:      ruleSet,
+		RuleSet:      envelope.Type,
 		Revision:     revision.Revision,
 		DecisionHash: decision.Hash,
 		Status:       domain.ExecutionStatusCompleted,
@@ -214,10 +260,6 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 
 	if err := repos.Inbox.MarkCommitted(ctx, envelope.TenantID, envelope.ID, executionID); err != nil {
 		return nil, fmt.Errorf("mark inbox committed: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return execution, nil

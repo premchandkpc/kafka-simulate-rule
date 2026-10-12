@@ -23,54 +23,9 @@ func NewEvaluator(clock ports.Clock) *Evaluator {
 }
 
 func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error) {
-	matched := make([]string, 0)
-	effects := make([]domain.Effect, 0)
-	explanations := make([]domain.RuleExplanation, 0, len(revision.Compiled))
-
-	for _, rule := range revision.Compiled {
-		ok, err := e.evalPredicate(rule.When, event.Data, facts)
-		if err != nil {
-			return nil, fmt.Errorf("rule %s: %w: %w", rule.ID, domain.ErrEvaluationError, err)
-		}
-
-		explanation := domain.RuleExplanation{
-			RuleID:   rule.ID,
-			RuleName: rule.Name,
-			Matched:  ok,
-			Priority: rule.Priority,
-		}
-
-		if ok {
-			matched = append(matched, rule.ID)
-			actions := make([]string, 0, len(rule.Then))
-			for i, action := range rule.Then {
-				effect, err := e.buildEffect(revision, event, rule.ID, i, action)
-				if err != nil {
-					return nil, fmt.Errorf("rule %s action %d: %w: %w", rule.ID, i, domain.ErrEvaluationError, err)
-				}
-				effects = append(effects, effect)
-				actions = append(actions, describeAction(action))
-			}
-			explanation.Reason = "predicate matched"
-			explanation.Actions = actions
-			if revision.MatchMode == domain.MatchModeFirstMatch {
-				explanations = append(explanations, explanation)
-				break
-			}
-		} else {
-			actions := make([]string, 0, len(rule.Otherwise))
-			for i, action := range rule.Otherwise {
-				effect, err := e.buildEffect(revision, event, rule.ID, i, action)
-				if err != nil {
-					return nil, fmt.Errorf("rule %s otherwise action %d: %w: %w", rule.ID, i, domain.ErrEvaluationError, err)
-				}
-				effects = append(effects, effect)
-				actions = append(actions, describeAction(action))
-			}
-			explanation.Reason = "predicate did not match"
-			explanation.Actions = actions
-		}
-		explanations = append(explanations, explanation)
+	matched, effects, explanations, err := e.evaluateRules(revision, event, facts)
+	if err != nil {
+		return nil, err
 	}
 
 	hash := domain.ComputeDecisionHash(revision.ContentHash, event.ID, "", matched, effects)
@@ -81,6 +36,68 @@ func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventE
 		Hash:         hash,
 		Explanations: explanations,
 	}, nil
+}
+
+// evaluateRules iterates through compiled rules, evaluates predicates, and builds effects/explanations.
+func (e *Evaluator) evaluateRules(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) ([]string, []domain.Effect, []domain.RuleExplanation, error) {
+	matched := make([]string, 0)
+	effects := make([]domain.Effect, 0)
+	explanations := make([]domain.RuleExplanation, 0, len(revision.Compiled))
+
+	for _, rule := range revision.Compiled {
+		ok, err := e.evalPredicate(rule.When, event.Data, facts)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("rule %s: %w: %w", rule.ID, domain.ErrEvaluationError, err)
+		}
+
+		matched, effects, explanations, err = e.processRuleResult(rule, ok, matched, effects, explanations, revision, event)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if revision.MatchMode == domain.MatchModeFirstMatch && ok {
+			break
+		}
+	}
+	return matched, effects, explanations, nil
+}
+
+// processRuleResult handles the result of a rule evaluation (matched or not).
+func (e *Evaluator) processRuleResult(rule domain.CompiledRule, ok bool, matched []string, effects []domain.Effect, explanations []domain.RuleExplanation, revision *domain.RuleRevision, event *domain.EventEnvelope) ([]string, []domain.Effect, []domain.RuleExplanation, error) {
+	explanation := domain.RuleExplanation{
+		RuleID:   rule.ID,
+		RuleName: rule.Name,
+		Matched:  ok,
+		Priority: rule.Priority,
+	}
+
+	if ok {
+		matched = append(matched, rule.ID)
+		actions := make([]string, 0, len(rule.Then))
+		for i, action := range rule.Then {
+			effect, err := e.buildEffect(revision, event, rule.ID, i, action)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("rule %s action %d: %w: %w", rule.ID, i, domain.ErrEvaluationError, err)
+			}
+			effects = append(effects, effect)
+			actions = append(actions, describeAction(action))
+		}
+		explanation.Reason = "predicate matched"
+		explanation.Actions = actions
+	} else {
+		actions := make([]string, 0, len(rule.Otherwise))
+		for i, action := range rule.Otherwise {
+			effect, err := e.buildEffect(revision, event, rule.ID, i, action)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("rule %s otherwise action %d: %w: %w", rule.ID, i, domain.ErrEvaluationError, err)
+			}
+			effects = append(effects, effect)
+			actions = append(actions, describeAction(action))
+		}
+		explanation.Reason = "predicate did not match"
+		explanation.Actions = actions
+	}
+	explanations = append(explanations, explanation)
+	return matched, effects, explanations, nil
 }
 
 func (e *Evaluator) evalPredicate(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {

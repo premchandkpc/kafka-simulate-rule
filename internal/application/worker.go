@@ -390,61 +390,75 @@ func (w *Worker) runSharded(ctx context.Context) {
 		// Sync consumers with current owned shards
 		w.syncConsumers(ctx)
 
-		// Fetch only shards for which this worker currently holds a lease.
-		// Consumer-side removal can fail temporarily; stale consumers must not
-		// remain in the fetch set while reconciliation retries.
-		ownedShards := w.shardService.OwnedShards()
-		if len(ownedShards) == 0 {
+		// Fetch and process deliveries for owned shards
+		if err := w.fetchAndProcessDeliveries(ctx); err != nil {
+			if !errors.Is(err, ctx.Err()) {
+				log.Printf("fetch and process error: %v", err)
+			}
 			if !waitForRetry(ctx, time.Second) {
 				return
 			}
-			continue
-		}
-
-		deliveries, err := w.shardedConsumer.FetchShards(ctx, w.config.FetchBatchSize, ownedShards)
-		if err != nil {
-			log.Printf("fetch shards: %v", err)
-		}
-		if len(deliveries) == 0 {
-			delay := 100 * time.Millisecond
-			if err != nil {
-				delay = time.Second
-			}
-			if !waitForRetry(ctx, delay) {
-				return
-			}
-			continue
-		}
-
-		for _, delivery := range deliveries {
-			env, err := delivery.Event()
-			if err != nil || env == nil {
-				w.quarantineInvalidDelivery(ctx, delivery, err)
-				continue
-			}
-
-			vshard := w.shardService.VirtualShardForEvent(env)
-			if !w.shardService.IsOwner(vshard) {
-				if err := settleNak(ctx, delivery); err != nil {
-					log.Printf("nak non-owned shard %d: %v", vshard, err)
-				}
-				continue
-			}
-
-			fencingToken := int64(0)
-			if token, ok := w.shardService.GetFencingToken(vshard); ok {
-				fencingToken = token
-			}
-
-			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
-				log.Printf("keyqueue submit failed: %v", err)
-				if err := settleNak(ctx, delivery); err != nil {
-					log.Printf("nak failed: %v", err)
-				}
-				continue
-			}
 		}
 	}
+}
+
+// fetchAndProcessDeliveries fetches and processes deliveries for owned shards.
+// Returns error if fetch fails, nil if successful or no deliveries.
+func (w *Worker) fetchAndProcessDeliveries(ctx context.Context) error {
+	// Fetch only shards for which this worker currently holds a lease.
+	// Consumer-side removal can fail temporarily; stale consumers must not
+	// remain in the fetch set while reconciliation retries.
+	ownedShards := w.shardService.OwnedShards()
+	if len(ownedShards) == 0 {
+		return nil // No shards owned, will retry
+	}
+
+	deliveries, err := w.shardedConsumer.FetchShards(ctx, w.config.FetchBatchSize, ownedShards)
+	if err != nil {
+		log.Printf("fetch shards: %v", err)
+		return err
+	}
+	if len(deliveries) == 0 {
+		return nil
+	}
+
+	for _, delivery := range deliveries {
+		if err := w.processSingleDelivery(ctx, delivery); err != nil {
+			log.Printf("process delivery error: %v", err)
+		}
+	}
+	return nil
+}
+
+// processSingleDelivery processes a single delivery.
+func (w *Worker) processSingleDelivery(ctx context.Context, delivery ports.Delivery) error {
+	env, err := delivery.Event()
+	if err != nil || env == nil {
+		w.quarantineInvalidDelivery(ctx, delivery, err)
+		return nil // Don't propagate error, delivery handled
+	}
+
+	vshard := w.shardService.VirtualShardForEvent(env)
+	if !w.shardService.IsOwner(vshard) {
+		if err := settleNak(ctx, delivery); err != nil {
+			log.Printf("nak non-owned shard %d: %v", vshard, err)
+		}
+		return nil
+	}
+
+	fencingToken := int64(0)
+	if token, ok := w.shardService.GetFencingToken(vshard); ok {
+		fencingToken = token
+	}
+
+	if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
+		log.Printf("keyqueue submit failed: %v", err)
+		if err := settleNak(ctx, delivery); err != nil {
+			log.Printf("nak failed: %v", err)
+		}
+		return err
+	}
+	return nil
 }
 
 // quarantineInvalidDelivery persists malformed broker messages before acknowledging
