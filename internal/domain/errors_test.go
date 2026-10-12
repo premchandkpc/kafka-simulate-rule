@@ -16,7 +16,7 @@ func TestIsPermanentClassifiesDeterministicEvaluationFailures(t *testing.T) {
 		{name: "wrapped evaluation error", err: fmt.Errorf("evaluate rule: %w", ErrEvaluationError), want: true},
 		{name: "missing fact snapshot", err: ErrFactSnapshotRequired, want: true},
 		{name: "invalid fact path", err: ErrInvalidFactPath, want: true},
-		{name: "evaluation timeout remains retryable", err: ErrEvaluationTimeout, want: false},
+		{name: "evaluation timeout is quarantined", err: ErrEvaluationTimeout, want: true},
 		{name: "database error remains retryable", err: ErrDatabaseError, want: false},
 	}
 
