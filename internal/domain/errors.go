@@ -25,6 +25,7 @@ var (
 	ErrInvalidRuleSchema     = errors.New("invalid rule schema")
 	ErrRuleNotFound          = errors.New("rule not found")
 	ErrRuleNotActive         = errors.New("rule not active")
+	ErrRuleNotReady          = errors.New("rule not ready, retry later")
 
 	ErrEffectIDRequired    = errors.New("effect id is required")
 	ErrExecutionIDRequired = errors.New("execution id is required")
@@ -122,6 +123,8 @@ func ClassifyError(err error) ErrorClass {
 		errors.Is(err, ErrRuleNotFound),
 		errors.Is(err, ErrRuleNotActive):
 		return ErrorClassRule
+	case errors.Is(err, ErrRuleNotReady):
+		return ErrorClassBroker
 	case errors.Is(err, ErrEvaluationTimeout),
 		errors.Is(err, ErrEvaluationError),
 		errors.Is(err, ErrFactSnapshotRequired),

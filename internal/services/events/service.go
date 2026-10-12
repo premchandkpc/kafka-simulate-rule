@@ -122,9 +122,10 @@ func (s *Service) Process(ctx context.Context, envelope *domain.EventEnvelope, f
 		return nil, fmt.Errorf("get activation: %w", err)
 	}
 	if activation == nil {
-		// Subscriptions observe only events with a committed successful rule
-		// execution; an event without an active rule creates no callback effect.
-		return nil, domain.ErrRuleNotActive
+		// Rule not yet activated for this event type. This is transient:
+		// the rule may be deployed shortly after the event arrives.
+		// NATS MaxDeliver + backoff bounds the retry window.
+		return nil, domain.ErrRuleNotReady
 	}
 
 	revision, err := repos.RuleRepo.GetActive(ctx, envelope.TenantID, ruleSet)

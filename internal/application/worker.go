@@ -217,11 +217,9 @@ func (w *Worker) Run(ctx context.Context) error {
 	// and allowing the caller to close shared resources.
 	defer background.Wait()
 
-	if w.shardedConsumer != nil && w.leaseManager != nil {
-		w.runSharded(ctx)
-		return nil
-	}
-	w.runNonSharded(ctx)
+	// RequireSharded defaults to true and NewWorker validates that both
+	// shardedConsumer and leaseManager are present when enabled.
+	w.runSharded(ctx)
 	return nil
 }
 
@@ -399,55 +397,6 @@ func (w *Worker) runSharded(ctx context.Context) {
 			fencingToken := int64(0)
 			if token, ok := w.leaseManager.GetFencingToken(vshard); ok {
 				fencingToken = token
-			}
-
-			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
-				log.Printf("keyqueue submit failed: %v", err)
-				if err := settleNak(ctx, delivery); err != nil {
-					log.Printf("nak failed: %v", err)
-				}
-				continue
-			}
-		}
-	}
-}
-
-// runNonSharded runs the worker without shard ownership (single consumer).
-func (w *Worker) runNonSharded(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("worker stopping")
-			return
-		default:
-		}
-
-		deliveries, err := w.consumer.Fetch(ctx, w.config.FetchBatchSize)
-		if err != nil {
-			log.Printf("fetch: %v", err)
-			if !waitForRetry(ctx, time.Second) {
-				return
-			}
-			continue
-		}
-		if len(deliveries) == 0 {
-			if !waitForRetry(ctx, 100*time.Millisecond) {
-				return
-			}
-			continue
-		}
-
-		for _, delivery := range deliveries {
-			env, err := delivery.Event()
-			if err != nil || env == nil {
-				w.quarantineInvalidDelivery(ctx, delivery, err)
-				continue
-			}
-
-			vshard := uint32(0)
-			fencingToken := int64(0)
-			if w.leaseManager != nil {
-				vshard = w.leaseManager.VirtualShardForEvent(env)
 			}
 
 			if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {

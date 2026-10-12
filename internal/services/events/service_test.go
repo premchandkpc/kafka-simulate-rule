@@ -140,8 +140,8 @@ func testEnvelope() *domain.EventEnvelope {
 func TestProcessDoesNotNotifySubscribersWithoutActiveRule(t *testing.T) {
 	service, inbox, _, outbox, subscribers, tx := setupEventService(false)
 	_, err := service.Process(context.Background(), testEnvelope(), 1, 0, "worker-a")
-	if !errors.Is(err, domain.ErrRuleNotActive) {
-		t.Fatalf("Process() error = %v, want ErrRuleNotActive", err)
+	if !errors.Is(err, domain.ErrRuleNotReady) {
+		t.Fatalf("Process() error = %v, want ErrRuleNotReady", err)
 	}
 	if subscribers.lookups != 0 || len(outbox.inserted) != 0 || tx.committed {
 		t.Fatalf("no-active-rule event had subscriber lookups=%d outbox=%d committed=%t",
