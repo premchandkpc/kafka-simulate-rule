@@ -14,9 +14,9 @@ const SOURCE_RULE_BY_SCENARIO: Record<Exclude<SimulationScenario, "all">, string
   "food-delivery": "order.placed",
 };
 const EXAMPLE_SOURCE_RULES = [
-  { scenario: "ecommerce", label: "E-commerce", rule: SOURCE_RULE_BY_SCENARIO.ecommerce },
-  { scenario: "banking", label: "Banking", rule: SOURCE_RULE_BY_SCENARIO.banking },
-  { scenario: "food-delivery", label: "Food delivery", rule: SOURCE_RULE_BY_SCENARIO["food-delivery"] },
+  { scenario: "ecommerce", label: "E-commerce" },
+  { scenario: "banking", label: "Banking" },
+  { scenario: "food-delivery", label: "Food delivery" },
 ] as const;
 type TraceNode = {
   event_id: string;
@@ -630,7 +630,15 @@ export default function App() {
   const selectedContractVersion = selectedContractParts[1] || "";
   const simulationProcessed = simulationEvents.filter(event => event.trace?.execution?.status === "completed").length;
   const simulationDelivered = simulationEvents.reduce((total, event) => total + countDeliveredEffects(event.trace), 0);
-  const selectedSourceRules = EXAMPLE_SOURCE_RULES.filter(item => simulationScenario === "all" || item.scenario === simulationScenario);
+  const [entryRuleChoice, setEntryRuleChoice] = useState<Record<string, string>>({});
+  const entryRuleFor = (scenario: Exclude<SimulationScenario, "all">) => entryRuleChoice[scenario] || SOURCE_RULE_BY_SCENARIO[scenario];
+  const entryRuleOptions = (scenario: Exclude<SimulationScenario, "all">) => {
+    const types = tenantDomains.find(d => d.id === scenario)?.event_types ?? [];
+    const stored = new Set(activeRules.map((r: any) => r.rule_set));
+    const withRules = types.filter(t => stored.has(t));
+    return withRules.length ? withRules : [SOURCE_RULE_BY_SCENARIO[scenario]];
+  };
+  const selectedSourceRules = EXAMPLE_SOURCE_RULES.filter(item => simulationScenario === "all" || item.scenario === simulationScenario).map(item => ({ ...item, rule: entryRuleFor(item.scenario) }));
   const latestSimulationEvent = simulationEvents[0];
   const liveFlowStage = !latestSimulationEvent ? -1
     : !latestSimulationEvent.trace?.execution ? 1
@@ -779,7 +787,7 @@ export default function App() {
       ? ["ecommerce", "banking", "food-delivery"]
       : [simulationScenario];
     const currentRules = new Set(activeRules.map(rule => rule.rule_set || rule.rule_id || rule.ruleSet));
-    const missingRules = [...new Set(scenarios.map(scenario => SOURCE_RULE_BY_SCENARIO[scenario]))].filter(rule => !currentRules.has(rule));
+    const missingRules = [...new Set(scenarios.map(scenario => entryRuleFor(scenario)))].filter(rule => !currentRules.has(rule));
     if (missingRules.length > 0) {
       setSimulationNotice(`No active source rules for this tenant: ${missingRules.join(", ")}. Events will still be sent, but may not create downstream events.`);
     }
@@ -894,6 +902,7 @@ export default function App() {
           <MetricCard label="Worker processed" value={simulationProcessed} hint="Completed executions in current event list" icon="⚙"/>
           <MetricCard label="Effects delivered" value={simulationDelivered} hint="Outbox deliveries in observed traces" icon="⇢"/>
         </div>
+        {selectedSourceRules.map(({ scenario, label, rule }) => <label className="entry-rule-picker" key={`pick-${scenario}`}>{label} entry rule set <select value={rule} onChange={e => setEntryRuleChoice(c => ({ ...c, [scenario]: e.target.value }))}>{entryRuleOptions(scenario).map(t => <option key={t} value={t}>{t}</option>)}</select></label>)}
         {selectedSourceRules.map(({ scenario, rule }) => <RuleFlowMap key={scenario} settings={settings} scenario={scenario} startRuleSet={rule} events={simulationEvents} running={simulationRunning}/>)}
         <section className="panel source-rules-panel">
           <div className="panel-heading"><div><h3>Source rule sets for this tenant</h3><p>Events are still published when a source rule is missing, but no rule execution can be shown for that event.</p></div><button className="text-button" onClick={() => void refresh()}>Refresh rules ↻</button></div>
@@ -951,11 +960,21 @@ export default function App() {
           const storedContractNames = new Set(storedContracts.map((c: any) => c.name));
           const storedRuleNames = new Set(storedRules.map((r: any) => r.rule_set));
           const isStored = (item: typeof items[number]) => item.kind === "contract" ? storedContractNames.has(item.name) : storedRuleNames.has(item.name);
+          const bundledNumber = (item: typeof items[number], key: string) => item.source.match(new RegExp(`^${key}:\\s*["']?([\\w.]+)`, "m"))?.[1];
+          const catalogState = (item: typeof items[number]) => {
+            if (!isStored(item)) return "Not stored";
+            if (item.kind === "contract") {
+              const want = bundledNumber(item, "version"); const have = String(storedContracts.find((c: any) => c.name === item.name)?.version ?? "");
+              return want && have && want !== have ? `Version ${have} stored, bundle ${want}` : `Stored · v${have}`;
+            }
+            const want = bundledNumber(item, "revision"); const have = String(storedRules.find((r: any) => r.rule_set === item.name)?.revision ?? "");
+            return want && have && want !== have ? `Active revision ${have}, bundle ${want}` : `Active revision ${have}`;
+          };
           const missing = items.filter(item => !isStored(item)).length;
           return <section className="panel" key={domainKey}>
             <div className="panel-heading"><div><h3>{DOMAIN_LABELS[domainKey]}</h3><p>{items.length - missing} of {items.length} definitions in the database</p></div><button className="button primary" onClick={() => void loadDomainIntoDatabase(domainKey)} disabled={catalogBusy !== ""}>{catalogBusy === domainKey ? "Saving…" : missing ? "Save to database" : "Save again"}</button></div>
             <div className="table-wrap"><table><thead><tr><th>Type</th><th>Name</th><th>Database</th><th></th></tr></thead><tbody>
-              {items.map(item => { const stored = isStored(item); const detail = item.kind === "contract" ? storedContracts.find((c: any) => c.name === item.name) : storedRules.find((r: any) => r.rule_set === item.name); return <tr key={item.kind + item.name}><td>{item.kind}</td><td>{item.name}</td><td><Status value={stored ? "Stored" : "Not stored"}/></td><td><button className="text-button" onClick={() => setCatalogView({ title: `${item.kind} ${item.name}`, body: stored ? JSON.stringify(detail, null, 2) : item.source })}>{stored ? "View stored" : "View source"}</button></td></tr>; })}
+              {items.map(item => { const stored = isStored(item); const detail = item.kind === "contract" ? storedContracts.find((c: any) => c.name === item.name) : storedRules.find((r: any) => r.rule_set === item.name); return <tr key={item.kind + item.name}><td>{item.kind}</td><td>{item.name}</td><td><Status value={catalogState(item)}/></td><td><button className="text-button" onClick={() => setCatalogView({ title: `${item.kind} ${item.name}`, body: stored ? JSON.stringify(detail, null, 2) : item.source })}>{stored ? "View stored" : "View source"}</button></td></tr>; })}
             </tbody></table></div>
           </section>;
         })}

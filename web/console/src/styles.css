@@ -252,3 +252,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .studio-actions{flex:none;display:flex;gap:6px;align-items:center}.studio-actions .text-button,.studio-actions .button{white-space:nowrap}.studio-editor .panel-heading h3{overflow-wrap:anywhere}
 
 .simulation-flow-step.flow-failed{border-color:#d64545;background:#fdf0f0}.simulation-flow-step.flow-failed .flow-step-icon{background:#d64545;color:#fff}.flow-connector.flow-failed{color:#d64545}
+
+.entry-rule-picker{display:flex;gap:8px;align-items:center;font-size:13px;margin:0 0 8px}.entry-rule-picker select{padding:4px 8px}
