@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// GetRunForTenant retrieves a batch run scoped to a tenant and batch ID.
 func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
 	run := &domain.BatchRun{}
 	err := r.db.QueryRow(ctx, `
@@ -30,6 +31,7 @@ func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID
 	return run, nil
 }
 
+// ListRuns returns a paginated list of batch runs for a tenant, optionally filtered by rule set.
 func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
 	if limit <= 0 {
 		limit = 100
@@ -75,14 +77,17 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	return runs, nil
 }
 
+// BatchRepository persists batch runs and inbox batch membership in PostgreSQL.
 type BatchRepository struct {
 	db Querier
 }
 
+// NewBatchRepository creates a batch repository backed by a PostgreSQL query interface.
 func NewBatchRepository(db Querier) *BatchRepository {
 	return &BatchRepository{db: db}
 }
 
+// ListUnbatched returns committed inbox entries that have not been assigned to a batch.
 func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
 	if limit <= 0 {
 		limit = 400
@@ -257,6 +262,7 @@ func associateBatchMembers(ctx context.Context, tx pgx.Tx, run *domain.BatchRun,
 	return nil
 }
 
+// MarkBatched assigns an inbox event to a batch if it is not already assigned.
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE inbox SET batch_id = $3
@@ -268,6 +274,7 @@ func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, ba
 	return nil
 }
 
+// SaveRun inserts or updates a batch run.
 func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO batch_runs (batch_id, tenant_id, partition_key, rule_set, status, member_count,
@@ -289,6 +296,7 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 	return nil
 }
 
+// GetRun retrieves a batch run by its batch ID, or returns nil when it does not exist.
 func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	run := &domain.BatchRun{}
 	err := r.db.QueryRow(ctx, `
