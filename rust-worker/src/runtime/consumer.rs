@@ -62,46 +62,93 @@ async fn handle_message(
     shard: u32,
     fencing_token: i64,
 ) -> Result<()> {
+    let Some(envelope) = decode_or_quarantine(pool, &message).await? else {
+        return Ok(());
+    };
+    if let Err(error) = validate_message_routing(&envelope, config, shard) {
+        quarantine_and_ack(pool, &message, &envelope.id, Some(&envelope.tenant_id), &error).await?;
+        return Ok(());
+    }
+
+    process_and_settle_event(pool, message, config, shard, fencing_token, envelope).await
+}
+
+async fn decode_or_quarantine(
+    pool: &PgPool,
+    message: &jetstream::Message,
+) -> Result<Option<EventEnvelope>> {
     let envelope = match serde_json::from_slice::<EventEnvelope>(&message.payload) {
-        Ok(value) => value,
-        Err(err) => {
-            quarantine_and_ack(pool, &message, "unknown", None, &err.to_string()).await?;
-            return Ok(());
+        Ok(envelope) => envelope,
+        Err(error) => {
+            quarantine_and_ack(pool, message, "unknown", None, &error.to_string()).await?;
+            return Ok(None);
         }
     };
-
-    if let Err(err) = envelope.validate() {
-        quarantine_and_ack(pool, &message, &envelope.id, Some(&envelope.tenant_id), &err.to_string()).await?;
-        return Ok(());
+    if let Err(error) = envelope.validate() {
+        quarantine_and_ack(
+            pool, message, &envelope.id, Some(&envelope.tenant_id), &error.to_string(),
+        ).await?;
+        return Ok(None);
     }
+    Ok(Some(envelope))
+}
 
+fn validate_message_routing(envelope: &EventEnvelope, config: &Config, shard: u32) -> Result<()> {
     let computed_shard = envelope.virtual_shard(config.num_shards)?;
     if computed_shard != shard {
-        let err = format!("message routed to shard {shard} but envelope hashes to {computed_shard}");
-        quarantine_and_ack(pool, &message, &envelope.id, Some(&envelope.tenant_id), &err).await?;
-        return Ok(());
+        bail!("message routed to shard {shard} but envelope hashes to {computed_shard}");
     }
+    Ok(())
+}
 
-    match engine::process_event(pool, &envelope, &config.worker_id, fencing_token, config.num_shards).await {
+async fn process_and_settle_event(
+    pool: &PgPool,
+    message: jetstream::Message,
+    config: &Config,
+    shard: u32,
+    fencing_token: i64,
+    envelope: EventEnvelope,
+) -> Result<()> {
+    match engine::process_event(
+        pool, &envelope, &config.worker_id, fencing_token, config.num_shards,
+    ).await {
         Ok(ProcessOutcome::Processed { execution_id, decision_hash, matched_rules }) => {
-            info!(shard, event_id=%envelope.id, execution_id=%execution_id, decision_hash=%decision_hash,
-                matched_rules=?matched_rules, "event committed");
-            message.ack().await.map_err(|err| anyhow!("ack committed event: {err}"))?;
+            log_processed_event(shard, &envelope, &execution_id, &decision_hash, &matched_rules);
+            acknowledge_message(&message, "ack committed event").await
         }
         Ok(ProcessOutcome::Duplicate { execution_id }) => {
             info!(shard, event_id=%envelope.id, execution_id=%execution_id, "duplicate event confirmed");
-            message.ack().await.map_err(|err| anyhow!("ack confirmed duplicate: {err}"))?;
+            acknowledge_message(&message, "ack confirmed duplicate").await
         }
-        Err(err) if is_permanent_event_error(&err) => {
-            quarantine_and_ack(pool, &message, &envelope.id, Some(&envelope.tenant_id), &err.to_string()).await?;
+        Err(error) if is_permanent_event_error(&error) => {
+            quarantine_and_ack(
+                pool, &message, &envelope.id, Some(&envelope.tenant_id), &error.to_string(),
+            ).await
         }
-        Err(err) => {
-            warn!(shard, event_id=%envelope.id, error=%err, "event processing failed; scheduling retry");
+        Err(error) => {
+            warn!(shard, event_id=%envelope.id, error=%error, "event processing failed; scheduling retry");
             message.ack_with(jetstream::AckKind::Nak(Some(config.retry_delay)))
-                .await.map_err(|err| anyhow!("nak failed event for retry: {err}"))?;
+                .await.map_err(|error| anyhow!("nak failed event for retry: {error}"))?;
+            Ok(())
         }
     }
-    Ok(())
+}
+
+fn log_processed_event(
+    shard: u32,
+    envelope: &EventEnvelope,
+    execution_id: &str,
+    decision_hash: &str,
+    matched_rules: &[String],
+) {
+    info!(
+        shard, event_id=%envelope.id, execution_id=%execution_id, decision_hash=%decision_hash,
+        matched_rules=?matched_rules, "event committed"
+    );
+}
+
+async fn acknowledge_message(message: &jetstream::Message, context: &str) -> Result<()> {
+    message.ack().await.map_err(|error| anyhow!("{context}: {error}"))
 }
 
 async fn quarantine_and_ack(
