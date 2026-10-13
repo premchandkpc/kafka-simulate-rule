@@ -5,15 +5,15 @@ import "errors"
 
 var (
 	// ErrEventIDRequired indicates that an event ID is required.
-	ErrEventIDRequired      = errors.New("event id is required")
+	ErrEventIDRequired = errors.New("event id is required")
 	// ErrEventTypeRequired indicates that an event type is required.
-	ErrEventTypeRequired    = errors.New("event type is required")
+	ErrEventTypeRequired = errors.New("event type is required")
 	// ErrTenantIDRequired indicates that a tenant ID is required.
-	ErrTenantIDRequired     = errors.New("tenant id is required")
+	ErrTenantIDRequired = errors.New("tenant id is required")
 	// ErrPartitionKeyRequired indicates that a partition key is required.
 	ErrPartitionKeyRequired = errors.New("partition key is required")
 	// ErrOccurredAtRequired indicates that an event timestamp is required.
-	ErrOccurredAtRequired   = errors.New("occurred at is required")
+	ErrOccurredAtRequired = errors.New("occurred at is required")
 	// ErrInvalidEventEnvelope indicates that an event envelope is invalid.
 	ErrInvalidEventEnvelope = errors.New("invalid event envelope")
 
