@@ -22,7 +22,7 @@ func (tx *eventTxStub) Context() context.Context       { return tx.ctx }
 func (*eventTxStub) FencingToken() int64               { return 1 }
 func (*eventTxStub) SetFencingToken(int64)             {}
 
-type transactionManagerStub struct{ tx *eventTxStub }
+type transactionManagerStub struct{ tx ports.Transaction }
 
 func (m transactionManagerStub) Begin(context.Context) (ports.Transaction, error) {
 	return m.tx, nil
