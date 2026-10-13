@@ -35,6 +35,20 @@ func (r failingShardLeaseRepository) AssertHeld(context.Context, uint32, string,
 	return r.err
 }
 
+func TestProcessReturnsBeginTransactionError(t *testing.T) {
+	beginErr := errors.New("database unavailable")
+	manager := &countingTransactionManager{err: beginErr}
+	service := NewService(nil, nil, nil, domain.SystemClock{}, manager, nil)
+
+	_, err := service.Process(context.Background(), testEnvelope(), 1, 0, "worker-a")
+	if !errors.Is(err, beginErr) {
+		t.Fatalf("Process() error = %v, want wrapped begin error", err)
+	}
+	if manager.calls != 1 {
+		t.Fatalf("Begin() calls = %d, want 1", manager.calls)
+	}
+}
+
 func TestProcessRejectsNonPositiveFencingTokenBeforeBeginningTransaction(t *testing.T) {
 	manager := &countingTransactionManager{tx: &eventTxStub{ctx: context.Background()}}
 	service := NewService(nil, nil, nil, domain.SystemClock{}, manager, nil)
