@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL persistence adapters.
 package postgres
 
 import (
@@ -8,14 +9,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// TransactionManager is the PostgreSQL persistence adapter.
 type TransactionManager struct {
 	pool *pgxpool.Pool
 }
 
+// NewTransactionManager performs its documented repository operation.
 func NewTransactionManager(pool *pgxpool.Pool) *TransactionManager {
 	return &TransactionManager{pool: pool}
 }
 
+// Begin performs its documented repository operation.
 func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, error) {
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
@@ -24,6 +28,7 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 	return NewTx(ctx, tx), nil
 }
 
+// WithTransaction performs its documented repository operation.
 func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
