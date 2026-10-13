@@ -78,24 +78,38 @@ func (r *ScheduledEventRepository) Claim(
 	claimant string,
 	leaseTTL time.Duration,
  ) ([]*domain.ScheduledEvent, error) {
-	if len(eventIDs) == 0 { return nil, nil }
-	if err := validateScheduledClaim(eventIDs, claimant, leaseTTL); err != nil { return nil, err }
+	if len(eventIDs) == 0 {
+	    return nil, nil
+	}
+	if err := validateScheduledClaim(eventIDs, claimant, leaseTTL); err != nil {
+	    return nil, err
+	}
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
 	collection := r.collection(collectionScheduledEvents)
 	events := make([]*domain.ScheduledEvent, 0, len(eventIDs))
 	for _, eventID := range eventIDs {
 		event, claimed, err := claimScheduledEvent(ctx, collection, eventID, claimant, now, expiresAt)
-		if err != nil { return nil, err }
-		if claimed { events = append(events, event) }
+		if err != nil {
+		    return nil, err
+		}
+		if claimed {
+		    events = append(events, event)
+		}
 	}
 	return events, nil
 }
 
 func validateScheduledClaim(eventIDs []string, claimant string, leaseTTL time.Duration) error {
-	if len(eventIDs) == 0 { return nil }
-	if claimant == "" { return fmt.Errorf("claim scheduled events: claimant is required") }
-	if leaseTTL <= 0 { return fmt.Errorf("claim scheduled events: lease TTL must be positive") }
+	if len(eventIDs) == 0 {
+	    return nil
+	}
+	if claimant == "" {
+	    return fmt.Errorf("claim scheduled events: claimant is required")
+	}
+	if leaseTTL <= 0 {
+	    return fmt.Errorf("claim scheduled events: lease TTL must be positive")
+	}
 	return nil
 }
 
@@ -112,8 +126,12 @@ func claimScheduledEvent(
 		scheduledClaimUpdate(claimant, now, expiresAt),
 		options.FindOneAndUpdate().SetReturnDocument(options.After),
 	).Decode(&doc)
-	if errors.Is(err, mongo.ErrNoDocuments) { return nil, false, nil }
-	if err != nil { return nil, false, fmt.Errorf("claim scheduled event: %w", err) }
+	if errors.Is(err, mongo.ErrNoDocuments) {
+	    return nil, false, nil
+	}
+	if err != nil {
+	    return nil, false, fmt.Errorf("claim scheduled event: %w", err)
+	}
 	return doc.ToDomain(), true, nil
 }
 
