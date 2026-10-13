@@ -117,7 +117,7 @@ func (s *DomainServiceSender) validateServiceEndpoint(endpoint string) (*url.URL
 		}
 		return nil, errors.New("tenant service endpoint is not a valid absolute URL")
 	}
-	if target.Scheme != "https" && !(s.allowPrivate && target.Scheme == "http") {
+	if target.Scheme != "https" && (!s.allowPrivate || target.Scheme != "http") {
 		return nil, fmt.Errorf("tenant service endpoint must use HTTPS")
 	}
 	return target, nil
