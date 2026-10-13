@@ -52,7 +52,7 @@ impl Config {
         let ack_wait = Duration::from_millis(parse_u64("NATS_ACK_WAIT_MS", 30_000)?);
         let retry_delay = Duration::from_millis(parse_u64("EVENT_RETRY_DELAY_MS", 5_000)?);
         let fetch_batch_size = parse_u64("FETCH_BATCH_SIZE", 100)? as usize;
-        let rulesets = env::var("NATS_RULESETS").unwrap_or_default().split(',')
+        let rulesets: Vec<String> = env::var("NATS_RULESETS").unwrap_or_default().split(',')
             .map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
         let effect_destination_url = env::var("EFFECT_DESTINATION_URL").unwrap_or_default();
         let effect_poll_interval = Duration::from_millis(parse_u64("EFFECT_PUBLISH_INTERVAL_MS", 5_000)?);
