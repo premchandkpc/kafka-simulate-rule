@@ -1,43 +1,61 @@
-# Rust worker runtime (experimental)
+# Rust worker service (experimental)
 
-## Goal
+## Isolation from Go
 
-Provide a separately deployable Rust implementation alongside the existing Go worker. Go remains the default and its source is not removed or rewritten. Select the implementation with `WORKER_RUNTIME=go|rust`.
+The existing Go worker source, Dockerfile, and Compose service are preserved. Rust is an independent service built by `Dockerfile.worker-rust` and defined as the opt-in `worker-rust` Compose service. It is not selected through a switch inside the Go container.
+
+Start the Rust service only after stopping/scaling down the Go worker, because both runtimes use the same PostgreSQL shard leases and must not compete for the same shards:
+
+```sh
+docker compose stop worker
+docker compose --profile rust up --build worker-rust
+```
+
+Return to Go by stopping Rust and starting the existing worker again:
+
+```sh
+docker compose --profile rust stop worker-rust
+docker compose up -d worker
+```
+
+## Module boundaries
+
+- `src/main.rs`: process entrypoint and top-level error reporting.
+- `src/config.rs`: environment parsing and validation.
+- `src/runtime.rs`: lifecycle orchestration, migration bootstrap, initial lease acquisition, task supervision.
+- `src/runtime/consumer.rs`: JetStream consumers, event validation, ACK/NAK decisions.
+- `src/runtime/quarantine.rs`: durable quarantine writes.
+- `src/runtime/effects.rs`: outbox claiming, effect routing, callback delivery and retry settlement.
+- `src/runtime/scheduler.rs`: scheduled-event claiming and publication.
+- `src/engine.rs`: event-processing transaction orchestration and stable event/shard contracts.
+- `src/engine/persistence.rs`: inbox, active revision, execution, outbox and subscriber persistence.
+- `src/engine/rules.rs`: compiled rule model, predicate evaluation, templates and action construction.
+- `src/engine/lease.rs`: PostgreSQL shard lease acquisition, renewal and release.
+
+Methods are split by responsibility so transport, persistence, scheduling, rule evaluation and configuration can be changed independently.
 
 ## Event and rule-set semantics
 
-Rule-set lifecycle operations (compile, persist revision, activate/deactivate) are currently API/service operations backed by `rule_revisions` and `rule_activations`; the repository does not define a separate NATS rule-management event stream. Both workers process business events whose `EventEnvelope.type` identifies the rule set. The Rust worker reads the active revision from the same PostgreSQL tables.
+Rule-set authoring and activation are API/service operations backed by `rule_revisions` and `rule_activations`; this repository does not define a separate NATS rule-management event stream. Rust consumes business events whose `EventEnvelope.type` identifies the rule set and reads the active compiled revision from PostgreSQL.
 
-The Rust runtime now has an initial end-to-end path for PostgreSQL deployments:
+The current Rust path applies the SQL migrations, acquires/renews shard leases, verifies the event's shard, checks fencing and inbox deduplication in a PostgreSQL transaction, evaluates rules, persists execution/outbox rows and commits before ACK. Transient failures are retried; malformed/permanent events are quarantined. Separate loops publish outbox effects and due scheduled events.
 
-1. Applies the repository's idempotent SQL migration files.
-2. Acquires shard leases with monotonically increasing fencing tokens and renews them while consuming.
-3. Creates separate JetStream pull consumers for legacy `events.shard.N` subjects and configured `NATS_RULESETS` subjects (`events.ruleset.<sha256(type)>.shard.N`).
-4. Validates the envelope and verifies the message's computed shard.
-5. In one PostgreSQL transaction, checks lease ownership with `FOR SHARE`, inserts the inbox row, loads the active revision, evaluates the compiled rules, writes the execution and outbox effects, marks the inbox committed, and commits.
-6. ACKs only after commit. Confirmed duplicates are ACKed; transient failures are NAKed with delay; malformed/permanent event failures are quarantined before ACK.
-7. Claims and publishes outbox effects and due scheduled events with claim expiry, retry backoff, and terminal quarantine/failure state.
+## Current limits
 
-The Go rule API remains responsible for authoring and activating rule revisions. No independent Rust rule-authoring API or separate rule-set event protocol is introduced.
+- PostgreSQL only; MongoDB is unsupported.
+- Existing compiled revisions are evaluated, but Rust does not yet implement a rule-authoring/compiler API or input-contract validation. Differential Go-vs-Rust tests are required.
+- Fixed replica count and initial lease acquisition are implemented, but dynamic membership/rebalancing is not.
+- The Go key-queue/backpressure model, complete observability/tracing and all shutdown/recovery behavior are not fully ported.
+- Service callback endpoint checks do not yet resolve DNS names and pin/validate every resolved IP.
+- Real PostgreSQL/NATS integration tests, crash-after-commit-before-ACK tests and stale-owner failure injection remain outstanding.
 
-## Compatibility limits: do not treat this as production parity yet
-
-The initial Rust engine is deliberately marked experimental and is not a drop-in replacement for every Go behavior. Known gaps include:
-
-- PostgreSQL only; MongoDB is not supported by the Rust runtime.
-- Rule evaluation still needs differential Go-vs-Rust tests and input-contract validation. The Rust runtime evaluates persisted compiled revisions directly; it does not provide a Rust rule-authoring/compiler API.
-- Domain-service subscription fan-out and the Go effect router's destination/security policy are not yet equivalent. The Rust external command sender uses the configured `EFFECT_DESTINATION_URL`; review this contract before enabling command/service effects.
-- Fixed replica count and initial lease acquisition are used. There is no dynamic worker membership/rebalancing protocol.
-- No Rust equivalent of the Go worker's batching/key-queue backpressure, hot-key metrics, full observability/tracing, or all shutdown/recovery behavior.
-- Integration tests against real PostgreSQL and NATS, crash-after-commit-before-ACK tests, and stale-owner failure injection are still required.
-
-Keep Go selected in production until these gaps are closed and CI plus integration tests demonstrate behavioral parity. Do not run both runtimes against the same shard concurrently.
+Keep Go selected until the Rust service passes parity and integration tests. Do not run both runtimes against the same shard at once.
 
 ## Local checks
 
 ```sh
 cd rust-worker
 cargo fmt --all
-cargo test
+cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 ```
