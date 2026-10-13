@@ -108,6 +108,44 @@ services:
     restart: unless-stopped
     networks: [flowrule]
 
+  # Alternative implementation. Start explicitly with: docker compose --profile rust up worker-rust
+  # Stop/scale down the Go worker before using this service; both contend for the same shard leases.
+  worker-rust:
+    profiles: ["rust"]
+    build:
+      context: .
+      dockerfile: Dockerfile.worker-rust
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/flowrule?sslmode=disable}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_STREAM: ${NATS_STREAM:-flowrule}
+      NATS_CONSUMER: ${RUST_NATS_CONSUMER:-flowrule-rust-worker}
+      NATS_RULESETS: ${NATS_RULESETS:-}
+      WORKER_REPLICAS: ${RUST_WORKER_REPLICAS:-3}
+      NUM_SHARDS: ${NUM_SHARDS:-4096}
+      EFFECT_DESTINATION_URL: ${EFFECT_DESTINATION_URL:-}
+      LEASE_TTL_MS: ${LEASE_TTL_MS:-30000}
+      LEASE_RENEWAL_INTERVAL_MS: ${LEASE_RENEWAL_INTERVAL_MS:-10000}
+      NATS_ACK_WAIT_MS: ${NATS_ACK_WAIT_MS:-30000}
+      EVENT_RETRY_DELAY_MS: ${EVENT_RETRY_DELAY_MS:-5000}
+      FETCH_BATCH_SIZE: ${FETCH_BATCH_SIZE:-100}
+      EFFECT_PUBLISH_INTERVAL_MS: ${EFFECT_PUBLISH_INTERVAL_MS:-5000}
+      SCHEDULER_POLL_MS: ${SCHEDULER_POLL_MS:-5000}
+      SCHEDULER_BATCH_SIZE: ${SCHEDULER_BATCH_SIZE:-100}
+    deploy:
+      replicas: ${RUST_WORKER_REPLICAS:-3}
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [flowrule]
+
   console:
     build:
       context: .
