@@ -280,7 +280,7 @@ func (m *mockQuarantine) Save(_ context.Context, entry *domain.QuarantineEntry) 
 }
 
 // Get retrieves the requested value.
-func (m *mockQuarantine) Get(_ context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
+func (m *mockQuarantine) Get(_ context.Context, _ , id string) (*domain.QuarantineEntry, error) {
 	return m.entries[id], nil
 }
 
@@ -297,12 +297,12 @@ func (m *mockQuarantine) List(_ context.Context, filter ports.QuarantineFilter) 
 }
 
 // Replay replays the selected quarantined entry.
-func (m *mockQuarantine) Replay(_ context.Context, tenantID, id string) error {
+func (m *mockQuarantine) Replay(_ context.Context, _, id string) error {
 	return nil
 }
 
 // Delete deletes the requested record.
-func (m *mockQuarantine) Delete(ctx context.Context, tenantID, id string) error {
+func (m *mockQuarantine) Delete(_ context.Context, tenantID, id string) error {
 	delete(m.entries, id)
 	return nil
 }
@@ -433,12 +433,12 @@ func newMockShardLease() *mockShardLease {
 }
 
 // Acquire provides the corresponding repository operation.
-func (m *mockShardLease) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
+func (m *mockShardLease) Acquire(_ context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: 1}, nil
 }
 
 // Renew provides the corresponding repository operation.
-func (m *mockShardLease) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
+func (m *mockShardLease) Renew(_ context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: fencingToken}, nil
 }
 
