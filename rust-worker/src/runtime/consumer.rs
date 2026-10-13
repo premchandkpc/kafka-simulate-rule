@@ -109,29 +109,59 @@ async fn process_and_settle_event(
     fencing_token: i64,
     envelope: EventEnvelope,
 ) -> Result<()> {
-    match engine::process_event(
+    let outcome = engine::process_event(
         pool, &envelope, &config.worker_id, fencing_token, config.num_shards,
-    ).await {
+    ).await;
+
+    match outcome {
         Ok(ProcessOutcome::Processed { execution_id, decision_hash, matched_rules }) => {
-            log_processed_event(shard, &envelope, &execution_id, &decision_hash, &matched_rules);
-            acknowledge_message(&message, "ack committed event").await
+            settle_processed_event(&message, shard, &envelope, &execution_id, &decision_hash, &matched_rules).await
         }
         Ok(ProcessOutcome::Duplicate { execution_id }) => {
-            info!(shard, event_id=%envelope.id, execution_id=%execution_id, "duplicate event confirmed");
-            acknowledge_message(&message, "ack confirmed duplicate").await
+            settle_duplicate_event(&message, shard, &envelope, &execution_id).await
         }
         Err(error) if is_permanent_event_error(&error) => {
             quarantine_and_ack(
                 pool, &message, &envelope.id, Some(&envelope.tenant_id), &error.to_string(),
             ).await
         }
-        Err(error) => {
-            warn!(shard, event_id=%envelope.id, error=%error, "event processing failed; scheduling retry");
-            message.ack_with(jetstream::AckKind::Nak(Some(config.retry_delay)))
-                .await.map_err(|error| anyhow!("nak failed event for retry: {error}"))?;
-            Ok(())
-        }
+        Err(error) => retry_event_later(&message, config, shard, &envelope, &error).await,
     }
+}
+
+async fn settle_processed_event(
+    message: &jetstream::Message,
+    shard: u32,
+    envelope: &EventEnvelope,
+    execution_id: &str,
+    decision_hash: &str,
+    matched_rules: &[String],
+) -> Result<()> {
+    log_processed_event(shard, envelope, execution_id, decision_hash, matched_rules);
+    acknowledge_message(message, "ack committed event").await
+}
+
+async fn settle_duplicate_event(
+    message: &jetstream::Message,
+    shard: u32,
+    envelope: &EventEnvelope,
+    execution_id: &str,
+) -> Result<()> {
+    info!(shard, event_id=%envelope.id, execution_id=%execution_id, "duplicate event confirmed");
+    acknowledge_message(message, "ack confirmed duplicate").await
+}
+
+async fn retry_event_later(
+    message: &jetstream::Message,
+    config: &Config,
+    shard: u32,
+    envelope: &EventEnvelope,
+    error: &anyhow::Error,
+) -> Result<()> {
+    warn!(shard, event_id=%envelope.id, error=%error, "event processing failed; scheduling retry");
+    message.ack_with(jetstream::AckKind::Nak(Some(config.retry_delay)))
+        .await.map_err(|error| anyhow!("nak failed event for retry: {error}"))?;
+    Ok(())
 }
 
 fn log_processed_event(
