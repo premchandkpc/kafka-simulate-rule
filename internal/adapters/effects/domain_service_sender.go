@@ -46,76 +46,98 @@ func NewDomainServiceSender(services ports.DomainServiceRepository, allowPrivate
 }
 
 func (s *DomainServiceSender) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
-	if effect == nil {
-		return errors.New("send domain service event: effect is nil")
-	}
+	event, err := validateAndDecodeEffect(effect)
+	if err != nil { return err }
+	service, err := s.loadActiveService(ctx, effect)
+	if err != nil { return err }
+	target, err := s.validateServiceEndpoint(service.EndpointURL)
+	if err != nil { return err }
+	request, err := buildServiceRequest(ctx, target, effect, event, service.ID, idempotencyKey)
+	if err != nil { return err }
+	return s.deliverRequest(request, service.ID)
+}
+
+func validateAndDecodeEffect(effect *domain.Effect) (*domain.EventEnvelope, error) {
+	if effect == nil { return nil, errors.New("send domain service event: effect is nil") }
 	if effect.TenantID == "" || effect.Destination == "" || effect.Name == "" {
-		return errors.New("send domain service event: tenant, service, and event type are required")
+		return nil, errors.New("send domain service event: tenant, service, and event type are required")
 	}
 	if effect.EffectType != domain.EffectTypeServiceEvent {
-		return fmt.Errorf("send domain service event: unsupported effect type %q", effect.EffectType)
+		return nil, fmt.Errorf("send domain service event: unsupported effect type %q", effect.EffectType)
 	}
 	if len(effect.Payload) == 0 || len(effect.Payload) > maxDomainServicePayloadBytes {
-		return fmt.Errorf("send domain service event: payload must be between 1 and %d bytes", maxDomainServicePayloadBytes)
+		return nil, fmt.Errorf("send domain service event: payload must be between 1 and %d bytes", maxDomainServicePayloadBytes)
 	}
 	var event domain.EventEnvelope
 	if err := json.Unmarshal(effect.Payload, &event); err != nil {
-		return fmt.Errorf("decode tenant service event: %w", err)
+		return nil, fmt.Errorf("decode tenant service event: %w", err)
 	}
 	if err := event.Validate(); err != nil {
-		return fmt.Errorf("validate tenant service event: %w", err)
+		return nil, fmt.Errorf("validate tenant service event: %w", err)
 	}
 	if event.TenantID != effect.TenantID || event.Type != effect.Name {
-		return errors.New("send domain service event: event identity does not match outbox effect")
+		return nil, errors.New("send domain service event: event identity does not match outbox effect")
 	}
-	if s.services == nil {
-		return errors.New("send domain service event: service repository is not configured")
-	}
+	return &event, nil
+}
+
+func (s *DomainServiceSender) loadActiveService(
+	ctx context.Context,
+	effect *domain.Effect,
+) (*domain.DomainService, error) {
+	if s.services == nil { return nil, errors.New("send domain service event: service repository is not configured") }
 	service, err := s.services.GetService(ctx, effect.TenantID, effect.Destination)
-	if err != nil {
-		return fmt.Errorf("get subscribed tenant service: %w", err)
-	}
+	if err != nil { return nil, fmt.Errorf("get subscribed tenant service: %w", err) }
 	if service == nil || !service.Active {
-		return fmt.Errorf("subscribed tenant service %q is unavailable", effect.Destination)
+		return nil, fmt.Errorf("subscribed tenant service %q is unavailable", effect.Destination)
 	}
-	target, err := url.Parse(service.EndpointURL)
+	return service, nil
+}
+
+func (s *DomainServiceSender) validateServiceEndpoint(endpoint string) (*url.URL, error) {
+	target, err := url.Parse(endpoint)
 	if err != nil || target.Hostname() == "" || !target.IsAbs() || target.Opaque != "" ||
-		target.User != nil || target.Fragment != "" || len(service.EndpointURL) > 2048 {
-		if err != nil {
-			return fmt.Errorf("parse tenant service endpoint: %w", err)
-		}
-		return errors.New("tenant service endpoint is not a valid absolute URL")
+		target.User != nil || target.Fragment != "" || len(endpoint) > 2048 {
+		if err != nil { return nil, fmt.Errorf("parse tenant service endpoint: %w", err) }
+		return nil, errors.New("tenant service endpoint is not a valid absolute URL")
 	}
 	if target.Scheme != "https" && !(s.allowPrivate && target.Scheme == "http") {
-		return fmt.Errorf("tenant service endpoint must use HTTPS")
+		return nil, fmt.Errorf("tenant service endpoint must use HTTPS")
 	}
+	return target, nil
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(effect.Payload))
-	if err != nil {
-		return fmt.Errorf("create tenant service request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", idempotencyKey)
-	req.Header.Set("X-FlowRule-Effect-ID", effect.ID)
-	req.Header.Set("X-FlowRule-Event-ID", event.ID)
-	req.Header.Set("X-FlowRule-Tenant-ID", effect.TenantID)
-	req.Header.Set("X-FlowRule-Service-ID", service.ID)
+func buildServiceRequest(
+	ctx context.Context,
+	target *url.URL,
+	effect *domain.Effect,
+	event *domain.EventEnvelope,
+	serviceID string,
+	idempotencyKey string,
+) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(effect.Payload))
+	if err != nil { return nil, fmt.Errorf("create tenant service request: %w", err) }
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", idempotencyKey)
+	request.Header.Set("X-FlowRule-Effect-ID", effect.ID)
+	request.Header.Set("X-FlowRule-Event-ID", event.ID)
+	request.Header.Set("X-FlowRule-Tenant-ID", effect.TenantID)
+	request.Header.Set("X-FlowRule-Service-ID", serviceID)
+	return request, nil
+}
 
-	response, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("deliver event to tenant service %q: %w", service.ID, err)
-	}
+func (s *DomainServiceSender) deliverRequest(request *http.Request, serviceID string) error {
+	response, err := s.client.Do(request)
+	if err != nil { return fmt.Errorf("deliver event to tenant service %q: %w", serviceID, err) }
 	defer response.Body.Close()
 	_, drainErr := io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		if drainErr != nil {
-			return fmt.Errorf("tenant service %q returned status %d; drain response: %w", service.ID, response.StatusCode, drainErr)
+			return fmt.Errorf("tenant service %q returned status %d; drain response: %w", serviceID, response.StatusCode, drainErr)
 		}
-		return fmt.Errorf("tenant service %q returned non-success status %d", service.ID, response.StatusCode)
+		return fmt.Errorf("tenant service %q returned non-success status %d", serviceID, response.StatusCode)
 	}
-	if drainErr != nil {
-		return fmt.Errorf("read tenant service %q response: %w", service.ID, drainErr)
-	}
+	if drainErr != nil { return fmt.Errorf("read tenant service %q response: %w", serviceID, drainErr) }
 	return nil
 }
 
