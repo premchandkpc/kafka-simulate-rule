@@ -10,11 +10,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// DB wraps a MongoDB client and database.
 type DB struct {
 	client   *mongo.Client
 	database *mongo.Database
 }
 
+// Config holds MongoDB connection configuration.
 type Config struct {
 	URI         string
 	Database    string
@@ -23,6 +25,7 @@ type Config struct {
 	MaxConnIdle time.Duration
 }
 
+// New creates a new MongoDB connection pool.
 func New(ctx context.Context, cfg Config) (*DB, error) {
 	if cfg.URI == "" {
 		cfg.URI = "mongodb://localhost:27017"
