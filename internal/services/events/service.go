@@ -1,3 +1,4 @@
+// Package events provides event processing services.
 package events
 
 import (
