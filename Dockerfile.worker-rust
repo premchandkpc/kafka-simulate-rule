@@ -10,7 +10,6 @@ FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /build/rust-worker/target/release/flowrule-rust-worker ./worker-rust
-COPY migrations ./migrations
 ENV APP_ENV=production \
     MIGRATIONS_DIR=/app/migrations \
     NUM_SHARDS=4096 \
