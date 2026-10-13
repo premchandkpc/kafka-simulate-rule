@@ -133,9 +133,10 @@ func (s *Service) CreateBatch(
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
 	})
+	// Batch IDs are order-independent, so use the same sorted membership order
+	// when selecting and processing the batch. This also keeps tie ordering stable.
 	if _, err := s.processGroup(ctx, members); err != nil { return nil, err }
 
-	// Preserve the request-order identity used by the existing API contract.
 	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
 	return s.batches.GetRun(ctx, batchID)
 }
