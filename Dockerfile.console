@@ -1,5 +1,5 @@
 # Build the React console, then serve static assets and proxy private services via Docker DNS.
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /repo/web/console
 COPY web/console/package.json ./
 RUN npm install --no-audit --no-fund
