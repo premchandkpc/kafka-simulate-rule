@@ -46,17 +46,53 @@ jobs:
           go mod download
           go mod verify
 
-      - name: Run root-module unit tests with race detector
-        run: go test -race -count=1 ./internal/...
+      - name: Run root-module unit tests with statement coverage
+        run: |
+          go test -race -count=1 -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage-unit.out ./internal/...
 
       - name: Run root-module example tests with race detector
         run: go test -race -count=1 ./examples/random-producer/...
 
-      - name: Run root-module integration tests with race detector
-        run: go test -race -count=1 -tags=integration ./tests/integration/...
+      - name: Run root-module integration tests with statement coverage
+        run: |
+          go test -race -count=1 -tags=integration -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage-integration.out ./tests/integration/...
 
-      - name: Run Postgres and NATS end-to-end tests
-        run: go test -tags=e2e -count=1 ./tests/e2e/...
+      - name: Run Postgres and NATS end-to-end tests with statement coverage
+        run: |
+          go test -tags=e2e -count=1 -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage-e2e.out ./tests/e2e/...
+
+      - name: Publish Go coverage summaries
+        if: always()
+        run: |
+          {
+            echo "## Go test coverage"
+            echo
+            for suite in unit integration e2e; do
+              profile="coverage-${suite}.out"
+              echo "### ${suite}"
+              if [ -f "${profile}" ]; then
+                summary="$(go tool cover -func="${profile}" | tail -n 1)"
+                echo "- ${summary}"
+              else
+                echo "- Coverage not produced (suite did not complete or did not run)."
+              fi
+              echo
+            done
+            echo "Coverage is collected over `./internal/...`. Integration and E2E numbers measure internal code exercised by their tagged test suites; they are separate from unit coverage."
+            echo "No coverage threshold is enforced."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Go coverage profiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            coverage-unit.out
+            coverage-integration.out
+            coverage-e2e.out
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Vet root-module packages
         run: go vet ./...
