@@ -1,32 +1,31 @@
-# Go worker build
-FROM golang:1.26-alpine AS go-builder
+# Build stage
+FROM golang:1.26-alpine AS builder
+
 RUN apk add --no-cache git make
+
 WORKDIR /app
+
+# Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
+
+# Copy source
 COPY . .
+
+# Build binary
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /worker ./cmd/worker
 
-# Rust alternative runtime build. Kept separate from the Go source/runtime.
-FROM rust:alpine AS rust-builder
-RUN apk add --no-cache build-base musl-dev
-WORKDIR /app
-COPY rust-worker/Cargo.toml ./Cargo.toml
-COPY rust-worker/src ./src
-RUN cargo build --release
-RUN cp target/release/flowrule-rust-worker /worker-rust
-
-# Runtime image contains both binaries; entrypoint chooses exactly one.
+# Final stage
 FROM alpine:3.24
-RUN apk add --no-cache ca-certificates tzdata
-WORKDIR /app
-COPY --from=go-builder /worker ./worker
-COPY --from=go-builder /app/migrations ./migrations
-COPY --from=rust-builder /worker-rust ./worker-rust
-COPY deploy/worker-entrypoint.sh ./worker-entrypoint.sh
 
-ENV WORKER_RUNTIME=go \
-    APP_ENV=production \
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+COPY --from=builder /worker .
+COPY --from=builder /app/migrations ./migrations
+
+ENV APP_ENV=production \
     LOG_LEVEL=info \
     SHUTDOWN_TIMEOUT=30s \
     MIGRATIONS_DIR=/app/migrations \
@@ -42,4 +41,4 @@ ENV WORKER_RUNTIME=go \
     LEASE_TTL_MS=30000 \
     LEASE_RENEWAL_INTERVAL_MS=10000
 
-ENTRYPOINT ["sh", "./worker-entrypoint.sh"]
+ENTRYPOINT ["./worker"]
