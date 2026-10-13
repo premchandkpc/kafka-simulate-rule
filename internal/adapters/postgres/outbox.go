@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"github.com/jackc/pgx/v5"
 	"context"
 	"fmt"
 	"strings"
@@ -36,50 +37,55 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 }
 
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
-	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
-		return nil, err
-	}
-	rows, err := r.db.Query(ctx, `
-		WITH candidates AS (
-			SELECT effect_id
-			FROM outbox_effects
-			WHERE (status = 'pending' AND available_at <= NOW())
-			   OR (status = 'claimed' AND claim_expires_at <= NOW())
-			ORDER BY available_at, created_at
-			LIMIT $1
-			FOR UPDATE SKIP LOCKED
-		)
-		UPDATE outbox_effects AS o
-		SET status = 'claimed',
-			claimed_by = $2,
-			claimed_at = NOW(),
-			claim_expires_at = NOW() + $3,
-			updated_at = NOW()
-		FROM candidates
-		WHERE o.effect_id = candidates.effect_id
-		RETURNING o.effect_id, o.execution_id, o.tenant_id, o.destination, o.name, o.payload, o.effect_type,
-		          o.status, o.attempts, o.max_attempts, o.available_at, o.last_error, o.created_at, o.updated_at
-	`, batchSize, owner, claimTTL)
-	if err != nil {
-		return nil, fmt.Errorf("claim pending: %w", err)
-	}
+	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil { return nil, err }
+	rows, err := r.db.Query(ctx, claimPendingOutboxSQL, batchSize, owner, claimTTL)
+	if err != nil { return nil, fmt.Errorf("claim pending: %w", err) }
 	defer rows.Close()
+	return scanOutboxEffects(rows)
+}
 
+const claimPendingOutboxSQL = `
+	WITH candidates AS (
+		SELECT effect_id
+		FROM outbox_effects
+		WHERE (status = 'pending' AND available_at <= NOW())
+		   OR (status = 'claimed' AND claim_expires_at <= NOW())
+		ORDER BY available_at, created_at
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	)
+	UPDATE outbox_effects AS o
+	SET status = 'claimed',
+		claimed_by = $2,
+		claimed_at = NOW(),
+		claim_expires_at = NOW() + $3,
+		updated_at = NOW()
+	FROM candidates
+	WHERE o.effect_id = candidates.effect_id
+	RETURNING o.effect_id, o.execution_id, o.tenant_id, o.destination, o.name, o.payload, o.effect_type,
+	          o.status, o.attempts, o.max_attempts, o.available_at, o.last_error, o.created_at, o.updated_at
+`
+
+func scanOutboxEffects(rows pgx.Rows) ([]domain.OutboxEffect, error) {
 	var effects []domain.OutboxEffect
 	for rows.Next() {
-		var ef domain.OutboxEffect
-		if err := rows.Scan(
-			&ef.ID, &ef.ExecutionID, &ef.TenantID, &ef.Destination, &ef.Name, &ef.Payload, &ef.EffectType,
-			&ef.Status, &ef.Attempts, &ef.MaxAttempts, &ef.AvailableAt, &ef.LastError, &ef.CreatedAt, &ef.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan outbox: %w", err)
-		}
-		effects = append(effects, ef)
+		effect, err := scanOutboxEffect(rows)
+		if err != nil { return nil, err }
+		effects = append(effects, effect)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate outbox rows: %w", err)
-	}
+	if err := rows.Err(); err != nil { return nil, fmt.Errorf("iterate outbox rows: %w", err) }
 	return effects, nil
+}
+
+func scanOutboxEffect(rows pgx.Rows) (domain.OutboxEffect, error) {
+	var effect domain.OutboxEffect
+	if err := rows.Scan(
+		&effect.ID, &effect.ExecutionID, &effect.TenantID, &effect.Destination, &effect.Name, &effect.Payload, &effect.EffectType,
+		&effect.Status, &effect.Attempts, &effect.MaxAttempts, &effect.AvailableAt, &effect.LastError, &effect.CreatedAt, &effect.UpdatedAt,
+	); err != nil {
+		return domain.OutboxEffect{}, fmt.Errorf("scan outbox: %w", err)
+	}
+	return effect, nil
 }
 
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
