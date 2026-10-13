@@ -63,7 +63,6 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/flowrule?sslmode=disable}
       NATS_URL: ${NATS_URL:-nats://nats:4222}
       REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
-      MIGRATIONS_DIR: /app/migrations
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:
@@ -138,6 +137,8 @@ services:
     deploy:
       replicas: ${RUST_WORKER_REPLICAS:-3}
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       nats:
