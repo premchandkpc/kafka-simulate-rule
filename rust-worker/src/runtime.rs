@@ -1,30 +1,365 @@
-//! Runtime boundary for the Rust worker.
-//!
-//! Deliberately fail closed until processing, fencing, and transaction parity is tested.
+//! Runtime wiring: PostgreSQL fencing/transactions, JetStream consumers, outbox and scheduler.
+use crate::{engine::{self, EventEnvelope, ProcessOutcome}, Config};
+use anyhow::{anyhow, Context, Result};
+use async_nats::jetstream::{self, consumer::pull};
+use chrono::{DateTime, Utc};
+use futures_util::StreamExt;
+use serde_json::{json, Value};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use std::{collections::HashMap, time::Duration};
+use tokio::{task::JoinSet, time::{interval, MissedTickBehavior}};
+use tracing::{error, info, warn};
 
-use anyhow::{bail, Result};
-use tracing::info;
+pub async fn run(config: Config) -> Result<()> {
+    let pool = PgPoolOptions::new().max_connections(20).connect(&config.database_url)
+        .await.context("connect PostgreSQL")?;
+    sqlx::query("SELECT 1").execute(&pool).await.context("verify PostgreSQL")?;
+    let client = async_nats::connect(config.nats_url.clone()).await.context("connect NATS")?;
+    let js = jetstream::new(client);
+    let _stream = js.get_stream(&config.stream).await
+        .with_context(|| format!("get JetStream stream {}", config.stream))?;
 
-pub async fn run(nats_url: String, stream: String, durable: String, subject: String) -> Result<()> {
-    // Verify connectivity, but do not create a durable consumer or pull messages yet.
-    let client = async_nats::connect(nats_url).await?;
-    let _jetstream = async_nats::jetstream::new(client);
-    info!(stream, durable, subject, "NATS connection established; Rust processing parity gate is closed");
-    bail!("Rust worker is not production-ready: event processing, lease fencing, and transactional inbox/outbox parity are not implemented")
+    let leases = acquire_initial_leases(&pool, &config).await?;
+    if leases.is_empty() {
+        bail_no_leases(&config)?;
+    }
+    info!(owned_shards = leases.len(), "Rust worker acquired shard leases");
+
+    let shutdown = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+    });
+    let mut tasks = JoinSet::new();
+    for (shard, token) in leases.iter() {
+        let subjects = subjects_for_shard(*shard, &config);
+        for (subject, durable) in subjects {
+            let pool = pool.clone();
+            let js = js.clone();
+            let config = config.clone();
+            let shard = *shard;
+            let token = *token;
+            tasks.spawn(async move {
+                if let Err(err) = consume_shard_subject(pool, js, config, shard, token, subject, durable).await {
+                    error!(shard, error = %err, "shard consumer stopped");
+                }
+            });
+        }
+    }
+
+    let outbox_pool = pool.clone();
+    let outbox_js = js.clone();
+    let outbox_config = config.clone();
+    tasks.spawn(async move {
+        if let Err(err) = outbox_loop(outbox_pool, outbox_js, outbox_config).await {
+            error!(error = %err, "outbox publisher stopped");
+        }
+    });
+
+    let scheduler_pool = pool.clone();
+    let scheduler_js = js.clone();
+    let scheduler_config = config.clone();
+    tasks.spawn(async move {
+        if let Err(err) = scheduler_loop(scheduler_pool, scheduler_js, scheduler_config).await {
+            error!(error = %err, "scheduled-event publisher stopped");
+        }
+    });
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => info!("shutdown signal received"),
+        result = tasks.join_next() => {
+            if let Some(Err(err)) = result { warn!(error=%err, "runtime task join failed"); }
+            warn!("a core runtime task exited; shutting down remaining tasks");
+        }
+    }
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+    shutdown.abort();
+    for shard in leases.keys() {
+        if let Err(err) = engine::release_lease(&pool, *shard, &config.worker_id).await {
+            warn!(shard, error=%err, "failed to release shard lease");
+        }
+    }
+    pool.close().await;
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn bail_no_leases(config: &Config) -> Result<()> {
+    Err(anyhow!("worker {} acquired no shards; check WORKER_REPLICAS and existing shard owners", config.worker_id))
+}
 
-    #[tokio::test]
-    async fn unavailable_nats_fails_without_consuming_messages() {
-        let result = run(
-            "nats://127.0.0.1:1".to_string(),
-            "flowrule".to_string(),
-            "flowrule-rust-worker".to_string(),
-            "events.shard.*".to_string(),
-        ).await;
-        assert!(result.is_err());
+async fn acquire_initial_leases(pool: &PgPool, config: &Config) -> Result<HashMap<u32, i64>> {
+    let target = config.num_shards.div_ceil(config.worker_replicas);
+    let start = engine::fnv1a32(config.worker_id.as_bytes()) % config.num_shards;
+    let ttl_ms = i64::try_from(config.lease_ttl.as_millis())?;
+    let mut leases = HashMap::with_capacity(target as usize);
+    for offset in 0..config.num_shards {
+        if leases.len() >= target as usize { break; }
+        let shard = (start + offset) % config.num_shards;
+        match engine::acquire_lease(pool, shard, &config.worker_id, ttl_ms).await {
+            Ok(Some(token)) => { leases.insert(shard, token); }
+            Ok(None) => {}
+            Err(err) => warn!(shard, error=%err, "initial shard lease attempt failed"),
+        }
     }
+    Ok(leases)
+}
+
+fn subjects_for_shard(shard: u32, config: &Config) -> Vec<(String, String)> {
+    let mut subjects = vec![(format!("events.shard.{shard}"),
+        format!("{}-legacy-shard-{shard}", config.durable))];
+    for rule_set in &config.rulesets {
+        let token = engine::sha256_hex(rule_set.as_bytes());
+        subjects.push((format!("events.ruleset.{}.shard.{shard}", token),
+            format!("{}-rs-{}-shard-{shard}", config.durable, &token[..32])));
+    }
+    subjects
+}
+
+async fn consume_shard_subject(
+    pool: PgPool,
+    js: jetstream::Context,
+    config: Config,
+    shard: u32,
+    fencing_token: i64,
+    subject: String,
+    durable: String,
+) -> Result<()> {
+    let stream = js.get_stream(&config.stream).await?;
+    let consumer = stream.get_or_create_consumer(&durable, pull::Config {
+        durable_name: Some(durable.clone()),
+        filter_subject: subject.clone(),
+        ack_wait: config.ack_wait,
+        max_deliver: -1,
+        ..Default::default()
+    }).await.with_context(|| format!("create durable {durable} for {subject}"))?;
+    let mut messages = consumer.messages().await.context("open pull consumer message stream")?;
+    let mut renew = interval(config.lease_renew_interval);
+    renew.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = renew.tick() => {
+                let ttl_ms = i64::try_from(config.lease_ttl.as_millis())?;
+                if !engine::renew_lease(&pool, shard, &config.worker_id, fencing_token, ttl_ms).await? {
+                    bail!("shard lease lost; consumer must stop");
+                }
+            }
+            maybe_message = messages.next() => {
+                let Some(message_result) = maybe_message else { bail!("JetStream consumer stream ended"); };
+                let message = message_result.context("receive JetStream message")?;
+                let envelope = match serde_json::from_slice::<EventEnvelope>(&message.payload) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        persist_quarantine(&pool, "event", "unknown", None, &message.payload, &err.to_string()).await?;
+                        message.ack().await.context("ack quarantined invalid JSON event")?;
+                        continue;
+                    }
+                };
+                let computed_shard = envelope.virtual_shard(config.num_shards)?;
+                if computed_shard != shard {
+                    let err = format!("message routed to shard {shard} but envelope hashes to {computed_shard}");
+                    persist_quarantine(&pool, "event", &envelope.id, Some(&envelope.tenant_id), &message.payload, &err).await?;
+                    message.ack().await.context("ack quarantined misrouted event")?;
+                    continue;
+                }
+                match engine::process_event(&pool, &envelope, &config.worker_id, fencing_token, config.num_shards).await {
+                    Ok(ProcessOutcome::Processed { execution_id, decision_hash, matched_rules }) => {
+                        info!(shard, event_id=%envelope.id, execution_id=%execution_id, decision_hash=%decision_hash,
+                            matched_rules=?matched_rules, "event committed");
+                        message.ack().await.context("ack committed event")?;
+                    }
+                    Ok(ProcessOutcome::Duplicate { execution_id }) => {
+                        info!(shard, event_id=%envelope.id, execution_id=%execution_id, "duplicate event confirmed");
+                        message.ack().await.context("ack confirmed duplicate")?;
+                    }
+                    Err(err) => {
+                        warn!(shard, event_id=%envelope.id, error=%err, "event processing failed; scheduling retry");
+                        message.ack_with(jetstream::AckKind::Nak(Some(config.retry_delay)))
+                            .await.context("nak failed event for retry")?;
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn persist_quarantine(
+    pool: &PgPool,
+    source_type: &str,
+    source_id: &str,
+    tenant_id: Option<&str>,
+    raw: &[u8],
+    error: &str,
+) -> Result<()> {
+    let quarantine_id = engine::sha256_hex(format!("{source_type}|{source_id}|{}", engine::sha256_hex(raw)).as_bytes());
+    sqlx::query(
+        "INSERT INTO quarantine (quarantine_id,source_type,source_id,error_class,payload_ref,event_id,tenant_id,error_message,created_at,updated_at) \
+         VALUES ($1,$2,$3,'permanent','nats:flowrule',$3,$4,$5,NOW(),NOW()) ON CONFLICT (quarantine_id) DO NOTHING"
+    ).bind(quarantine_id).bind(source_type).bind(source_id).bind(tenant_id).bind(error)
+     .execute(pool).await.context("persist quarantine record")?;
+    Ok(())
+}
+
+async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Result<()> {
+    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10)).build()?;
+    let mut ticker = interval(config.effect_poll_interval);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    loop {
+        ticker.tick().await;
+        let claim = format!("{}-{}", config.worker_id, uuid_token());
+        let rows = sqlx::query(
+            "WITH candidates AS ( \
+               SELECT effect_id FROM outbox_effects \
+               WHERE (status='pending' AND available_at<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \
+               ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT $1 \
+             ) UPDATE outbox_effects o SET status='claimed',claimed_by=$2,claimed_at=NOW(), \
+               claim_expires_at=NOW()+INTERVAL '2 minutes',updated_at=NOW() \
+             FROM candidates c WHERE o.effect_id=c.effect_id \
+             RETURNING o.effect_id,o.tenant_id,o.destination,o.name,o.payload,o.effect_type,o.attempts,o.max_attempts"
+        ).bind(i64::try_from(config.fetch_batch_size)?).bind(&claim).fetch_all(&pool).await?;
+        for row in rows {
+            let id: String = row.try_get("effect_id")?;
+            let tenant_id: String = row.try_get("tenant_id")?;
+            let destination: String = row.try_get("destination")?;
+            let name: String = row.try_get("name")?;
+            let payload: Value = row.try_get("payload")?;
+            let effect_type: String = row.try_get("effect_type")?;
+            let attempts: i32 = row.try_get("attempts")?;
+            let max_attempts: i32 = row.try_get("max_attempts")?;
+            let sent = send_effect(&pool, &js, &http, &config, &id, &tenant_id, &destination, &name, &payload, &effect_type).await;
+            match sent {
+                Ok(()) => {
+                    let result = sqlx::query(
+                        "UPDATE outbox_effects SET status='delivered',claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
+                         WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
+                    ).bind(&id).bind(&claim).execute(&pool).await?;
+                    if result.rows_affected()!=1 { warn!(effect_id=%id,"effect delivered but claim settlement was lost"); }
+                }
+                Err(err) => {
+                    let next_attempt = attempts + 1;
+                    if next_attempt >= max_attempts {
+                        persist_quarantine(&pool, "effect", &id, Some(&tenant_id), payload.to_string().as_bytes(), &err.to_string()).await?;
+                        sqlx::query(
+                            "UPDATE outbox_effects SET status='quarantined',attempts=$3,last_error=$4,claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
+                             WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
+                        ).bind(&id).bind(&claim).bind(next_attempt).bind(err.to_string()).execute(&pool).await?;
+                    } else {
+                        let delay = (1_i64 << next_attempt.clamp(1, 6)) .min(60);
+                        sqlx::query(
+                            "UPDATE outbox_effects SET status='pending',attempts=$3,last_error=$4,available_at=NOW()+($5 * INTERVAL '1 second'), \
+                             claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
+                             WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
+                        ).bind(&id).bind(&claim).bind(next_attempt).bind(err.to_string()).bind(delay).execute(&pool).await?;
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn send_effect(
+    _pool: &PgPool, js: &jetstream::Context, http: &reqwest::Client, config: &Config,
+    id: &str, _tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str,
+) -> Result<()> {
+    let idempotency_key = format!("effect-{id}");
+    match effect_type {
+        "emit" => {
+            validate_subject(destination)?;
+            js.publish(destination.to_owned(), serde_json::to_vec(payload)?.into()).await?
+                .await.context("wait for JetStream publish acknowledgement")?;
+            Ok(())
+        }
+        "emit_event" => {
+            let event: EventEnvelope = serde_json::from_value(payload.clone()).context("decode child event")?;
+            let shard = event.virtual_shard(config.num_shards)?;
+            let subject = event_subject(&event.event_type, shard, &config.rulesets);
+            js.publish(subject, serde_json::to_vec(&event)?.into()).await?
+                .await.context("wait for child-event publish acknowledgement")?;
+            Ok(())
+        }
+        "command" | "service_event" => {
+            if config.effect_destination_url.trim().is_empty() {
+                bail!("EFFECT_DESTINATION_URL is required to publish command/service effects");
+            }
+            let response = http.post(&config.effect_destination_url)
+                .header("Idempotency-Key", idempotency_key)
+                .header("X-FlowRule-Destination", destination)
+                .header("X-FlowRule-Effect-Name", name)
+                .json(&json!({"destination":destination,"name":name,"payload":payload}))
+                .send().await.context("send external effect")?;
+            if !response.status().is_success() { bail!("external effect endpoint returned {}", response.status()); }
+            Ok(())
+        }
+        other => bail!("unsupported outbox effect type {other:?}"),
+    }
+}
+
+async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Result<()> {
+    let mut ticker = interval(config.scheduler_poll_interval);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    loop {
+        ticker.tick().await;
+        let claimant = format!("scheduler-{}", uuid_token());
+        let rows = sqlx::query(
+            "WITH due AS (SELECT event_id FROM scheduled_events \
+             WHERE (status='pending' AND COALESCE(retry_at,scheduled_at)<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \
+             ORDER BY scheduled_at FOR UPDATE SKIP LOCKED LIMIT $1) \
+             UPDATE scheduled_events s SET status='claimed',claimant=$2,claimed_at=NOW(),claim_expires_at=NOW()+INTERVAL '5 minutes' \
+             FROM due WHERE s.event_id=due.event_id \
+             RETURNING s.event_id,s.tenant_id,s.event_type,s.partition_key,s.workflow_id,s.payload,s.headers,s.retry_count"
+        ).bind(config.scheduler_batch_size).bind(&claimant).fetch_all(&pool).await?;
+        for row in rows {
+            let event_id: String = row.try_get("event_id")?;
+            let tenant_id: String = row.try_get("tenant_id")?;
+            let event_type: String = row.try_get("event_type")?;
+            let partition_key: String = row.try_get("partition_key")?;
+            let workflow_id: Option<String> = row.try_get("workflow_id")?;
+            let payload: Value = row.try_get("payload")?;
+            let headers: Option<Value> = row.try_get("headers")?;
+            let retry_count: i32 = row.try_get("retry_count")?;
+            let header_map = headers.and_then(|v| serde_json::from_value::<HashMap<String,String>>(v).ok()).unwrap_or_default();
+            let event = EventEnvelope { id: event_id.clone(), event_type: event_type.clone(), tenant_id, partition_key,
+                workflow_id, occurred_at: Utc::now(), data: payload, headers: header_map };
+            let send_result = async {
+                let shard = event.virtual_shard(config.num_shards)?;
+                let subject = event_subject(&event.event_type, shard, &config.rulesets);
+                js.publish(subject, serde_json::to_vec(&event)?.into()).await?
+                    .await.context("wait for scheduled-event publish acknowledgement")?;
+                Ok::<(), anyhow::Error>(())
+            }.await;
+            match send_result {
+                Ok(()) => {
+                    sqlx::query("UPDATE scheduled_events SET status='released',released_at=NOW(),claimant=NULL,claimed_at=NULL,claim_expires_at=NULL WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()")
+                        .bind(&event_id).bind(&claimant).execute(&pool).await?;
+                }
+                Err(err) => {
+                    let next = retry_count + 1;
+                    if next >= 8 {
+                        sqlx::query("UPDATE scheduled_events SET status='failed',retry_count=$3,last_error=$4,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()")
+                            .bind(&event_id).bind(&claimant).bind(next).bind(err.to_string()).execute(&pool).await?;
+                    } else {
+                        let delay = (1_i64 << next.clamp(1, 6)).min(60);
+                        sqlx::query("UPDATE scheduled_events SET status='pending',retry_count=$3,retry_at=NOW()+($4 * INTERVAL '1 second'),last_error=$5,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()")
+                            .bind(&event_id).bind(&claimant).bind(next).bind(delay).bind(err.to_string()).execute(&pool).await?;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn event_subject(event_type: &str, shard: u32, rulesets: &[String]) -> String {
+    if rulesets.iter().any(|r| r == event_type) {
+        format!("events.ruleset.{}.shard.{shard}", engine::sha256_hex(event_type.as_bytes()))
+    } else { format!("events.shard.{shard}") }
+}
+
+fn validate_subject(subject: &str) -> Result<()> {
+    if subject.trim().is_empty() || subject.split('.').any(|part| part.is_empty() || part.contains(['*','>'])) {
+        bail!("invalid concrete NATS subject");
+    }
+    Ok(())
+}
+
+fn uuid_token() -> String {
+    format!("{}-{}", Utc::now().timestamp_nanos_opt().unwrap_or_default(), std::process::id())
 }
