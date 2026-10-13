@@ -106,8 +106,17 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 	return nil
 }
 
+// normalizeWorkflowListLimit matches the PostgreSQL adapter's default list limit.
+func normalizeWorkflowListLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	return limit
+}
+
 // GetByTenantAndState retrieves records matching the supplied criteria.
 func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error) {
+	limit = normalizeWorkflowListLimit(limit)
 	coll := r.collection(collectionWorkflowInstances)
 
 	filter := bson.D{{Key: "tenant_id", Value: tenantID}}
