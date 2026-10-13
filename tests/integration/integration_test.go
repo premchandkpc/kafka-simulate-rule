@@ -280,12 +280,12 @@ func (m *mockQuarantine) Save(_ context.Context, entry *domain.QuarantineEntry) 
 }
 
 // Get retrieves the requested value.
-func (m *mockQuarantine) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
+func (m *mockQuarantine) Get(_ context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	return m.entries[id], nil
 }
 
 // List returns matching records.
-func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
+func (m *mockQuarantine) List(_ context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	var result []*domain.QuarantineEntry
 	for _, entry := range m.entries {
 		result = append(result, entry)
@@ -297,7 +297,7 @@ func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter
 }
 
 // Replay replays the selected quarantined entry.
-func (m *mockQuarantine) Replay(ctx context.Context, tenantID, id string) error {
+func (m *mockQuarantine) Replay(_ context.Context, tenantID, id string) error {
 	return nil
 }
 
