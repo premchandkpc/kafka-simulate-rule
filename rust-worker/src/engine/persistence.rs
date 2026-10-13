@@ -3,7 +3,7 @@ use super::{sha256_hex, EventEnvelope};
 use super::rules::{Effect, RuleRevision};
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::Value;
-use sqlx::{PgPool, Postgres, Transaction, Row};
+use sqlx::{Postgres, Transaction, Row};
 
 pub(super) async fn assert_lease(tx: &mut Transaction<'_, Postgres>, shard: u32, owner: &str, token: i64) -> Result<()> {
     let row = sqlx::query(
