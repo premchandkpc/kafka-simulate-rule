@@ -1,4 +1,4 @@
-//! Rust worker process entrypoint. Go remains the default runtime.
+//! Entrypoint for the standalone Rust worker service.
 mod config;
 mod engine;
 mod runtime;
