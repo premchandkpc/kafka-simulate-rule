@@ -1,3 +1,4 @@
+// Package quarantine manages failed events and effects that require manual review.
 package quarantine
 
 import (
@@ -13,6 +14,7 @@ type Service struct {
 	repo ports.QuarantineRepository
 }
 
+// NewService constructs a quarantine service.
 func NewService(repo ports.QuarantineRepository) *Service {
 	return &Service{repo: repo}
 }
