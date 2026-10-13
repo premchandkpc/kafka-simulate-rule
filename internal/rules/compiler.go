@@ -162,67 +162,61 @@ func (c *Compiler) compileRules(rawRules []rawRule) ([]domain.CompiledRule, erro
 	seenIDs := make(map[string]bool)
 	seenPriorities := make(map[int]bool)
 	compiled := make([]domain.CompiledRule, 0, len(rawRules))
-
-	for _, r := range rawRules {
-		if r.ID == "" {
-			return nil, domain.ErrRuleIDRequired
-		}
-		if len(r.ID) > c.limits.MaxRuleIDLen {
-			return nil, domain.ErrRuleExceedsLimits
-		}
-		if seenIDs[r.ID] {
-			return nil, domain.ErrDuplicateRuleID
-		}
-		seenIDs[r.ID] = true
-
-		if seenPriorities[r.Priority] {
-			return nil, domain.ErrAmbiguousPriority
-		}
-		seenPriorities[r.Priority] = true
-
-		if err := c.validatePredicate(r.When, 0); err != nil {
-			return nil, err
-		}
-
-		predCount := countPredicates(r.When)
-		if predCount > c.limits.MaxPredicates {
-			return nil, domain.ErrRuleExceedsLimits
-		}
-
-		if len(r.Then) == 0 || len(r.Then) > c.limits.MaxActionsPerSet {
-			return nil, domain.ErrRuleExceedsLimits
-		}
-		for _, a := range r.Then {
-			if err := c.validateAction(a); err != nil {
-				return nil, err
-			}
-		}
-		if len(r.Otherwise) > c.limits.MaxActionsPerSet {
-			return nil, domain.ErrRuleExceedsLimits
-		}
-		for _, a := range r.Otherwise {
-			if err := c.validateAction(a); err != nil {
-				return nil, err
-			}
-		}
-
-		compiled = append(compiled, domain.CompiledRule{
-			ID:          r.ID,
-			Name:        r.Name,
-			Description: r.Description,
-			Tags:        r.Tags,
-			Priority:    r.Priority,
-			When:        r.When,
-			Then:        r.Then,
-			Otherwise:   r.Otherwise,
-		})
+	for _, rule := range rawRules {
+		compiledRule, err := c.compileRule(rule, seenIDs, seenPriorities)
+		if err != nil { return nil, err }
+		compiled = append(compiled, compiledRule)
 	}
-
 	sort.Slice(compiled, func(i, j int) bool {
 		return compiled[i].Priority > compiled[j].Priority
 	})
-
 	return compiled, nil
+}
+
+func (c *Compiler) compileRule(
+	rule rawRule,
+	seenIDs map[string]bool,
+	seenPriorities map[int]bool,
+) (domain.CompiledRule, error) {
+	if err := validateRuleIdentity(rule, c.limits, seenIDs, seenPriorities); err != nil {
+		return domain.CompiledRule{}, err
+	}
+	if err := c.validateRuleActions(rule); err != nil {
+		return domain.CompiledRule{}, err
+	}
+	return domain.CompiledRule{
+		ID: rule.ID, Name: rule.Name, Description: rule.Description, Tags: rule.Tags,
+		Priority: rule.Priority, When: rule.When, Then: rule.Then, Otherwise: rule.Otherwise,
+	}, nil
+}
+
+func validateRuleIdentity(
+	rule rawRule,
+	limits Limits,
+	seenIDs map[string]bool,
+	seenPriorities map[int]bool,
+) error {
+	if rule.ID == "" { return domain.ErrRuleIDRequired }
+	if len(rule.ID) > limits.MaxRuleIDLen { return domain.ErrRuleExceedsLimits }
+	if seenIDs[rule.ID] { return domain.ErrDuplicateRuleID }
+	seenIDs[rule.ID] = true
+	if seenPriorities[rule.Priority] { return domain.ErrAmbiguousPriority }
+	seenPriorities[rule.Priority] = true
+	return nil
+}
+
+func (c *Compiler) validateRuleActions(rule rawRule) error {
+	if err := c.validatePredicate(rule.When, 0); err != nil { return err }
+	if countPredicates(rule.When) > c.limits.MaxPredicates { return domain.ErrRuleExceedsLimits }
+	if len(rule.Then) == 0 || len(rule.Then) > c.limits.MaxActionsPerSet { return domain.ErrRuleExceedsLimits }
+	for _, action := range rule.Then {
+		if err := c.validateAction(action); err != nil { return err }
+	}
+	if len(rule.Otherwise) > c.limits.MaxActionsPerSet { return domain.ErrRuleExceedsLimits }
+	for _, action := range rule.Otherwise {
+		if err := c.validateAction(action); err != nil { return err }
+	}
+	return nil
 }
 
 func (c *Compiler) validatePredicate(p domain.Predicate, depth int) error {
