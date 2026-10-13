@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL persistence adapters.
 package postgres
 
 import (
@@ -11,14 +12,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ScheduledEventRepository defines the scheduled event repository operation.
 type ScheduledEventRepository struct {
 	db Querier
 }
 
+// NewScheduledEventRepository performs the new scheduled event repository operation.
 func NewScheduledEventRepository(db Querier) *ScheduledEventRepository {
 	return &ScheduledEventRepository{db: db}
 }
 
+// Save performs the save operation.
 func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.ScheduledEvent) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO scheduled_events (event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at)
@@ -31,6 +35,7 @@ func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.Sched
 	return nil
 }
 
+// GetDue performs the get due operation.
 func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error) {
 	if limit <= 0 {
 		limit = 100
@@ -50,6 +55,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	return scanScheduledEvents(rows)
 }
 
+// Claim performs the claim operation.
 func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
 	if len(eventIDs) == 0 {
 		return nil, nil
@@ -108,6 +114,7 @@ func scheduledClaimArguments(eventIDs []string, claimant string, now, expiresAt 
 	return args
 }
 
+// MarkReleased performs the mark released operation.
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
@@ -124,6 +131,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 	return nil
 }
 
+// ScheduleRetry performs the schedule retry operation.
 func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, claimant string, retryAt time.Time, errMsg string) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
@@ -140,6 +148,7 @@ func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, c
 	return nil
 }
 
+// MarkFailed performs the mark failed operation.
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scheduled_events
@@ -156,6 +165,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 	return nil
 }
 
+// Get performs the get operation.
 func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error) {
 	var evt domain.ScheduledEvent
 	var releasedAt *time.Time
@@ -178,6 +188,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 	return &evt, nil
 }
 
+// List performs the list operation.
 func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error) {
 	if limit <= 0 {
 		limit = 100
