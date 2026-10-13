@@ -128,7 +128,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::rules::*;
+    use super::rules::{Action, Predicate, build_effect, compare_eq, eval_predicate, expand_template};
 
     #[test]
     fn shard_hash_matches_fnv1a_contract() {
