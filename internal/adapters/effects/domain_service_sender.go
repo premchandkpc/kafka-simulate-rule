@@ -193,33 +193,34 @@ func dialResolvedDomainServiceIPs(
 }
 
 func isPublicIP(ip net.IP) bool {
-	if ip == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() || !ip.IsGlobalUnicast() {
-		return false
+	if isNonPublicAddress(ip) { return false }
+	if ip4 := ip.To4(); ip4 != nil { return !isInCIDRList(ip4, reservedIPv4CIDRs) }
+	return !isInCIDRList(ip, reservedIPv6CIDRs)
+}
+
+func isNonPublicAddress(ip net.IP) bool {
+	return ip == nil || ip.IsPrivate() || ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast() || !ip.IsGlobalUnicast()
+}
+
+var reservedIPv4CIDRs = []string{
+	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.88.99.0/24",
+	"192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24",
+	"203.0.113.0/24", "240.0.0.0/4",
+}
+
+var reservedIPv6CIDRs = []string{
+	"::/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64",
+	"2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "fec0::/10",
+}
+
+func isInCIDRList(ip net.IP, cidrs []string) bool {
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil && network.Contains(ip) { return true }
 	}
-	if ip4 := ip.To4(); ip4 != nil {
-		for _, cidr := range []string{
-			"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.88.99.0/24",
-			"192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24",
-			"203.0.113.0/24", "240.0.0.0/4",
-		} {
-			_, network, _ := net.ParseCIDR(cidr)
-			if network.Contains(ip4) {
-				return false
-			}
-		}
-		return true
-	}
-	for _, cidr := range []string{
-		"::/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64",
-		"2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "fec0::/10",
-	} {
-		_, network, _ := net.ParseCIDR(cidr)
-		if network.Contains(ip) {
-			return false
-		}
-	}
-	return true
+	return false
 }
 
 var _ ports.EffectSender = (*DomainServiceSender)(nil)
