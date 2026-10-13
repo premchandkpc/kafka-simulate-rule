@@ -72,18 +72,26 @@ type batchGroupKey struct {
 }
 
 func (s *Service) Tick(ctx context.Context) (int, error) {
-	if s.cfg.Mode == domain.BatchModeNone { return 0, nil }
+	if s.cfg.Mode == domain.BatchModeNone {
+	    return 0, nil
+	}
 	entries, err := s.loadUnbatchedEntries(ctx)
-	if err != nil { return 0, err }
+	if err != nil {
+	    return 0, err
+	}
 	groups, order := groupInboxEntries(entries)
 	return s.processReadyGroups(ctx, groups, order)
 }
 
 func (s *Service) loadUnbatchedEntries(ctx context.Context) ([]*domain.InboxEntry, error) {
 	limit := s.cfg.MaxBatch * 10
-	if limit <= 0 { limit = 400 }
+	if limit <= 0 {
+	    limit = 400
+	}
 	entries, err := s.batches.ListUnbatched(ctx, limit)
-	if err != nil { return nil, fmt.Errorf("list unbatched: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("list unbatched: %w", err)
+	}
 	return entries, nil
 }
 
@@ -91,9 +99,13 @@ func groupInboxEntries(entries []*domain.InboxEntry) (map[batchGroupKey][]*domai
 	groups := make(map[batchGroupKey][]*domain.InboxEntry)
 	order := make([]batchGroupKey, 0)
 	for _, entry := range entries {
-		if entry.TenantID == "" || entry.PartitionKey == "" || entry.RuleSet == "" { continue }
+		if entry.TenantID == "" || entry.PartitionKey == "" || entry.RuleSet == "" {
+		    continue
+		}
 		key := batchGroupKey{tenantID: entry.TenantID, partitionKey: entry.PartitionKey, ruleSet: entry.RuleSet}
-		if _, exists := groups[key]; !exists { order = append(order, key) }
+		if _, exists := groups[key]; !exists {
+		    order = append(order, key)
+		}
 		groups[key] = append(groups[key], entry)
 	}
 	return groups, order
@@ -110,10 +122,16 @@ func (s *Service) processReadyGroups(
 		sort.SliceStable(members, func(i, j int) bool {
 			return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
 		})
-		if !s.ready(members) { continue }
-		if !s.ownsPartition(members[0].TenantID, members[0].PartitionKey) { continue }
+		if !s.ready(members) {
+		    continue
+		}
+		if !s.ownsPartition(members[0].TenantID, members[0].PartitionKey) {
+		    continue
+		}
 		count, err := s.processGroup(ctx, members)
-		if err != nil { return formed, err }
+		if err != nil {
+		    return formed, err
+		}
 		formed += count
 	}
 	return formed, nil
@@ -129,13 +147,17 @@ func (s *Service) CreateBatch(
 		return nil, err
 	}
 	members, err := s.loadManualBatchMembers(ctx, tenantID, partitionKey, ruleSet, eventIDs)
-	if err != nil { return nil, err }
+	if err != nil {
+	    return nil, err
+	}
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
 	})
 	// Batch IDs are order-independent, so use the same sorted membership order
 	// when selecting and processing the batch. This also keeps tie ordering stable.
-	if _, err := s.processGroup(ctx, members); err != nil { return nil, err }
+	if _, err := s.processGroup(ctx, members); err != nil {
+	    return nil, err
+	}
 
 	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
 	return s.batches.GetRun(ctx, batchID)
@@ -145,8 +167,12 @@ func (s *Service) validateManualBatchRequest(
 	tenantID, partitionKey, ruleSet string,
 	eventIDs []string,
 ) error {
-	if s.events == nil { return domain.ErrBatchProcessingUnavailable }
-	if len(eventIDs) == 0 { return fmt.Errorf("no event IDs provided") }
+	if s.events == nil {
+	    return domain.ErrBatchProcessingUnavailable
+	}
+	if len(eventIDs) == 0 {
+	    return fmt.Errorf("no event IDs provided")
+	}
 	if tenantID == "" || partitionKey == "" || ruleSet == "" {
 		return fmt.Errorf("tenant, partition key, and rule set are required")
 	}
@@ -159,8 +185,12 @@ func (s *Service) validateManualBatchRequest(
 func validateUniqueEventIDs(eventIDs []string) error {
 	seen := make(map[string]struct{}, len(eventIDs))
 	for _, id := range eventIDs {
-		if id == "" { return fmt.Errorf("event IDs must not be empty") }
-		if _, exists := seen[id]; exists { return fmt.Errorf("duplicate event ID %q", id) }
+		if id == "" {
+		    return fmt.Errorf("event IDs must not be empty")
+		}
+		if _, exists := seen[id]; exists {
+		    return fmt.Errorf("duplicate event ID %q", id)
+		}
 		seen[id] = struct{}{}
 	}
 	return nil
@@ -172,15 +202,23 @@ func (s *Service) loadManualBatchMembers(
 	eventIDs []string,
 ) ([]*domain.InboxEntry, error) {
 	members, err := s.batches.ListUnbatchedByIDs(ctx, tenantID, partitionKey, ruleSet, eventIDs)
-	if err != nil { return nil, fmt.Errorf("list requested unbatched events: %w", err) }
-	if err := validateRequestedBatchMembers(eventIDs, members); err != nil { return nil, err }
+	if err != nil {
+	    return nil, fmt.Errorf("list requested unbatched events: %w", err)
+	}
+	if err := validateRequestedBatchMembers(eventIDs, members); err != nil {
+	    return nil, err
+	}
 	return members, nil
 }
 
 func validateRequestedBatchMembers(eventIDs []string, members []*domain.InboxEntry) error {
-	if len(members) == len(eventIDs) { return nil }
+	if len(members) == len(eventIDs) {
+	    return nil
+	}
 	found := make(map[string]struct{}, len(members))
-	for _, member := range members { found[member.EventID] = struct{}{} }
+	for _, member := range members {
+	    found[member.EventID] = struct{}{}
+	}
 	for _, id := range eventIDs {
 		if _, ok := found[id]; !ok {
 			return fmt.Errorf("requested event %q is missing, already batched, or outside the requested scope", id)
@@ -211,23 +249,35 @@ func (s *Service) ready(members []*domain.InboxEntry) bool {
 }
 
 func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry) (int, error) {
-	if s.events == nil { return 0, domain.ErrBatchProcessingUnavailable }
-	if len(members) == 0 { return 0, nil }
+	if s.events == nil {
+	    return 0, domain.ErrBatchProcessingUnavailable
+	}
+	if len(members) == 0 {
+	    return 0, nil
+	}
 
 	members = s.limitBatchMembers(members)
 	input := buildBatchInput(members)
 	existing, err := s.batches.GetRun(ctx, input.batchID)
-	if err != nil { return 0, fmt.Errorf("check existing batch: %w", err) }
+	if err != nil {
+	    return 0, fmt.Errorf("check existing batch: %w", err)
+	}
 	if existing != nil && existing.Status == domain.BatchRunStatusCompleted {
 		return s.recoverCompletedBatch(ctx, existing, input.eventIDs)
 	}
 
 	now := s.clock.Now()
 	envelope, windowFrom, err := s.buildBatchEnvelope(input, now)
-	if err != nil { return 0, err }
+	if err != nil {
+	    return 0, err
+	}
 	execution, err := s.processBatchEnvelope(ctx, envelope)
-	if err != nil { return 0, err }
-	if execution == nil { return 0, nil }
+	if err != nil {
+	    return 0, err
+	}
+	if execution == nil {
+	    return 0, nil
+	}
 
 	run := buildCompletedBatchRun(input, execution, windowFrom, now)
 	if err := s.batches.CompleteBatch(ctx, run, input.eventIDs); err != nil {
@@ -291,7 +341,9 @@ func (s *Service) buildBatchEnvelope(input batchInput, now time.Time) (*domain.E
 		RuleSet: input.ruleSet, WindowFrom: windowFrom, WindowTo: now, Events: input.batchEvents,
 	}
 	data, err := json.Marshal(payload)
-	if err != nil { return nil, time.Time{}, fmt.Errorf("marshal batch data: %w", err) }
+	if err != nil {
+	    return nil, time.Time{}, fmt.Errorf("marshal batch data: %w", err)
+	}
 	envelope := &domain.EventEnvelope{
 		ID: input.batchID, Type: domain.BatchRuleSet(input.ruleSet), TenantID: input.tenantID,
 		PartitionKey: input.partitionKey, OccurredAt: now, Data: data,
@@ -304,9 +356,13 @@ func (s *Service) processBatchEnvelope(ctx context.Context, envelope *domain.Eve
 		return nil, fmt.Errorf("batch processing requires a configured shard lease provider and worker ID")
 	}
 	shard := envelope.VirtualShard(s.numShards)
-	if !s.leaseProvider.IsOwner(shard) { return nil, domain.ErrFencingTokenMismatch }
+	if !s.leaseProvider.IsOwner(shard) {
+	    return nil, domain.ErrFencingTokenMismatch
+	}
 	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
-	if !ok || fencingToken <= 0 { return nil, domain.ErrFencingTokenMismatch }
+	if !ok || fencingToken <= 0 {
+	    return nil, domain.ErrFencingTokenMismatch
+	}
 	execution, err := s.events.Process(ctx, envelope, fencingToken, shard, s.workerID)
 	if err != nil {
 		if errors.Is(err, domain.ErrRuleNotActive) || errors.Is(err, domain.ErrRuleNotFound) {
