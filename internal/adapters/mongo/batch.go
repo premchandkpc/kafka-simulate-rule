@@ -243,6 +243,7 @@ func (r *BatchRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// BatchRunDoc is the MongoDB representation of a batch run.
 type BatchRunDoc struct {
 	BatchID      string     `bson:"batch_id"`
 	TenantID     string     `bson:"tenant_id"`
@@ -257,6 +258,7 @@ type BatchRunDoc struct {
 	CreatedAt    time.Time  `bson:"created_at"`
 }
 
+// BatchRunDocFromDomain converts a domain batch run to its MongoDB representation.
 func BatchRunDocFromDomain(run *domain.BatchRun) BatchRunDoc {
 	return BatchRunDoc{
 		BatchID:      run.BatchID,
@@ -273,6 +275,7 @@ func BatchRunDocFromDomain(run *domain.BatchRun) BatchRunDoc {
 	}
 }
 
+// ToDomain converts the MongoDB batch run document to a domain batch run.
 func (d *BatchRunDoc) ToDomain() *domain.BatchRun {
 	return &domain.BatchRun{
 		BatchID:      d.BatchID,
