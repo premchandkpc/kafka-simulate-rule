@@ -25,7 +25,7 @@ The Go rule API remains responsible for authoring and activating rule revisions.
 The initial Rust engine is deliberately marked experimental and is not a drop-in replacement for every Go behavior. Known gaps include:
 
 - PostgreSQL only; MongoDB is not supported by the Rust runtime.
-- Rule evaluation does not yet port every Go behavior, including template interpolation, complete explanation/facts handling, and input-contract validation. Predicate/action parity needs differential tests against the Go engine.
+- Rule evaluation still needs differential Go-vs-Rust tests and input-contract validation. The Rust runtime evaluates persisted compiled revisions directly; it does not provide a Rust rule-authoring/compiler API.
 - Domain-service subscription fan-out and the Go effect router's destination/security policy are not yet equivalent. The Rust external command sender uses the configured `EFFECT_DESTINATION_URL`; review this contract before enabling command/service effects.
 - Fixed replica count and initial lease acquisition are used. There is no dynamic worker membership/rebalancing protocol.
 - No Rust equivalent of the Go worker's batching/key-queue backpressure, hot-key metrics, full observability/tracing, or all shutdown/recovery behavior.
