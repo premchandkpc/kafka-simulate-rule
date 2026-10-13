@@ -11,7 +11,8 @@ on:
     branches: [main, "feat/**"]
     paths:
       - "rust-worker/**"
-      - "Dockerfile.worker"
+      - "Dockerfile.worker-rust"
+      - "docker-compose.yml"
       - ".github/workflows/rust-worker.yml"
 
 permissions:
