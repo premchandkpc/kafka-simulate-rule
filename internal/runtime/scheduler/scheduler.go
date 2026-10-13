@@ -118,7 +118,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 		log.Printf("scheduler: get due events: %v", err)
 		return
 	}
-	if len(events) == 0 { return }
+	if len(events) == 0 {
+	    return
+	}
 
 	claimant := "scheduler-" + domain.NewID()
 	claimed, err := s.claimDueEvents(ctx, events, claimant)
@@ -143,7 +145,9 @@ func (s *Scheduler) claimDueEvents(
 
 func scheduledEventIDs(events []*domain.ScheduledEvent) []string {
 	ids := make([]string, 0, len(events))
-	for _, event := range events { ids = append(ids, event.EventID) }
+	for _, event := range events {
+	    ids = append(ids, event.EventID)
+	}
 	return ids
 }
 
