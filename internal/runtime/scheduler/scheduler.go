@@ -113,60 +113,73 @@ func (s *Scheduler) runLoop(ctx context.Context) {
 }
 
 func (s *Scheduler) tick(ctx context.Context) {
-	now := s.clock.Now()
-
-	events, err := s.repo.GetDue(ctx, now, s.batchSize)
+	events, err := s.repo.GetDue(ctx, s.clock.Now(), s.batchSize)
 	if err != nil {
 		log.Printf("scheduler: get due events: %v", err)
 		return
 	}
+	if len(events) == 0 { return }
 
-	if len(events) == 0 {
-		return
-	}
-
-	// Claim the events with a lease to prevent duplicate processing
-	eventIDs := make([]string, len(events))
-	for i, evt := range events {
-		eventIDs[i] = evt.EventID
-	}
-
-	// Give each claim batch a unique token. A later tick must not be able to
-	// settle work claimed by an earlier tick after that claim has expired.
 	claimant := "scheduler-" + domain.NewID()
-	claimedEvents, err := s.repo.Claim(ctx, eventIDs, claimant, 5*time.Minute)
+	claimed, err := s.claimDueEvents(ctx, events, claimant)
 	if err != nil {
 		log.Printf("scheduler: claim events: %v", err)
 		return
 	}
+	log.Printf("scheduler: releasing %d scheduled events", len(claimed))
+	for _, event := range claimed {
+		s.processClaimedEvent(ctx, event, claimant)
+	}
+}
 
-	log.Printf("scheduler: releasing %d scheduled events", len(claimedEvents))
+func (s *Scheduler) claimDueEvents(
+	ctx context.Context,
+	events []*domain.ScheduledEvent,
+	claimant string,
+) ([]*domain.ScheduledEvent, error) {
+	eventIDs := scheduledEventIDs(events)
+	return s.repo.Claim(ctx, eventIDs, claimant, 5*time.Minute)
+}
 
-	for _, evt := range claimedEvents {
-		// Use idempotency key based on event ID to prevent duplicate publication
-		idempotencyKey := fmt.Sprintf("sched-%s", evt.EventID)
-		if err := s.releaseEvent(ctx, evt, idempotencyKey); err != nil {
-			log.Printf("scheduler: release event %s: %v", evt.EventID, err)
-			nextAttempt := evt.RetryCount + 1
-			if nextAttempt >= maxScheduledEventAttempts {
-				if markErr := s.repo.MarkFailed(ctx, evt.EventID, claimant, err.Error()); markErr != nil {
-					log.Printf("scheduler: mark failed %s: %v", evt.EventID, markErr)
-				}
-				continue
-			}
+func scheduledEventIDs(events []*domain.ScheduledEvent) []string {
+	ids := make([]string, 0, len(events))
+	for _, event := range events { ids = append(ids, event.EventID) }
+	return ids
+}
 
-			retryAt := s.clock.Now().Add(scheduledRetryDelay(nextAttempt))
-			if retryErr := s.repo.ScheduleRetry(ctx, evt.EventID, claimant, retryAt, err.Error()); retryErr != nil {
-				log.Printf("scheduler: schedule retry %s: %v", evt.EventID, retryErr)
-			}
-			continue
+func (s *Scheduler) processClaimedEvent(ctx context.Context, event *domain.ScheduledEvent, claimant string) {
+	idempotencyKey := fmt.Sprintf("sched-%s", event.EventID)
+	if err := s.releaseEvent(ctx, event, idempotencyKey); err != nil {
+		s.handleReleaseFailure(ctx, event, claimant, err)
+		return
+	}
+	s.markEventReleased(ctx, event, claimant)
+}
+
+func (s *Scheduler) handleReleaseFailure(
+	ctx context.Context,
+	event *domain.ScheduledEvent,
+	claimant string,
+	releaseErr error,
+) {
+	log.Printf("scheduler: release event %s: %v", event.EventID, releaseErr)
+	nextAttempt := event.RetryCount + 1
+	if nextAttempt >= maxScheduledEventAttempts {
+		if err := s.repo.MarkFailed(ctx, event.EventID, claimant, releaseErr.Error()); err != nil {
+			log.Printf("scheduler: mark failed %s: %v", event.EventID, err)
 		}
+		return
+	}
+	retryAt := s.clock.Now().Add(scheduledRetryDelay(nextAttempt))
+	if err := s.repo.ScheduleRetry(ctx, event.EventID, claimant, retryAt, releaseErr.Error()); err != nil {
+		log.Printf("scheduler: schedule retry %s: %v", event.EventID, err)
+	}
+}
 
-		// Settle using the current time, not the tick's start time. Claim expiry
-		// must be checked against the actual publish completion time.
-		if err := s.repo.MarkReleased(ctx, evt.EventID, claimant, s.clock.Now()); err != nil {
-			log.Printf("scheduler: mark released %s: %v", evt.EventID, err)
-		}
+func (s *Scheduler) markEventReleased(ctx context.Context, event *domain.ScheduledEvent, claimant string) {
+	// Use completion time so lease expiry is checked against the actual publish result.
+	if err := s.repo.MarkReleased(ctx, event.EventID, claimant, s.clock.Now()); err != nil {
+		log.Printf("scheduler: mark released %s: %v", event.EventID, err)
 	}
 }
 
