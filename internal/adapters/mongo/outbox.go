@@ -15,10 +15,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// OutboxRepository stores and manages pending side effects.
 type OutboxRepository struct {
 	querier Querier
 }
 
+// NewOutboxRepository creates and returns the configured repository.
 func NewOutboxRepository(q Querier) *OutboxRepository {
 	return &OutboxRepository{querier: q}
 }
@@ -27,6 +29,7 @@ func (r *OutboxRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Insert persists or updates the corresponding record.
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	coll := r.collection(collectionOutboxEffects)
 	if len(effects) == 0 {
@@ -52,6 +55,7 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 	return nil
 }
 
+// ClaimPending claims pending records for processing.
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
 		return nil, err
@@ -140,6 +144,7 @@ func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *doma
 	effect.TenantID = execution.TenantID
 	return nil
 }
+// MarkDelivered persists or updates the corresponding record.
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
 		return nil
@@ -173,6 +178,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	return nil
 }
 
+// ScheduleRetry persists or updates the corresponding record.
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
@@ -207,6 +213,7 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 	return nil
 }
 
+// Quarantine persists or updates the corresponding record.
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
@@ -238,6 +245,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 	return nil
 }
 
+// OutboxDoc represents an outbox record stored in MongoDB.
 type OutboxDoc struct {
 	EffectID       string     `bson:"effect_id"`
 	ExecutionID    string     `bson:"execution_id"`
@@ -258,6 +266,7 @@ type OutboxDoc struct {
 	UpdatedAt      time.Time  `bson:"updated_at"`
 }
 
+// OutboxDocFromDomain converts a domain value to its MongoDB representation.
 func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	return &OutboxDoc{
 		EffectID:       ef.ID,
@@ -280,6 +289,7 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	return &domain.OutboxEffect{
 		ID:             d.EffectID,
@@ -302,6 +312,7 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	}
 }
 
+// GetByExecution retrieves records matching the supplied criteria.
 func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	coll := r.collection(collectionOutboxEffects)
 
@@ -325,6 +336,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 	return effects, nil
 }
 
+// GetPending retrieves records matching the supplied criteria.
 func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
 	limit = normalizeOutboxLimit(limit)
 	coll := r.collection(collectionOutboxEffects)

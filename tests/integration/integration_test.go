@@ -94,7 +94,7 @@ func (m *mockActivation) SetWithVersion(_ context.Context, activation *domain.Ru
 }
 
 // List returns matching records.
-func (m *mockActivation) List(_ context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
+func (m *mockActivation) List(_ context.Context, _ string) ([]*domain.RuleActivation, error) {
 	var result []*domain.RuleActivation
 	for _, act := range m.activations {
 		if act.TenantScope == tenantScope {
@@ -126,20 +126,20 @@ func (m *mockRuleRepo) Save(_ context.Context, revision *domain.RuleRevision) er
 }
 
 // Delete deletes the requested record.
-func (m *mockRuleRepo) Delete(_ context.Context, tenantScope, ruleSet string, revision int64) error {
+func (m *mockRuleRepo) Delete(_ context.Context, tenantScope, ruleSet string, _ int64) error {
 	key := tenantScope + ":" + ruleSet
 	delete(m.revisions, key)
 	return nil
 }
 
 // Get retrieves the requested value.
-func (m *mockRuleRepo) Get(_ context.Context, tenantScope, ruleSet string, revision int64) (*domain.RuleRevision, error) {
+func (m *mockRuleRepo) Get(_ context.Context, tenantScope, ruleSet string, _ int64) (*domain.RuleRevision, error) {
 	key := tenantScope + ":" + ruleSet
 	return m.revisions[key], nil
 }
 
 // List returns matching records.
-func (m *mockRuleRepo) List(_ context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
+func (m *mockRuleRepo) List(_ context.Context, _ string) ([]*domain.RuleRevision, error) {
 	var result []*domain.RuleRevision
 	for _, rev := range m.revisions {
 		result = append(result, rev)
@@ -156,18 +156,18 @@ func newMockExecutionRepo() *mockExecutionRepo {
 }
 
 // Save persists the supplied value.
-func (m *mockExecutionRepo) Save(ctx context.Context, execution *domain.Execution) error {
+func (m *mockExecutionRepo) Save(_ context.Context, execution *domain.Execution) error {
 	m.executions[execution.ID] = execution
 	return nil
 }
 
 // Get retrieves the requested value.
-func (m *mockExecutionRepo) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
+func (m *mockExecutionRepo) Get(_ context.Context, executionID string) (*domain.Execution, error) {
 	return m.executions[executionID], nil
 }
 
 // UpdateStatus persists the supplied value.
-func (m *mockExecutionRepo) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
+func (m *mockExecutionRepo) UpdateStatus(_ context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
 	if exec, ok := m.executions[executionID]; ok {
 		exec.Status = status
 		exec.Error = errMsg

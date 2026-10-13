@@ -13,10 +13,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// ScheduledEventRepository stores and manages scheduled events.
 type ScheduledEventRepository struct {
 	querier Querier
 }
 
+// NewScheduledEventRepository creates and returns the configured repository.
 func NewScheduledEventRepository(q Querier) *ScheduledEventRepository {
 	return &ScheduledEventRepository{querier: q}
 }
@@ -25,6 +27,7 @@ func (r *ScheduledEventRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Save persists or updates the corresponding record.
 func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.ScheduledEvent) error {
 	coll := r.collection(collectionScheduledEvents)
 	doc := ScheduledDocFromDomain(event)
@@ -38,6 +41,7 @@ func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.Sched
 	return nil
 }
 
+// GetDue retrieves records matching the supplied criteria.
 func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error) {
 	if limit <= 0 {
 		limit = 100
@@ -72,6 +76,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	return events, nil
 }
 
+// Claim persists or updates the corresponding record.
 func (r *ScheduledEventRepository) Claim(
 	ctx context.Context,
 	eventIDs []string,
@@ -157,6 +162,7 @@ func scheduledClaimUpdate(claimant string, now, expiresAt time.Time) bson.D {
 	}}}
 }
 
+// MarkReleased persists or updates the corresponding record.
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
 	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
@@ -177,6 +183,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 	return nil
 }
 
+// ScheduleRetry persists or updates the corresponding record.
 func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, claimant string, retryAt time.Time, errMsg string) error {
 	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
@@ -210,6 +217,7 @@ func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, c
 	return nil
 }
 
+// MarkFailed persists or updates the corresponding record.
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error {
 	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
@@ -230,6 +238,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 	return nil
 }
 
+// Get retrieves records matching the supplied criteria.
 func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error) {
 	coll := r.collection(collectionScheduledEvents)
 	var doc ScheduledDoc
@@ -243,6 +252,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 	return doc.ToDomain(), nil
 }
 
+// List returns records matching the supplied criteria.
 func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error) {
 	if limit <= 0 {
 		limit = 100
@@ -280,6 +290,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 	return events, nil
 }
 
+// Cancel persists or updates the corresponding record.
 func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID string) error {
 	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
@@ -295,6 +306,7 @@ func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID
 	return nil
 }
 
+// ScheduledDoc represents a scheduled event stored in MongoDB.
 type ScheduledDoc struct {
 	EventID        string            `bson:"event_id"`
 	TenantID       string            `bson:"tenant_id"`
@@ -315,6 +327,7 @@ type ScheduledDoc struct {
 	RetryCount     int               `bson:"retry_count,omitempty"`
 }
 
+// ScheduledDocFromDomain converts a domain value to its MongoDB representation.
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 	return &ScheduledDoc{
 		EventID:      event.EventID,
@@ -334,6 +347,7 @@ func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 	var payload json.RawMessage
 	if d.Payload != nil {
