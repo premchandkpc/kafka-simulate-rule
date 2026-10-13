@@ -63,30 +63,64 @@ pub async fn process_event(
     fencing_token: i64,
     num_shards: u32,
 ) -> Result<ProcessOutcome> {
-    envelope.validate()?;
-    validate_worker_lease(worker_id, fencing_token)?;
+    validate_event_for_processing(envelope, worker_id, fencing_token)?;
     let shard = envelope.virtual_shard(num_shards)?;
     let mut tx = pool.begin().await.context("begin event transaction")?;
     persistence::assert_lease(&mut tx, shard, worker_id, fencing_token).await?;
 
     if !persistence::insert_inbox(&mut tx, envelope).await? {
-        let execution_id = persistence::load_duplicate_execution(&mut tx, envelope).await?;
-        tx.commit().await.context("commit duplicate acknowledgement transaction")?;
-        return Ok(ProcessOutcome::Duplicate { execution_id });
+        return commit_duplicate_event(&mut tx, envelope).await;
     }
 
-    let revision = persistence::load_active_revision(&mut tx, envelope).await?;
+    let outcome = persist_new_event(&mut tx, envelope).await?;
+    tx.commit().await.context("commit event transaction")?;
+    Ok(outcome)
+}
+
+fn validate_event_for_processing(
+    envelope: &EventEnvelope,
+    worker_id: &str,
+    fencing_token: i64,
+) -> Result<()> {
+    envelope.validate()?;
+    validate_worker_lease(worker_id, fencing_token)
+}
+
+async fn commit_duplicate_event(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    envelope: &EventEnvelope,
+) -> Result<ProcessOutcome> {
+    let execution_id = persistence::load_duplicate_execution(tx, envelope).await?;
+    tx.commit().await.context("commit duplicate acknowledgement transaction")?;
+    Ok(ProcessOutcome::Duplicate { execution_id })
+}
+
+async fn persist_new_event(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    envelope: &EventEnvelope,
+) -> Result<ProcessOutcome> {
+    let revision = persistence::load_active_revision(tx, envelope).await?;
     let (matched_rules, mut effects) = rules::evaluate(&revision, envelope)?;
     let decision_hash = calculate_decision_hash(&revision, envelope, &matched_rules, &effects);
-    effects.extend(persistence::load_service_subscriber_effects(&mut tx, envelope).await?);
+    effects.extend(persistence::load_service_subscriber_effects(tx, envelope).await?);
     let execution_id = calculate_execution_id(envelope, revision.revision);
 
-    persistence::persist_execution(&mut tx, &execution_id, envelope, &revision, &decision_hash).await?;
-    persistence::persist_outbox_effects(&mut tx, &execution_id, &effects).await?;
-    persistence::mark_inbox_committed(&mut tx, envelope, &execution_id).await?;
-    tx.commit().await.context("commit event transaction")?;
+    persist_execution_result(tx, &execution_id, envelope, &revision, &decision_hash, &effects).await?;
 
     Ok(ProcessOutcome::Processed { execution_id, decision_hash, matched_rules })
+}
+
+async fn persist_execution_result(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    execution_id: &str,
+    envelope: &EventEnvelope,
+    revision: &RuleRevision,
+    decision_hash: &str,
+    effects: &[Effect],
+) -> Result<()> {
+    persistence::persist_execution(tx, execution_id, envelope, revision, decision_hash).await?;
+    persistence::persist_outbox_effects(tx, execution_id, effects).await?;
+    persistence::mark_inbox_committed(tx, envelope, execution_id).await
 }
 
 fn validate_worker_lease(worker_id: &str, fencing_token: i64) -> Result<()> {
