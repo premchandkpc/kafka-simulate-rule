@@ -63,7 +63,7 @@ func (d *DB) RunMigrations(ctx context.Context) error {
 	sort.Strings(files)
 
 	for _, f := range files {
-		data, err := os.ReadFile(filepath.Join(d.migrations, f))
+		data, err := os.ReadFile(filepath.Join(d.migrations, f)) // #nosec G304 -- f is enumerated from the migration directory and filtered to .sql files.
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
