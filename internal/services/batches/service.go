@@ -129,64 +129,72 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 }
 
 // CreateBatch creates a new batch from unbatched entries (manual batch formation)
-func (s *Service) CreateBatch(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) (*domain.BatchRun, error) {
-	if s.events == nil {
-		return nil, domain.ErrBatchProcessingUnavailable
+func (s *Service) CreateBatch(
+	ctx context.Context,
+	tenantID, partitionKey, ruleSet string,
+	eventIDs []string,
+) (*domain.BatchRun, error) {
+	if err := s.validateManualBatchRequest(tenantID, partitionKey, ruleSet, eventIDs); err != nil {
+		return nil, err
 	}
-	if len(eventIDs) == 0 {
-		return nil, fmt.Errorf("no event IDs provided")
-	}
-
-	if tenantID == "" || partitionKey == "" || ruleSet == "" {
-		return nil, fmt.Errorf("tenant, partition key, and rule set are required")
-	}
-	if s.cfg.MaxBatch > 0 && len(eventIDs) > s.cfg.MaxBatch {
-		return nil, fmt.Errorf("requested batch size %d exceeds maximum %d", len(eventIDs), s.cfg.MaxBatch)
-	}
-
-	// Reject duplicate IDs instead of silently changing batch membership or identity.
-	seen := make(map[string]struct{}, len(eventIDs))
-	for _, id := range eventIDs {
-		if id == "" {
-			return nil, fmt.Errorf("event IDs must not be empty")
-		}
-		if _, exists := seen[id]; exists {
-			return nil, fmt.Errorf("duplicate event ID %q", id)
-		}
-		seen[id] = struct{}{}
-	}
-
-	// Query by the exact requested IDs and business scope. A limited global
-	// listing can otherwise return unrelated rows and silently omit requested IDs.
-	members, err := s.batches.ListUnbatchedByIDs(ctx, tenantID, partitionKey, ruleSet, eventIDs)
-	if err != nil {
-		return nil, fmt.Errorf("list requested unbatched events: %w", err)
-	}
-	if len(members) != len(seen) {
-		found := make(map[string]struct{}, len(members))
-		for _, member := range members {
-			found[member.EventID] = struct{}{}
-		}
-		for id := range seen {
-			if _, ok := found[id]; !ok {
-				return nil, fmt.Errorf("requested event %q is missing, already batched, or outside the requested scope", id)
-			}
-		}
-		return nil, fmt.Errorf("requested event set is incomplete")
-	}
-
+	members, err := s.loadManualBatchMembers(ctx, tenantID, partitionKey, ruleSet, eventIDs)
+	if err != nil { return nil, err }
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
 	})
+	if _, err := s.processGroup(ctx, members); err != nil { return nil, err }
 
-	_, err = s.processGroup(ctx, members)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return the created batch run
+	// Preserve the request-order identity used by the existing API contract.
 	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
 	return s.batches.GetRun(ctx, batchID)
+}
+
+func (s *Service) validateManualBatchRequest(
+	tenantID, partitionKey, ruleSet string,
+	eventIDs []string,
+) error {
+	if s.events == nil { return domain.ErrBatchProcessingUnavailable }
+	if len(eventIDs) == 0 { return fmt.Errorf("no event IDs provided") }
+	if tenantID == "" || partitionKey == "" || ruleSet == "" {
+		return fmt.Errorf("tenant, partition key, and rule set are required")
+	}
+	if s.cfg.MaxBatch > 0 && len(eventIDs) > s.cfg.MaxBatch {
+		return fmt.Errorf("requested batch size %d exceeds maximum %d", len(eventIDs), s.cfg.MaxBatch)
+	}
+	return validateUniqueEventIDs(eventIDs)
+}
+
+func validateUniqueEventIDs(eventIDs []string) error {
+	seen := make(map[string]struct{}, len(eventIDs))
+	for _, id := range eventIDs {
+		if id == "" { return fmt.Errorf("event IDs must not be empty") }
+		if _, exists := seen[id]; exists { return fmt.Errorf("duplicate event ID %q", id) }
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+func (s *Service) loadManualBatchMembers(
+	ctx context.Context,
+	tenantID, partitionKey, ruleSet string,
+	eventIDs []string,
+) ([]*domain.InboxEntry, error) {
+	members, err := s.batches.ListUnbatchedByIDs(ctx, tenantID, partitionKey, ruleSet, eventIDs)
+	if err != nil { return nil, fmt.Errorf("list requested unbatched events: %w", err) }
+	if err := validateRequestedBatchMembers(eventIDs, members); err != nil { return nil, err }
+	return members, nil
+}
+
+func validateRequestedBatchMembers(eventIDs []string, members []*domain.InboxEntry) error {
+	if len(members) == len(eventIDs) { return nil }
+	found := make(map[string]struct{}, len(members))
+	for _, member := range members { found[member.EventID] = struct{}{} }
+	for _, id := range eventIDs {
+		if _, ok := found[id]; !ok {
+			return fmt.Errorf("requested event %q is missing, already batched, or outside the requested scope", id)
+		}
+	}
+	return fmt.Errorf("requested event set is incomplete")
 }
 
 // GetBatch retrieves a batch run by ID
