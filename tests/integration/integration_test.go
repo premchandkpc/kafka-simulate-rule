@@ -1,3 +1,4 @@
+// Package integration provides integration tests for event and rule processing.
 package integration
 
 import (
@@ -361,11 +362,11 @@ type mockTx struct {
 	ctx         context.Context
 }
 
-func (m *mockTx) Commit(ctx context.Context) error   { return nil }
-func (m *mockTx) Rollback(ctx context.Context) error { return nil }
+func (m *mockTx) Commit(_ context.Context) error   { return nil }
+func (m *mockTx) Rollback(_ context.Context) error { return nil }
 func (m *mockTx) Context() context.Context           { return m.ctx }
 func (m *mockTx) FencingToken() int64                { return 0 }
-func (m *mockTx) SetFencingToken(token int64)        {}
+func (m *mockTx) SetFencingToken(_ int64)        {}
 
 type mockTxManager struct {
 	tx *mockTx
