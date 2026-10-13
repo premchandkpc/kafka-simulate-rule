@@ -77,10 +77,10 @@ pub(super) struct CommandAction { destination: String, name: String, data: Value
 #[derive(Debug)]
 pub(super) struct Effect {
     pub(super) id: String,
-    tenant_id: String,
+    pub(super) tenant_id: String,
     pub(super) destination: String,
     pub(super) name: String,
-    payload: Value,
+    pub(super) payload: Value,
     pub(super) effect_type: &'static str,
 }
 
