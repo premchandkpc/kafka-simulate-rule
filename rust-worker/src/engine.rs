@@ -19,7 +19,7 @@ pub struct EventEnvelope {
     pub occurred_at: DateTime<Utc>,
     #[serde(default)]
     pub data: Value,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub headers: std::collections::HashMap<String, String>,
 }
 
@@ -391,7 +391,6 @@ fn build_effect(revision: &RuleRevision, event: &EventEnvelope, rule_id: &str, i
             "type": child_action.event_type,
             "tenant_id": event.tenant_id,
             "partition_key": partition_key,
-            "workflow_id": event.workflow_id,
             "occurred_at": Utc::now(),
             "data": interpolate_templates(&child_action.data, event, &child_id),
             "headers": {
