@@ -16,20 +16,23 @@ import (
 
 const minimumLockTTL = time.Second
 
-var (
-	ErrLockNotAcquired = errors.New("redis lock not acquired")
-	ErrLockLost        = errors.New("redis lock ownership lost")
-)
+// ErrLockNotAcquired is returned when a lock cannot be acquired.
+var ErrLockNotAcquired = errors.New("redis lock not acquired")
+
+// ErrLockLost is returned when lock ownership is lost during renewal.
+var ErrLockLost = errors.New("redis lock ownership lost")
 
 // LockManager owns distributed-lock creation independently of the key/value cache.
 type LockManager struct {
 	client *redis.Client
 }
 
+// NewLockManager creates a new LockManager from a Redis client.
 func NewLockManager(client *Client) *LockManager {
 	return &LockManager{client: client.client}
 }
 
+// Lock represents an acquired distributed lock with automatic renewal.
 type Lock struct {
 	client      *redis.Client
 	key         string
@@ -44,6 +47,7 @@ type Lock struct {
 	stopping    atomic.Bool
 }
 
+// Acquire attempts to acquire a lock and returns true if successful.
 func (m *LockManager) Acquire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	_, err := m.Lock(ctx, key, ttl)
 	if err != nil {
@@ -52,6 +56,7 @@ func (m *LockManager) Acquire(ctx context.Context, key string, ttl time.Duration
 	return true, nil
 }
 
+// Extend extends the TTL of an existing lock if the token matches.
 func (m *LockManager) Extend(ctx context.Context, key, token string, ttl time.Duration) (bool, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -71,6 +76,7 @@ func (m *LockManager) Extend(ctx context.Context, key, token string, ttl time.Du
 	return result == 1, nil
 }
 
+// Release releases a lock if the token matches.
 func (m *LockManager) Release(ctx context.Context, key, token string) (bool, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -90,6 +96,7 @@ func (m *LockManager) Release(ctx context.Context, key, token string) (bool, err
 	return result == 1, nil
 }
 
+// Lock acquires a distributed lock with automatic renewal and returns a LockGuard.
 func (m *LockManager) Lock(ctx context.Context, key string, ttl time.Duration) (ports.LockGuard, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("redis lock: context is required")
@@ -174,14 +181,17 @@ func (l *Lock) renewLoop() {
 	}
 }
 
+// Key returns the lock key.
 func (l *Lock) Key() string {
 	return l.key
 }
 
+// Token returns the lock token.
 func (l *Lock) Token() string {
 	return l.token
 }
 
+// Lost returns a channel that is closed when the lock is lost.
 func (l *Lock) Lost() <-chan struct{} {
 	return l.lost
 }

@@ -14,6 +14,7 @@ import (
 
 const maxScheduledEventAttempts = 8
 
+// Scheduler periodically claims and publishes due scheduled events.
 type Scheduler struct {
 	repo         ports.ScheduledEventRepository
 	publisher    ports.EventPublisher
@@ -29,6 +30,7 @@ type Scheduler struct {
 	wg       sync.WaitGroup
 }
 
+// NewScheduler creates a new Scheduler with the given dependencies and configuration.
 func NewScheduler(
 	repo ports.ScheduledEventRepository,
 	publisher ports.EventPublisher,
