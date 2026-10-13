@@ -443,7 +443,7 @@ func (m *mockShardLease) Renew(_ context.Context, shard uint32, owner string, fe
 }
 
 // Release provides the corresponding repository operation.
-func (m *mockShardLease) Release(_ context.Context, _ uint32, owner string) error {
+func (m *mockShardLease) Release(_ context.Context, _, _ uint32, _ string) error {
 	return nil
 }
 
@@ -453,12 +453,12 @@ func (m *mockShardLease) GetOwner(_ context.Context, shard uint32) (*domain.Shar
 }
 
 // ValidateFencingToken provides the corresponding repository operation.
-func (m *mockShardLease) ValidateFencingToken(_ context.Context, shard uint32, owner string, fencingToken int64) error {
+func (m *mockShardLease) ValidateFencingToken(_ context.Context, _ uint32, owner string, fencingToken int64) error {
 	return nil
 }
 
 // AssertHeld provides the corresponding repository operation.
-func (m *mockShardLease) AssertHeld(_ context.Context, shard uint32, owner string, fencingToken int64) error {
+func (m *mockShardLease) AssertHeld(_ context.Context, _ uint32, owner string, fencingToken int64) error {
 	return nil
 }
 
