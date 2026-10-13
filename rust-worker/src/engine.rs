@@ -309,6 +309,48 @@ fn resolve_path<'a>(path: &str, root: &'a Value) -> Option<&'a Value> {
     })
 }
 
+fn interpolate_templates(value: &Value, event: &EventEnvelope, child_id: &str) -> Value {
+    match value {
+        Value::String(text) => expand_template(text, event, child_id),
+        Value::Array(items) => Value::Array(items.iter().map(|item| interpolate_templates(item, event, child_id)).collect()),
+        Value::Object(object) => {
+            let mut result = serde_json::Map::with_capacity(object.len());
+            for (key, item) in object { result.insert(key.clone(), interpolate_templates(item, event, child_id)); }
+            Value::Object(result)
+        }
+        other => other.clone(),
+    }
+}
+
+fn expand_template(text: &str, event: &EventEnvelope, child_id: &str) -> Value {
+    static PLACEHOLDER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").expect("static template regex"));
+    if !text.contains("{{") { return Value::String(text.to_owned()); }
+    if let Some(captures) = PLACEHOLDER.captures(text) {
+        if captures.get(0).is_some_and(|whole| whole.as_str() == text) {
+            return template_lookup(captures.get(1).map(|m| m.as_str()).unwrap_or_default(), event, child_id).unwrap_or(Value::String(String::new()));
+        }
+    }
+    let rendered = PLACEHOLDER.replace_all(text, |captures: &regex::Captures<'_>| {
+        match template_lookup(captures.get(1).map(|m| m.as_str()).unwrap_or_default(), event, child_id) {
+            Some(Value::String(value)) => value,
+            Some(value) => value.to_string(),
+            None => String::new(),
+        }
+    });
+    Value::String(rendered.into_owned())
+}
+
+fn template_lookup(expression: &str, event: &EventEnvelope, child_id: &str) -> Option<Value> {
+    match expression.trim() {
+        "new_id" => return Some(Value::String(child_id.to_owned())),
+        "now" => return Some(Value::String(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))),
+        _ => {},
+    }
+    let path = expression.trim();
+    let path = if path.starts_with("$.") { path.to_owned() } else { format!("$.{path}") };
+    resolve_path(&path, &event.data).cloned()
+}
+
 fn build_effect(revision: &RuleRevision, event: &EventEnvelope, rule_id: &str, index: usize, action: &Action) -> Result<Effect> {
     let effect_id = sha256_hex(format!(
         "{}|{}|{}|{}|{}|{}",
@@ -338,7 +380,7 @@ fn build_effect(revision: &RuleRevision, event: &EventEnvelope, rule_id: &str, i
             "partition_key": partition_key,
             "workflow_id": event.workflow_id,
             "occurred_at": Utc::now(),
-            "data": child_action.data,
+            "data": interpolate_templates(&child_action.data, event, &child_id),
             "headers": {
                 "flowrule_parent_event_id": event.id,
                 "flowrule_child_event_id": child_id
