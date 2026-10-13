@@ -275,7 +275,9 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	if g.ruleSet == nil { return nil, fmt.Errorf("rule set required for evaluator generation") }
 
 	file, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "evaluator.go"))
-	if err != nil { return nil, fmt.Errorf("create evaluator.go: %w", err) }
+	if err != nil {
+		return nil, fmt.Errorf("create evaluator.go: %w", err)
+	}
 	defer file.Close()
 
 	pkgName := sanitizePackageName(g.schema.Name)
