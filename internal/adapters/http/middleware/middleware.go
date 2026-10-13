@@ -1,4 +1,6 @@
 // Package middleware provides HTTP middleware for request context and authentication.
+package middleware
+// Package middleware provides HTTP middleware for request context and authentication.
 
 import (
 	"context"
