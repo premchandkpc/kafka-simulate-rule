@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flowrule/flowrule/internal/domain"
@@ -71,6 +72,19 @@ func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID
 	return doc.ToDomain(), nil
 }
 
+// batchRunListFilter always scopes batch listing to one tenant. An absent tenant
+// must fail closed rather than turn a tenant-scoped query into a global query.
+func batchRunListFilter(tenantID, ruleSet string) (bson.M, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, fmt.Errorf("tenant ID is required to list batch runs")
+	}
+	filter := bson.M{"tenant_id": tenantID}
+	if ruleSet != "" {
+		filter["rule_set"] = ruleSet
+	}
+	return filter, nil
+}
+
 // ListRuns returns batch runs for a tenant, optionally filtered by rule set.
 func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
 	if limit <= 0 {
@@ -82,12 +96,9 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if offset < 0 {
 		offset = 0
 	}
-	filter := bson.M{}
-	if tenantID != "" {
-		filter["tenant_id"] = tenantID
-	}
-	if ruleSet != "" {
-		filter["rule_set"] = ruleSet
+	filter, err := batchRunListFilter(tenantID, ruleSet)
+	if err != nil {
+		return nil, err
 	}
 	cursor, err := r.collection(collectionBatchRuns).Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "created_at", Value: -1}}).
