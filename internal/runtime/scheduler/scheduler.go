@@ -1,3 +1,4 @@
+// Package scheduler provides scheduled event processing.
 package scheduler
 
 import (
