@@ -142,39 +142,51 @@ func (s *DomainServiceSender) deliverRequest(request *http.Request, serviceID st
 }
 
 func dialDomainService(ctx context.Context, network, address string, allowPrivate bool) (net.Conn, error) {
+	host, port, err := parseDomainServiceAddress(address)
+	if err != nil { return nil, err }
+	ips, err := resolveDomainServiceIPs(ctx, host, allowPrivate)
+	if err != nil { return nil, err }
+	return dialResolvedDomainServiceIPs(ctx, network, host, port, ips)
+}
+
+func parseDomainServiceAddress(address string) (string, string, error) {
 	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, fmt.Errorf("split tenant service endpoint: %w", err)
-	}
+	if err != nil { return "", "", fmt.Errorf("split tenant service endpoint: %w", err) }
 	portNumber, err := strconv.Atoi(port)
-	if err != nil {
-		return nil, fmt.Errorf("invalid tenant service endpoint port: %w", err)
-	}
+	if err != nil { return "", "", fmt.Errorf("invalid tenant service endpoint port: %w", err) }
 	if portNumber < 1 || portNumber > 65535 {
-		return nil, fmt.Errorf("invalid tenant service endpoint port %q", port)
+		return "", "", fmt.Errorf("invalid tenant service endpoint port %q", port)
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, fmt.Errorf("resolve tenant service endpoint: %w", err)
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("tenant service endpoint %q resolved to no addresses", host)
-	}
-	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
-	var failures []error
-	for _, item := range ips {
+	return host, port, nil
+}
+
+func resolveDomainServiceIPs(ctx context.Context, host string, allowPrivate bool) ([]net.IP, error) {
+	resolved, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil { return nil, fmt.Errorf("resolve tenant service endpoint: %w", err) }
+	if len(resolved) == 0 { return nil, fmt.Errorf("tenant service endpoint %q resolved to no addresses", host) }
+	ips := make([]net.IP, 0, len(resolved))
+	for _, item := range resolved {
 		if item.IP == nil || item.IP.IsUnspecified() || item.IP.IsMulticast() {
 			return nil, fmt.Errorf("tenant service endpoint %q resolves to an invalid address", host)
 		}
 		if !allowPrivate && !isPublicIP(item.IP) {
 			return nil, fmt.Errorf("tenant service endpoint %q resolves to a non-public address", host)
 		}
+		ips = append(ips, item.IP)
 	}
-	for _, item := range ips {
-		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(item.IP.String(), port))
-		if err == nil {
-			return conn, nil
-		}
+	return ips, nil
+}
+
+func dialResolvedDomainServiceIPs(
+	ctx context.Context,
+	network, host, port string,
+	ips []net.IP,
+) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	var failures []error
+	for _, ip := range ips {
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil { return conn, nil }
 		failures = append(failures, err)
 	}
 	return nil, fmt.Errorf("connect to tenant service endpoint: %w", errors.Join(failures...))
