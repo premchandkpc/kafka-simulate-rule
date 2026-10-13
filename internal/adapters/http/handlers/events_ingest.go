@@ -133,6 +133,3 @@ func writeEventAcceptedResponse(w http.ResponseWriter, eventID string, shard uin
 		"event_id": eventID, "status": "accepted", "shard": shard,
 	})
 }
-
-
-}
