@@ -7,7 +7,7 @@ on:
       - "Dockerfile.worker"
       - ".github/workflows/rust-worker.yml"
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
     paths:
       - "rust-worker/**"
       - "Dockerfile.worker"
