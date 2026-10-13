@@ -152,7 +152,7 @@ func (r *DomainServiceRepository) ListSubscribersForEvent(ctx context.Context, t
 	if err != nil {
 		return nil, fmt.Errorf("find tenant domains for event: %w", err)
 	}
-	defer domainCursor.Close(ctx)
+	defer func() { _ = domainCursor.Close(ctx) }()
 	domainIDs := make([]string, 0)
 	for domainCursor.Next(ctx) {
 		var doc struct {
