@@ -156,7 +156,7 @@ fn calculate_execution_id(envelope: &EventEnvelope, revision: i64) -> String {
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(bytes);
-    format!("{:x}", digest.finalize())
+    digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]
