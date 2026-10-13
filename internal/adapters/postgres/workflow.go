@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL persistence adapters.
 package postgres
 
 import (
@@ -10,14 +11,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// WorkflowRepository is the PostgreSQL persistence adapter.
 type WorkflowRepository struct {
 	db Querier
 }
 
+// NewWorkflowRepository performs its documented repository operation.
 func NewWorkflowRepository(db Querier) *WorkflowRepository {
 	return &WorkflowRepository{db: db}
 }
 
+// Save performs its documented repository operation.
 func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.WorkflowInstance) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO workflow_instances (workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at)
@@ -30,6 +34,7 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.Workflow
 	return nil
 }
 
+// Get performs its documented repository operation.
 func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
 	w := &domain.WorkflowInstance{}
 	var completedAt *time.Time
@@ -51,6 +56,7 @@ func (r *WorkflowRepository) Get(ctx context.Context, tenantID, workflowID strin
 	return w, nil
 }
 
+// Update performs its documented repository operation.
 func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.WorkflowInstance) error {
 	updatedAt := workflow.UpdatedAt
 	if updatedAt.IsZero() {
@@ -70,6 +76,7 @@ func (r *WorkflowRepository) Update(ctx context.Context, workflow *domain.Workfl
 	return nil
 }
 
+// GetByTenantAndState performs its documented repository operation.
 func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error) {
 	if limit <= 0 {
 		limit = 100
@@ -108,6 +115,7 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	return workflows, nil
 }
 
+// GetByCorrelation performs its documented repository operation.
 func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at
@@ -136,14 +144,17 @@ func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, cor
 	return workflows, nil
 }
 
+// WorkflowDefinitionRepository is the PostgreSQL persistence adapter.
 type WorkflowDefinitionRepository struct {
 	db Querier
 }
 
+// NewWorkflowDefinitionRepository performs its documented repository operation.
 func NewWorkflowDefinitionRepository(db Querier) *WorkflowDefinitionRepository {
 	return &WorkflowDefinitionRepository{db: db}
 }
 
+// Save performs its documented repository operation.
 func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.WorkflowDefinition) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO workflow_definitions (workflow_type, version, states, transitions, rules, created_at, updated_at)
@@ -160,6 +171,7 @@ func (r *WorkflowDefinitionRepository) Save(ctx context.Context, def *domain.Wor
 	return nil
 }
 
+// Get performs its documented repository operation.
 func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType string, version int64) (*domain.WorkflowDefinition, error) {
 	def := &domain.WorkflowDefinition{}
 	err := r.db.QueryRow(ctx, `
@@ -178,6 +190,7 @@ func (r *WorkflowDefinitionRepository) Get(ctx context.Context, workflowType str
 	return def, nil
 }
 
+// List performs its documented repository operation.
 func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.WorkflowDefinition, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT workflow_type, version, states, transitions, rules, created_at, updated_at
@@ -202,6 +215,7 @@ func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.Work
 	return defs, nil
 }
 
+// Delete performs its documented repository operation.
 func (r *WorkflowDefinitionRepository) Delete(ctx context.Context, workflowType string, version int64) error {
 	_, err := r.db.Exec(ctx, `
 		DELETE FROM workflow_definitions WHERE workflow_type = $1 AND version = $2
