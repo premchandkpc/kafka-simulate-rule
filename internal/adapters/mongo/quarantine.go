@@ -154,15 +154,23 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	filter.Limit, filter.Offset = normalizeQuarantinePagination(filter.Limit, filter.Offset)
 	coll := r.collection(collectionQuarantine)
 
-	// Keep the query shape fixed and treat every caller-supplied filter as a
-	// literal equality operand. In particular, values must never become MongoDB
-	// query operators or nested query documents.
-	f := bson.D{{Key: "tenant_id", Value: mongoEquality(filter.TenantID)}}
-	if filter.SourceType != "" {
-		f = append(f, bson.E{Key: "source_type", Value: mongoEquality(filter.SourceType)})
+	// Normalize the optional filters to values selected from fixed allowlists.
+	// Never pass raw HTTP query parameters into the MongoDB filter.
+	sourceType, err := normalizeQuarantineSourceType(filter.SourceType)
+	if err != nil {
+		return nil, err
 	}
-	if filter.ErrorClass != "" {
-		f = append(f, bson.E{Key: "error_class", Value: mongoEquality(filter.ErrorClass)})
+	errorClass, err := normalizeQuarantineErrorClass(filter.ErrorClass)
+	if err != nil {
+		return nil, err
+	}
+
+	f := bson.D{{Key: "tenant_id", Value: mongoEquality(filter.TenantID)}}
+	if sourceType != "" {
+		f = append(f, bson.E{Key: "source_type", Value: mongoEquality(sourceType)})
+	}
+	if errorClass != "" {
+		f = append(f, bson.E{Key: "error_class", Value: mongoEquality(errorClass)})
 	}
 	if !filter.From.IsZero() || !filter.To.IsZero() {
 		dateRange := bson.D{}
@@ -270,7 +278,52 @@ func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 	}
 }
 
-// mongoEquality wraps an untrusted value in a fixed equality expression so it
+// normalizeQuarantineSourceType maps an optional filter to a known source type.
+// Returning only literals keeps caller input out of the MongoDB query structure.
+func normalizeQuarantineSourceType(value string) (string, error) {
+	switch value {
+	case "":
+		return "", nil
+	case "event":
+		return "event", nil
+	case "effect":
+		return "effect", nil
+	default:
+		return "", fmt.Errorf("invalid source_type filter")
+	}
+}
+
+// normalizeQuarantineErrorClass maps an optional filter to a known domain class.
+func normalizeQuarantineErrorClass(value string) (string, error) {
+	switch value {
+	case "":
+		return "", nil
+	case string(domain.ErrorClassValidation):
+		return string(domain.ErrorClassValidation), nil
+	case string(domain.ErrorClassRule):
+		return string(domain.ErrorClassRule), nil
+	case string(domain.ErrorClassEvaluation):
+		return string(domain.ErrorClassEvaluation), nil
+	case string(domain.ErrorClassExecution):
+		return string(domain.ErrorClassExecution), nil
+	case string(domain.ErrorClassEffect):
+		return string(domain.ErrorClassEffect), nil
+	case string(domain.ErrorClassBroker):
+		return string(domain.ErrorClassBroker), nil
+	case string(domain.ErrorClassDatabase):
+		return string(domain.ErrorClassDatabase), nil
+	case string(domain.ErrorClassAuthorization):
+		return string(domain.ErrorClassAuthorization), nil
+	case string(domain.ErrorClassQuarantine):
+		return string(domain.ErrorClassQuarantine), nil
+	case string(domain.ErrorClassInternal):
+		return string(domain.ErrorClassInternal), nil
+	default:
+		return "", fmt.Errorf("invalid error_class filter")
+	}
+}
+
+// mongoEquality wraps a normalized scalar in a fixed equality expression so it
 // is always interpreted as data, never as caller-controlled query syntax.
 func mongoEquality(value any) bson.D {
 	return bson.D{{Key: "$eq", Value: value}}
