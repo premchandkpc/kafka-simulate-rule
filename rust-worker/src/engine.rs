@@ -288,8 +288,8 @@ fn eval_predicate(predicate: &Predicate, data: &Value) -> Result<bool> {
         "gte" => compare(Some(actual), expected, |a,b| a >= b),
         "lt" => compare(Some(actual), expected, |a,b| a < b),
         "lte" => compare(Some(actual), expected, |a,b| a <= b),
-        "in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().any(|x| compare_eq(actual, Some(x))),
-        "not_in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().all(|x| !compare_eq(actual, Some(x))),
+        "in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().any(|x| compare_eq(actual, Some(x)))),
+        "not_in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().all(|x| !compare_eq(actual, Some(x)))),
         _ => bail!("unsupported predicate operator {op:?}"),
     })
 }
