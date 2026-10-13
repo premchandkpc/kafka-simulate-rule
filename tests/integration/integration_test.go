@@ -280,7 +280,7 @@ func (m *mockQuarantine) Save(_ context.Context, entry *domain.QuarantineEntry) 
 }
 
 // Get retrieves the requested value.
-func (m *mockQuarantine) Get(_ context.Context, _ , id string) (*domain.QuarantineEntry, error) {
+func (m *mockQuarantine) Get(_ context.Context, _, id string) (*domain.QuarantineEntry, error) {
 	return m.entries[id], nil
 }
 
@@ -302,7 +302,7 @@ func (m *mockQuarantine) Replay(_ context.Context, _, id string) error {
 }
 
 // Delete deletes the requested record.
-func (m *mockQuarantine) Delete(_ context.Context, tenantID, id string) error {
+func (m *mockQuarantine) Delete(_ context.Context, _, id string) error {
 	delete(m.entries, id)
 	return nil
 }
