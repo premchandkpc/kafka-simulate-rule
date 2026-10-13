@@ -63,6 +63,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/flowrule?sslmode=disable}
       NATS_URL: ${NATS_URL:-nats://nats:4222}
       REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      MIGRATIONS_DIR: /app/migrations
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:
@@ -124,7 +125,6 @@ services:
       NATS_RULESETS: ${NATS_RULESETS:-}
       WORKER_REPLICAS: ${RUST_WORKER_REPLICAS:-3}
       NUM_SHARDS: ${NUM_SHARDS:-4096}
-      MIGRATIONS_DIR: /app/migrations
       EFFECT_DESTINATION_URL: ${EFFECT_DESTINATION_URL:-}
       LEASE_TTL_MS: ${LEASE_TTL_MS:-30000}
       LEASE_RENEWAL_INTERVAL_MS: ${LEASE_RENEWAL_INTERVAL_MS:-10000}
