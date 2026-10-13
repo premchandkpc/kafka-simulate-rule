@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL persistence adapters.
 package postgres
 
 import (
@@ -17,10 +18,12 @@ type QuarantineRepository struct {
 	db Querier
 }
 
+// NewQuarantineRepository performs the new quarantine repository operation.
 func NewQuarantineRepository(db Querier) *QuarantineRepository {
 	return &QuarantineRepository{db: db}
 }
 
+// Save performs the save operation.
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO quarantine (quarantine_id, source_type, source_id, error_class, payload_ref, event_id, tenant_id, error_message, created_at, updated_at)
@@ -33,6 +36,7 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	return nil
 }
 
+// Get performs the get operation.
 func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	if tenantID == "" {
 		return nil, nil
@@ -53,6 +57,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 	return entry, nil
 }
 
+// Replay performs the replay operation.
 func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
 	if tenantID == "" {
 		return domain.ErrQuarantineNotFound
@@ -67,6 +72,7 @@ func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) 
 	return nil
 }
 
+// Delete performs the delete operation.
 func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
 	if tenantID == "" {
 		return domain.ErrQuarantineNotFound
@@ -81,6 +87,7 @@ func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) 
 	return nil
 }
 
+// List performs the list operation.
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	if filter.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id is required")
@@ -144,6 +151,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	return entries, nil
 }
 
+// QuarantineFilter defines the quarantine filter operation.
 type QuarantineFilter struct {
 	TenantID   string
 	SourceType string
