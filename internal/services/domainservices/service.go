@@ -290,7 +290,7 @@ func validateEndpoint(raw string, allowHTTP bool) error {
 	if len(raw) > 2048 || err != nil || parsed.Hostname() == "" || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" {
 		return errors.New("endpoint_url must be an absolute HTTP(S) URL without credentials or a fragment")
 	}
-	if parsed.Scheme != "https" && !(allowHTTP && parsed.Scheme == "http") {
+	if parsed.Scheme != "https" && (!allowHTTP || parsed.Scheme != "http") {
 		return errors.New("endpoint_url must use HTTPS (HTTP is allowed only in development)")
 	}
 	if port := parsed.Port(); port != "" {
