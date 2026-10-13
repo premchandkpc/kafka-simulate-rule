@@ -4,8 +4,8 @@ import "testing"
 
 func TestNormalizeQuarantineSourceType(t *testing.T) {
 	tests := []struct {
-		input string
-		want  string
+		input   string
+		want    string
 		wantErr bool
 	}{
 		{input: "", want: ""},
