@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn shard_hash_matches_fnv1a_contract() {
         assert_eq!(fnv1a32(b""), 2_166_136_261);
-        assert_eq!(fnv1a32(b"a"), 3_828_819_232);
+        assert_eq!(fnv1a32(b"a"), 3_826_002_220);
     }
 
     #[test]
