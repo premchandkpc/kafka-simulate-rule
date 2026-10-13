@@ -49,10 +49,14 @@ func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	request, ok := decodeEventIngestionRequest(w, r)
-	if !ok { return }
+	if !ok {
+	    return
+	}
 	eventType := strings.TrimSpace(r.PathValue("eventType"))
 	tenantID := middleware.GetTenantID(r.Context())
-	if !validateEventIngestionRequest(w, request, eventType, tenantID) { return }
+	if !validateEventIngestionRequest(w, request, eventType, tenantID) {
+	    return
+	}
 
 	event := buildEventEnvelope(request, eventType, tenantID)
 	if err := event.Validate(); err != nil {
@@ -121,10 +125,18 @@ func buildEventEnvelope(
 
 func buildEventHeaders(request eventIngestionRequest) map[string]string {
 	headers := make(map[string]string, len(request.Headers)+3)
-	for key, value := range request.Headers { headers[key] = value }
-	if request.CorrelationID != "" { headers["Correlation-ID"] = request.CorrelationID }
-	if request.CausationID != "" { headers["Causation-ID"] = request.CausationID }
-	if request.SchemaVersion != "" { headers["Schema-Version"] = request.SchemaVersion }
+	for key, value := range request.Headers {
+	    headers[key] = value
+	}
+	if request.CorrelationID != "" {
+	    headers["Correlation-ID"] = request.CorrelationID
+	}
+	if request.CausationID != "" {
+	    headers["Causation-ID"] = request.CausationID
+	}
+	if request.SchemaVersion != "" {
+	    headers["Schema-Version"] = request.SchemaVersion
+	}
 	return headers
 }
 
