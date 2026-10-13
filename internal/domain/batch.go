@@ -45,7 +45,9 @@ type BatchRun struct {
 }
 
 const (
-	BatchRunStatusFormed    = "formed"
+	// BatchRunStatusFormed means a batch run has been formed but not completed.
+	BatchRunStatusFormed = "formed"
+	// BatchRunStatusCompleted means a batch run has completed.
 	BatchRunStatusCompleted = "completed"
 )
 
