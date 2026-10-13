@@ -209,62 +209,76 @@ func (kq *KeyQueue) checkHotKeys() {
 }
 
 func (kq *KeyQueue) Submit(ctx context.Context, item ports.QueueItem) error {
-	if ctx == nil {
-		return errors.New("submit event: context is nil")
-	}
-	if item.Event == nil {
-		return errors.New("submit event: envelope is nil")
-	}
-
-	kq.lifecycleMu.Lock()
-	if !kq.started || kq.stopped {
-		kq.lifecycleMu.Unlock()
-		return errors.New("submit event: key queue is not running")
-	}
-	// Add while holding lifecycleMu so Stop cannot race Wait with a new Add.
-	kq.submitWG.Add(1)
-	kq.lifecycleMu.Unlock()
+	if err := validateQueueSubmission(ctx, item); err != nil { return err }
+	if err := kq.beginSubmission(); err != nil { return err }
 	defer kq.submitWG.Done()
 
+	if err := kq.acquireGlobalSlot(ctx); err != nil { return err }
+	queue := kq.registerQueueSubmitter(item.Event.PartitionKey)
+	return kq.enqueueItem(ctx, queue, item)
+}
+
+func validateQueueSubmission(ctx context.Context, item ports.QueueItem) error {
+	if ctx == nil { return errors.New("submit event: context is nil") }
+	if item.Event == nil { return errors.New("submit event: envelope is nil") }
+	return nil
+}
+
+func (kq *KeyQueue) beginSubmission() error {
+	kq.lifecycleMu.Lock()
+	defer kq.lifecycleMu.Unlock()
+	if !kq.started || kq.stopped {
+		return errors.New("submit event: key queue is not running")
+	}
+	// Add under lifecycleMu so Stop cannot race Wait with a new Add.
+	kq.submitWG.Add(1)
+	return nil
+}
+
+func (kq *KeyQueue) acquireGlobalSlot(ctx context.Context) error {
 	select {
 	case kq.globalSem <- struct{}{}:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-kq.stopSubmitting:
 		return errors.New("submit event: key queue is stopping")
 	}
+}
 
+func (kq *KeyQueue) registerQueueSubmitter(partitionKey string) *keyQueue {
 	kq.mu.Lock()
-	q, ok := kq.queues[item.Event.PartitionKey]
-	if !ok {
-		q = &keyQueue{
-			ch:           make(chan *queuedItem, kq.maxPerKey),
-			partitionKey: item.Event.PartitionKey,
+	defer kq.mu.Unlock()
+	queue, exists := kq.queues[partitionKey]
+	if !exists {
+		queue = &keyQueue{
+			ch: make(chan *queuedItem, kq.maxPerKey),
+			partitionKey: partitionKey,
 		}
-		kq.queues[item.Event.PartitionKey] = q
+		kq.queues[partitionKey] = queue
 	}
-	q.mu.Lock()
-	q.submitters++
-	q.mu.Unlock()
-	kq.mu.Unlock()
+	queue.mu.Lock()
+	queue.submitters++
+	queue.mu.Unlock()
+	return queue
+}
 
+func (kq *KeyQueue) enqueueItem(ctx context.Context, queue *keyQueue, item ports.QueueItem) error {
+	queued := &queuedItem{
+		env: item.Event, delivery: item.Delivery, fencingToken: item.FencingToken,
+		vshard: item.Shard, workerID: item.WorkerID,
+	}
 	select {
-	case q.ch <- &queuedItem{
-		env:          item.Event,
-		delivery:     item.Delivery,
-		fencingToken: item.FencingToken,
-		vshard:       item.Shard,
-		workerID:     item.WorkerID,
-	}:
-		kq.finishSubmit(q)
+	case queue.ch <- queued:
+		kq.finishSubmit(queue)
 		return nil
 	case <-ctx.Done():
 		<-kq.globalSem
-		kq.finishSubmit(q)
+		kq.finishSubmit(queue)
 		return ctx.Err()
 	case <-kq.stopSubmitting:
 		<-kq.globalSem
-		kq.finishSubmit(q)
+		kq.finishSubmit(queue)
 		return errors.New("submit event: key queue is stopping")
 	}
 }
