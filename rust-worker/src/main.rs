@@ -8,6 +8,7 @@ use tracing::{error, info};
 
 #[derive(Debug, Clone)]
 struct Config {
+    app_env: String,
     nats_url: String,
     stream: String,
     durable: String,
@@ -30,6 +31,7 @@ struct Config {
 
 impl Config {
     fn from_env() -> Result<Self> {
+        let app_env = env::var("APP_ENV").unwrap_or_else(|_| "production".into());
         let nats_url = env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".into());
         let stream = env::var("NATS_STREAM").unwrap_or_else(|_| "flowrule".into());
         let durable = env::var("NATS_CONSUMER").unwrap_or_else(|_| "flowrule-worker".into());
@@ -62,7 +64,7 @@ impl Config {
             bail!("LEASE_RENEWAL_INTERVAL_MS must be positive and no greater than one third of LEASE_TTL_MS");
         }
         if ack_wait.is_zero() || retry_delay.is_zero() || fetch_batch_size == 0 { bail!("NATS_ACK_WAIT_MS, EVENT_RETRY_DELAY_MS and FETCH_BATCH_SIZE must be > 0"); }
-        Ok(Self { nats_url, stream, durable, database_url, migrations_dir, worker_id, num_shards, worker_replicas,
+        Ok(Self { app_env, nats_url, stream, durable, database_url, migrations_dir, worker_id, num_shards, worker_replicas,
             lease_ttl, lease_renew_interval, ack_wait, retry_delay, fetch_batch_size, rulesets,
             effect_destination_url, effect_poll_interval, scheduler_poll_interval, scheduler_batch_size })
     }
