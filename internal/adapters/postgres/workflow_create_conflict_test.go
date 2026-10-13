@@ -9,11 +9,11 @@ import (
 func TestSameWorkflowCreateIdentity(t *testing.T) {
 	requested := &domain.WorkflowInstance{TenantID: "tenant-a", WorkflowType: "orders"}
 	tests := []struct {
-		name string
-		tenant string
-		typeName string
+		name      string
+		tenant    string
+		typeName  string
 		requested *domain.WorkflowInstance
-		want bool
+		want      bool
 	}{
 		{name: "same identity", tenant: "tenant-a", typeName: "orders", requested: requested, want: true},
 		{name: "different tenant", tenant: "tenant-b", typeName: "orders", requested: requested, want: false},
