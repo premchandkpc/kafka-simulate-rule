@@ -55,12 +55,16 @@ func sanitizeGeneratedOutputDir(outputDir string) (string, error) {
 
 func createGeneratedFile(outputDir, relativePath string) (*os.File, string, error) {
 	paths, err := resolveGeneratedFilePaths(outputDir, relativePath)
-	if err != nil { return nil, "", err }
+	if err != nil {
+	    return nil, "", err
+	}
 	if err := ensureGeneratedOutputDirectory(paths.volumeRoot, paths.relativeOutputDir); err != nil {
 		return nil, "", err
 	}
 	file, err := createFileWithinOutputRoot(paths.absoluteOutputDir, paths.relativePath)
-	if err != nil { return nil, "", err }
+	if err != nil {
+	    return nil, "", err
+	}
 	return file, filepath.Join(paths.outputDir, paths.relativePath), nil
 }
 
@@ -74,16 +78,22 @@ type generatedFilePaths struct {
 
 func resolveGeneratedFilePaths(outputDir, relativePath string) (generatedFilePaths, error) {
 	outputDir, err := sanitizeGeneratedOutputDir(outputDir)
-	if err != nil { return generatedFilePaths{}, err }
+	if err != nil {
+	    return generatedFilePaths{}, err
+	}
 	if !filepath.IsLocal(relativePath) {
 		return generatedFilePaths{}, fmt.Errorf("generated file path must be local to the output directory")
 	}
 	relativePath = filepath.Clean(relativePath)
 	absoluteOutputDir, err := filepath.Abs(outputDir)
-	if err != nil { return generatedFilePaths{}, fmt.Errorf("resolve output dir: %w", err) }
+	if err != nil {
+	    return generatedFilePaths{}, fmt.Errorf("resolve output dir: %w", err)
+	}
 	volumeRoot := filepath.VolumeName(absoluteOutputDir) + string(filepath.Separator)
 	relativeOutputDir, err := filepath.Rel(volumeRoot, absoluteOutputDir)
-	if err != nil { return generatedFilePaths{}, fmt.Errorf("resolve output dir relative to volume root: %w", err) }
+	if err != nil {
+	    return generatedFilePaths{}, fmt.Errorf("resolve output dir relative to volume root: %w", err)
+	}
 	if !filepath.IsLocal(relativeOutputDir) {
 		return generatedFilePaths{}, fmt.Errorf("output directory must be local to its volume root")
 	}
@@ -95,17 +105,23 @@ func resolveGeneratedFilePaths(outputDir, relativePath string) (generatedFilePat
 
 func ensureGeneratedOutputDirectory(volumeRoot, relativeOutputDir string) error {
 	root, err := os.OpenRoot(volumeRoot)
-	if err != nil { return fmt.Errorf("open volume root: %w", err) }
+	if err != nil {
+	    return fmt.Errorf("open volume root: %w", err)
+	}
 	if err := root.MkdirAll(relativeOutputDir, 0755); err != nil {
 		return errors.Join(fmt.Errorf("create output dir: %w", err), root.Close())
 	}
-	if err := root.Close(); err != nil { return fmt.Errorf("close volume root: %w", err) }
+	if err := root.Close(); err != nil {
+	    return fmt.Errorf("close volume root: %w", err)
+	}
 	return nil
 }
 
 func createFileWithinOutputRoot(outputDir, relativePath string) (*os.File, error) {
 	root, err := os.OpenRoot(outputDir)
-	if err != nil { return nil, fmt.Errorf("open output dir: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("open output dir: %w", err)
+	}
 	relativeDir := filepath.Dir(relativePath)
 	if relativeDir != "." {
 		if err := root.MkdirAll(relativeDir, 0755); err != nil {
@@ -114,7 +130,9 @@ func createFileWithinOutputRoot(outputDir, relativePath string) (*os.File, error
 	}
 	file, err := root.Create(relativePath)
 	closeErr := root.Close()
-	if err != nil { return nil, fmt.Errorf("create generated file: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("create generated file: %w", err)
+	}
 	if closeErr != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("close output dir: %w", closeErr)
@@ -271,8 +289,12 @@ func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
 
 func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	outputDir, err := sanitizeGeneratedOutputDir(outputDir)
-	if err != nil { return nil, err }
-	if g.ruleSet == nil { return nil, fmt.Errorf("rule set required for evaluator generation") }
+	if err != nil {
+	    return nil, err
+	}
+	if g.ruleSet == nil {
+	    return nil, fmt.Errorf("rule set required for evaluator generation")
+	}
 
 	file, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "evaluator.go"))
 	if err != nil {
@@ -418,7 +440,9 @@ func writeGeneratedEvaluatorMethod(file *os.File, packageName, typeName string) 
 func writeGeneratedEvaluatorHelpers(file *os.File) error {
 	fmt.Fprint(file, "// Helper functions\n")
 	writeGeneratedGetFloat64(file)
-	if err := writeGeneratedGetString(file); err != nil { return err }
+	if err := writeGeneratedGetString(file); err != nil {
+	    return err
+	}
 	writeGeneratedComputePartitionKey(file)
 	writeGeneratedSubstituteTemplate(file)
 	writeGeneratedSubstituteValue(file)
