@@ -285,7 +285,7 @@ async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Re
 }
 
 async fn send_effect(
-    _pool: &PgPool, js: &jetstream::Context, http: &reqwest::Client, config: &Config,
+    pool: &PgPool, js: &jetstream::Context, http: &reqwest::Client, config: &Config,
     id: &str, execution_id: &str, tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str,
 ) -> Result<()> {
     match effect_type {
@@ -299,7 +299,9 @@ async fn send_effect(
             js.publish(subject, serde_json::to_vec(&event)?.into()).await.context("publish child event to JetStream")?;
             Ok(())
         }
-        "service_event" => bail!("service_event requires the tenant-scoped domain-service sender and is not yet supported by the Rust runtime"),
+        "service_event" => {
+            send_domain_service_effect(pool, http, config, id, execution_id, tenant_id, destination, name, payload).await
+        },
         other => bail!("unsupported outbox effect type {other:?}"),
     }
 }
@@ -319,6 +321,41 @@ async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str,
         .header("Idempotency-Key", format!("effect-{id}"))
         .json(&effect).send().await.context("send external effect")?;
     if !response.status().is_success() { bail!("external effect endpoint returned {}", response.status()); }
+    Ok(())
+}
+
+async fn send_domain_service_effect(pool: &PgPool, http: &reqwest::Client, config: &Config, id: &str, execution_id: &str, tenant_id: &str, service_id: &str, event_type: &str, payload: &Value) -> Result<()> {
+    let endpoint: String = sqlx::query_scalar("SELECT endpoint_url FROM tenant_domain_services WHERE tenant_id=$1 AND service_id=$2 AND active=TRUE")
+        .bind(tenant_id).bind(service_id).fetch_optional(pool).await?
+        .ok_or_else(|| anyhow!("active tenant domain service {service_id:?} was not found"))?;
+    let url = reqwest::Url::parse(&endpoint).context("parse tenant service endpoint URL")?;
+    let local_env = matches!(config.app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test");
+    if url.scheme() != "https" && !local_env { bail!("tenant service endpoint must use HTTPS outside development/test"); }
+    if url.host_str().is_none() || url.username() != "" || url.password().is_some() || url.fragment().is_some() {
+        bail!("tenant service endpoint URL contains invalid authority components");
+    }
+    if !local_env {
+        if let Some(host) = url.host_str() {
+            if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+                let private = match ip {
+                    std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified(),
+                    std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local() || v6.is_unicast_link_local(),
+                };
+                if private { bail!("tenant service endpoint resolves to a non-public IP literal"); }
+            }
+        }
+    }
+    let event_id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
+    let response = http.post(url).header("Content-Type", "application/json")
+        .header("Idempotency-Key", format!("effect-{id}"))
+        .header("X-FlowRule-Tenant-ID", tenant_id)
+        .header("X-FlowRule-Service-ID", service_id)
+        .header("X-FlowRule-Effect-ID", id)
+        .header("X-FlowRule-Event-ID", event_id)
+        .header("X-Effect-ID", id).header("X-Execution-ID", execution_id)
+        .header("X-FlowRule-Event-Type", event_type)
+        .json(payload).send().await.context("send tenant service event callback")?;
+    if !response.status().is_success() { bail!("tenant service callback returned {}", response.status()); }
     Ok(())
 }
 
