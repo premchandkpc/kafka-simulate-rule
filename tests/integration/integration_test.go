@@ -297,7 +297,7 @@ func (m *mockQuarantine) List(_ context.Context, filter ports.QuarantineFilter) 
 }
 
 // Replay replays the selected quarantined entry.
-func (m *mockQuarantine) Replay(_ context.Context, _, id string) error {
+func (m *mockQuarantine) Replay(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -433,17 +433,17 @@ func newMockShardLease() *mockShardLease {
 }
 
 // Acquire provides the corresponding repository operation.
-func (m *mockShardLease) Acquire(_ context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
+func (m *mockShardLease) Acquire(_ context.Context, shard uint32, owner string, _ time.Duration) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: 1}, nil
 }
 
 // Renew provides the corresponding repository operation.
-func (m *mockShardLease) Renew(_ context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
+func (m *mockShardLease) Renew(_ context.Context, shard uint32, owner string, fencingToken int64, _ time.Duration) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: fencingToken}, nil
 }
 
 // Release provides the corresponding repository operation.
-func (m *mockShardLease) Release(ctx context.Context, shard uint32, owner string) error {
+func (m *mockShardLease) Release(_ context.Context, shard uint32, owner string) error {
 	return nil
 }
 
