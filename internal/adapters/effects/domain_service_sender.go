@@ -47,18 +47,28 @@ func NewDomainServiceSender(services ports.DomainServiceRepository, allowPrivate
 
 func (s *DomainServiceSender) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	event, err := validateAndDecodeEffect(effect)
-	if err != nil { return err }
+	if err != nil {
+	    return err
+	}
 	service, err := s.loadActiveService(ctx, effect)
-	if err != nil { return err }
+	if err != nil {
+	    return err
+	}
 	target, err := s.validateServiceEndpoint(service.EndpointURL)
-	if err != nil { return err }
+	if err != nil {
+	    return err
+	}
 	request, err := buildServiceRequest(ctx, target, effect, event, service.ID, idempotencyKey)
-	if err != nil { return err }
+	if err != nil {
+	    return err
+	}
 	return s.deliverRequest(request, service.ID)
 }
 
 func validateAndDecodeEffect(effect *domain.Effect) (*domain.EventEnvelope, error) {
-	if effect == nil { return nil, errors.New("send domain service event: effect is nil") }
+	if effect == nil {
+	    return nil, errors.New("send domain service event: effect is nil")
+	}
 	if effect.TenantID == "" || effect.Destination == "" || effect.Name == "" {
 		return nil, errors.New("send domain service event: tenant, service, and event type are required")
 	}
@@ -85,9 +95,13 @@ func (s *DomainServiceSender) loadActiveService(
 	ctx context.Context,
 	effect *domain.Effect,
 ) (*domain.DomainService, error) {
-	if s.services == nil { return nil, errors.New("send domain service event: service repository is not configured") }
+	if s.services == nil {
+	    return nil, errors.New("send domain service event: service repository is not configured")
+	}
 	service, err := s.services.GetService(ctx, effect.TenantID, effect.Destination)
-	if err != nil { return nil, fmt.Errorf("get subscribed tenant service: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("get subscribed tenant service: %w", err)
+	}
 	if service == nil || !service.Active {
 		return nil, fmt.Errorf("subscribed tenant service %q is unavailable", effect.Destination)
 	}
@@ -98,7 +112,9 @@ func (s *DomainServiceSender) validateServiceEndpoint(endpoint string) (*url.URL
 	target, err := url.Parse(endpoint)
 	if err != nil || target.Hostname() == "" || !target.IsAbs() || target.Opaque != "" ||
 		target.User != nil || target.Fragment != "" || len(endpoint) > 2048 {
-		if err != nil { return nil, fmt.Errorf("parse tenant service endpoint: %w", err) }
+		if err != nil {
+		    return nil, fmt.Errorf("parse tenant service endpoint: %w", err)
+		}
 		return nil, errors.New("tenant service endpoint is not a valid absolute URL")
 	}
 	if target.Scheme != "https" && !(s.allowPrivate && target.Scheme == "http") {
@@ -116,7 +132,9 @@ func buildServiceRequest(
 	idempotencyKey string,
 ) (*http.Request, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(effect.Payload))
-	if err != nil { return nil, fmt.Errorf("create tenant service request: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("create tenant service request: %w", err)
+	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", idempotencyKey)
 	request.Header.Set("X-FlowRule-Effect-ID", effect.ID)
@@ -128,7 +146,9 @@ func buildServiceRequest(
 
 func (s *DomainServiceSender) deliverRequest(request *http.Request, serviceID string) error {
 	response, err := s.client.Do(request)
-	if err != nil { return fmt.Errorf("deliver event to tenant service %q: %w", serviceID, err) }
+	if err != nil {
+	    return fmt.Errorf("deliver event to tenant service %q: %w", serviceID, err)
+	}
 	defer response.Body.Close()
 	_, drainErr := io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -137,23 +157,33 @@ func (s *DomainServiceSender) deliverRequest(request *http.Request, serviceID st
 		}
 		return fmt.Errorf("tenant service %q returned non-success status %d", serviceID, response.StatusCode)
 	}
-	if drainErr != nil { return fmt.Errorf("read tenant service %q response: %w", serviceID, drainErr) }
+	if drainErr != nil {
+	    return fmt.Errorf("read tenant service %q response: %w", serviceID, drainErr)
+	}
 	return nil
 }
 
 func dialDomainService(ctx context.Context, network, address string, allowPrivate bool) (net.Conn, error) {
 	host, port, err := parseDomainServiceAddress(address)
-	if err != nil { return nil, err }
+	if err != nil {
+	    return nil, err
+	}
 	ips, err := resolveDomainServiceIPs(ctx, host, allowPrivate)
-	if err != nil { return nil, err }
+	if err != nil {
+	    return nil, err
+	}
 	return dialResolvedDomainServiceIPs(ctx, network, port, ips)
 }
 
 func parseDomainServiceAddress(address string) (string, string, error) {
 	host, port, err := net.SplitHostPort(address)
-	if err != nil { return "", "", fmt.Errorf("split tenant service endpoint: %w", err) }
+	if err != nil {
+	    return "", "", fmt.Errorf("split tenant service endpoint: %w", err)
+	}
 	portNumber, err := strconv.Atoi(port)
-	if err != nil { return "", "", fmt.Errorf("invalid tenant service endpoint port: %w", err) }
+	if err != nil {
+	    return "", "", fmt.Errorf("invalid tenant service endpoint port: %w", err)
+	}
 	if portNumber < 1 || portNumber > 65535 {
 		return "", "", fmt.Errorf("invalid tenant service endpoint port %q", port)
 	}
@@ -162,8 +192,12 @@ func parseDomainServiceAddress(address string) (string, string, error) {
 
 func resolveDomainServiceIPs(ctx context.Context, host string, allowPrivate bool) ([]net.IP, error) {
 	resolved, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil { return nil, fmt.Errorf("resolve tenant service endpoint: %w", err) }
-	if len(resolved) == 0 { return nil, fmt.Errorf("tenant service endpoint %q resolved to no addresses", host) }
+	if err != nil {
+	    return nil, fmt.Errorf("resolve tenant service endpoint: %w", err)
+	}
+	if len(resolved) == 0 {
+	    return nil, fmt.Errorf("tenant service endpoint %q resolved to no addresses", host)
+	}
 	ips := make([]net.IP, 0, len(resolved))
 	for _, item := range resolved {
 		if item.IP == nil || item.IP.IsUnspecified() || item.IP.IsMulticast() {
@@ -186,15 +220,21 @@ func dialResolvedDomainServiceIPs(
 	var failures []error
 	for _, ip := range ips {
 		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-		if err == nil { return conn, nil }
+		if err == nil {
+		    return conn, nil
+		}
 		failures = append(failures, err)
 	}
 	return nil, fmt.Errorf("connect to tenant service endpoint: %w", errors.Join(failures...))
 }
 
 func isPublicIP(ip net.IP) bool {
-	if isNonPublicAddress(ip) { return false }
-	if ip4 := ip.To4(); ip4 != nil { return !isInCIDRList(ip4, reservedIPv4CIDRs) }
+	if isNonPublicAddress(ip) {
+	    return false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+	    return !isInCIDRList(ip4, reservedIPv4CIDRs)
+	}
 	return !isInCIDRList(ip, reservedIPv6CIDRs)
 }
 
@@ -218,7 +258,9 @@ var reservedIPv6CIDRs = []string{
 func isInCIDRList(ip net.IP, cidrs []string) bool {
 	for _, cidr := range cidrs {
 		_, network, err := net.ParseCIDR(cidr)
-		if err == nil && network.Contains(ip) { return true }
+		if err == nil && network.Contains(ip) {
+		    return true
+		}
 	}
 	return false
 }
