@@ -23,8 +23,8 @@ var (
 	ErrRevisionRequired = errors.New("revision is required")
 	// ErrRuleSourceRequired indicates that a rule source is required.
 	ErrRuleSourceRequired    = errors.New("rule source is required")
-	// ErrInvalidMatchMode indicates an invalid match mode.
-	ErrInvalidMatchMode      = errors.New("invalid match mode")
+	// ErrInvalidMatchMode indicates an invalid match mode was provided.
+	ErrInvalidMatchMode = errors.New("invalid match mode")
 	// ErrInvalidOperator indicates an invalid operator.
 	ErrInvalidOperator       = errors.New("invalid operator")
 	// ErrInvalidPredicate indicates an invalid predicate.

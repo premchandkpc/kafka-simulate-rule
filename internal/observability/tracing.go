@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// InitTracer initializes the OpenTelemetry tracer provider.
 func InitTracer(ctx context.Context, serviceName, endpoint string) (*sdktrace.TracerProvider, error) {
 	exp, err := otlptracehttp.New(ctx,
 		otlptracehttp.WithEndpoint(endpoint),
@@ -46,15 +47,18 @@ func InitTracer(ctx context.Context, serviceName, endpoint string) (*sdktrace.Tr
 	return tp, nil
 }
 
+// StartSpan starts a new span with the given name and attributes.
 func StartSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	tracer := otel.Tracer("flowrule")
 	return tracer.Start(ctx, name, trace.WithAttributes(attrs...))
 }
 
+// EndSpan ends the given span.
 func EndSpan(span trace.Span) {
 	span.End()
 }
 
+// SpanFromContext returns the current span from the context.
 func SpanFromContext(ctx context.Context) trace.Span {
 	_, span := otel.Tracer("flowrule").Start(ctx, "noop")
 	return span

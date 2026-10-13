@@ -1,3 +1,6 @@
+// Package codegen provides code generation for FlowRule contracts.
+// It generates typed clients, runtime components (envelope, publisher, consumer),
+// evaluators, and service scaffolding for multiple target languages.
 package codegen
 
 import (
@@ -140,6 +143,7 @@ func createFileWithinOutputRoot(outputDir, relativePath string) (*os.File, error
 	return file, nil
 }
 
+// RuleSet represents a collection of rules for a contract.
 type RuleSet struct {
 	RuleSet  string `yaml:"rule_set"`
 	Revision int    `yaml:"revision"`
@@ -147,6 +151,7 @@ type RuleSet struct {
 	Rules    []Rule `yaml:"rules"`
 }
 
+// Rule represents a single rule with a condition and actions.
 type Rule struct {
 	ID          string    `yaml:"id"`
 	Name        string    `yaml:"name"`
@@ -156,35 +161,42 @@ type Rule struct {
 	Then        []Action  `yaml:"then"`
 }
 
+// Condition represents a rule condition with a path, operator, and value.
 type Condition struct {
 	Path  string `yaml:"path"`
 	Op    string `yaml:"op"`
 	Value any    `yaml:"value"`
 }
 
+// Action represents a rule action, currently supporting event emission.
 type Action struct {
 	EmitEvent *EmitEvent `yaml:"emit_event"`
 }
 
+// EmitEvent represents an event to be emitted when a rule matches.
 type EmitEvent struct {
 	Type               string            `yaml:"type"`
 	PartitionKeyPolicy string            `yaml:"partition_key_policy"`
 	Data               map[string]string `yaml:"data"`
 }
 
+// Generator produces code from a contract schema and optional rule set.
 type Generator struct {
 	schema  *domain.ContractSchema
 	ruleSet *RuleSet
 }
 
+// NewGenerator creates a new Generator with the given contract schema.
 func NewGenerator(schema *domain.ContractSchema) *Generator {
 	return &Generator{schema: schema}
 }
 
+// NewGeneratorWithRules creates a new Generator with the given contract schema and rule set.
 func NewGeneratorWithRules(schema *domain.ContractSchema, ruleSet *RuleSet) *Generator {
 	return &Generator{schema: schema, ruleSet: ruleSet}
 }
 
+// GenerateGo generates Go contract types, typed client, and runtime components.
 func (g *Generator) GenerateGo(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -203,18 +215,22 @@ func (g *Generator) GenerateGo(outputDir string) ([]string, error) {
 	return append(files, clientFile), nil
 }
 
+// GenerateJava generates Java contract classes.
 func (g *Generator) GenerateJava(outputDir string) ([]string, error) {
 	return g.generate(outputDir, TargetJava, javaTemplate, javaFileExtension)
 }
 
+// GenerateProtobuf generates Protocol Buffers message definitions.
 func (g *Generator) GenerateProtobuf(outputDir string) ([]string, error) {
 	return g.generate(outputDir, TargetProtobuf, protobufTemplate, protobufFileExtension)
 }
 
+// GenerateJSONSchema generates a JSON Schema document for the contract.
 func (g *Generator) GenerateJSONSchema(outputDir string) ([]string, error) {
 	return g.generate(outputDir, TargetJSONSchema, jsonschemaTemplate, jsonSchemaFileExtension)
 }
 
+// GenerateAll generates Go types, runtime components, evaluator, and service scaffolding.
 func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -257,6 +273,8 @@ func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
 	return allFiles, nil
 }
 
+// GenerateRuntime generates Go envelope, publisher, and consumer types.
+// GenerateRuntime generates envelope, publisher, and consumer runtime components.
 func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -287,6 +305,8 @@ func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
 	return allFiles, nil
 }
 
+// GenerateEvaluator generates a compiled rule evaluator for the configured rule set.
+// GenerateEvaluator generates a Go evaluator from the rule set.
 func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	outputDir, err := sanitizeGeneratedOutputDir(outputDir)
 	if err != nil {
@@ -502,6 +522,8 @@ func writeGeneratedSubstituteValue(file *os.File) {
 	fmt.Fprint(file, "\treturn val\n}\n")
 }
 
+// GenerateService generates a service that wires together consumer, evaluator, and publishers.
+// GenerateService generates a Go service bootstrap from the rule set.
 func (g *Generator) GenerateService(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -651,6 +673,7 @@ func (g *Generator) generateTypedClient(outputDir string) (string, error) {
 	return filePath, nil
 }
 
+// FieldInfo represents a field for code generation templates.
 type FieldInfo struct {
 	Name        string
 	GoName      string

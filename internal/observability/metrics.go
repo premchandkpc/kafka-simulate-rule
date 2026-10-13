@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	// EventsReceived counts total events received by tenant, type, and status.
 	EventsReceived = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_events_received_total",
@@ -14,6 +15,7 @@ var (
 		[]string{"tenant", "type", "status"},
 	)
 
+	// EventProcessingDuration tracks event processing duration by tenant, type, and rule set.
 	EventProcessingDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flowrule_event_processing_duration_seconds",
@@ -23,6 +25,7 @@ var (
 		[]string{"tenant", "type", "rule_set"},
 	)
 
+	// ExecutionsTotal counts total rule executions by tenant, rule set, and status.
 	ExecutionsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_executions_total",
@@ -31,6 +34,7 @@ var (
 		[]string{"tenant", "rule_set", "status"},
 	)
 
+	// ExecutionDuration tracks rule execution duration by tenant and rule set.
 	ExecutionDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flowrule_execution_duration_seconds",
@@ -40,6 +44,7 @@ var (
 		[]string{"tenant", "rule_set"},
 	)
 
+	// OutboxEffectsPending tracks pending outbox effects by tenant, destination, and effect type.
 	OutboxEffectsPending = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "flowrule_outbox_effects_pending",
@@ -48,6 +53,7 @@ var (
 		[]string{"tenant", "destination", "effect_type"},
 	)
 
+	// OutboxDeliveryDuration tracks outbox effect delivery duration by destination and effect type.
 	OutboxDeliveryDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flowrule_outbox_delivery_duration_seconds",
@@ -57,6 +63,7 @@ var (
 		[]string{"destination", "effect_type"},
 	)
 
+	// OutboxRetriesTotal counts total outbox effect retries by destination and effect type.
 	OutboxRetriesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_outbox_retries_total",
@@ -65,6 +72,7 @@ var (
 		[]string{"destination", "effect_type"},
 	)
 
+	// QuarantineTotal counts total quarantined items by tenant, source type, and error class.
 	QuarantineTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_quarantine_total",
@@ -73,6 +81,7 @@ var (
 		[]string{"tenant", "source_type", "error_class"},
 	)
 
+	// ShardLeaseChanges tracks total shard lease changes by worker and action.
 	ShardLeaseChanges = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_shard_lease_changes_total",
@@ -81,6 +90,7 @@ var (
 		[]string{"worker", "action"},
 	)
 
+	// ShardOwnership tracks current shard ownership by worker and shard.
 	ShardOwnership = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "flowrule_shard_ownership",
@@ -89,6 +99,7 @@ var (
 		[]string{"worker", "shard"},
 	)
 
+	// BatchFormedTotal counts total batches formed by tenant and rule set.
 	BatchFormedTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_batch_formed_total",
@@ -97,6 +108,7 @@ var (
 		[]string{"tenant", "rule_set"},
 	)
 
+	// BatchSize tracks batch size by tenant and rule set.
 	BatchSize = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flowrule_batch_size",
@@ -106,6 +118,7 @@ var (
 		[]string{"tenant", "rule_set"},
 	)
 
+	// WorkflowStateTransitions counts total workflow state transitions by tenant, workflow type, and states.
 	WorkflowStateTransitions = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_workflow_state_transitions_total",
@@ -114,6 +127,7 @@ var (
 		[]string{"tenant", "workflow_type", "from_state", "to_state"},
 	)
 
+	// WorkflowDuration tracks workflow duration by tenant and workflow type.
 	WorkflowDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flowrule_workflow_duration_seconds",
@@ -123,6 +137,7 @@ var (
 		[]string{"tenant", "workflow_type"},
 	)
 
+	// ScheduledEventsReleased counts total scheduled events released by tenant and event type.
 	ScheduledEventsReleased = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_scheduled_events_released_total",
@@ -131,6 +146,7 @@ var (
 		[]string{"tenant", "event_type"},
 	)
 
+	// HotKeysDetected counts total hot keys detected by tenant and partition key.
 	HotKeysDetected = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_hot_keys_detected_total",
@@ -139,6 +155,7 @@ var (
 		[]string{"tenant", "partition_key"},
 	)
 
+	// KeyQueueDepth tracks current queue depth per partition key.
 	KeyQueueDepth = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "flowrule_key_queue_depth",
@@ -147,6 +164,7 @@ var (
 		[]string{"partition_key"},
 	)
 
+	// ActiveKeys tracks number of active partition keys in key queue.
 	ActiveKeys = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "flowrule_active_keys",
@@ -154,6 +172,7 @@ var (
 		},
 	)
 
+	// GlobalInFlight tracks number of events currently being processed.
 	GlobalInFlight = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "flowrule_global_in_flight",
@@ -161,6 +180,7 @@ var (
 		},
 	)
 
+	// DatabaseQueriesDuration tracks database query duration by query type and table.
 	DatabaseQueriesDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flowrule_database_query_duration_seconds",
@@ -170,6 +190,7 @@ var (
 		[]string{"query_type", "table"},
 	)
 
+	// DatabaseErrors counts total database errors by query type, table, and error.
 	DatabaseErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flowrule_database_errors_total",
