@@ -299,46 +299,55 @@ func (kq *KeyQueue) finishSubmit(q *keyQueue) {
 
 func (kq *KeyQueue) workerLoop(ctx context.Context, workerID int) {
 	defer kq.wg.Done()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-kq.stopWorkers:
-			return
-		default:
-			item := kq.nextEvent()
-			if item == nil {
-				timer := time.NewTimer(10 * time.Millisecond)
-				select {
-				case <-ctx.Done():
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					return
-				case <-kq.stopWorkers:
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					return
-				case <-timer.C:
-				}
-				continue
-			}
-
-			if err := kq.processor(ctx, item.env, item.delivery, item.fencingToken, item.vshard, item.workerID); err != nil {
-				log.Printf("keyqueue worker %d: process error for key %s: %v", workerID, item.env.PartitionKey, err)
-			}
-			kq.finishEvent(item.env.PartitionKey)
-			<-kq.globalSem
+		if !kq.workerShouldContinue(ctx) { return }
+		item := kq.nextEvent()
+		if item == nil {
+			if !waitForQueueWork(ctx, kq.stopWorkers) { return }
+			continue
 		}
+		kq.processQueuedItem(ctx, workerID, item)
 	}
+}
+
+func (kq *KeyQueue) workerShouldContinue(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-kq.stopWorkers:
+		return false
+	default:
+		return true
+	}
+}
+
+func waitForQueueWork(ctx context.Context, stop <-chan struct{}) bool {
+	timer := time.NewTimer(10 * time.Millisecond)
+	defer stopAndDrainTimer(timer)
+	select {
+	case <-ctx.Done():
+		return false
+	case <-stop:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func stopAndDrainTimer(timer *time.Timer) {
+	if timer.Stop() { return }
+	select {
+	case <-timer.C:
+	default:
+	}
+}
+
+func (kq *KeyQueue) processQueuedItem(ctx context.Context, workerID int, item *queuedItem) {
+	if err := kq.processor(ctx, item.env, item.delivery, item.fencingToken, item.vshard, item.workerID); err != nil {
+		log.Printf("keyqueue worker %d: process error for key %s: %v", workerID, item.env.PartitionKey, err)
+	}
+	kq.finishEvent(item.env.PartitionKey)
+	<-kq.globalSem
 }
 
 func (kq *KeyQueue) nextEvent() *queuedItem {
