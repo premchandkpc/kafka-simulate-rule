@@ -14,10 +14,12 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// QuarantineRepository persists quarantined events and effects.
 type QuarantineRepository struct {
 	querier Querier
 }
 
+// NewQuarantineRepository creates and returns the configured value.
 func NewQuarantineRepository(querier Querier) *QuarantineRepository {
 	return &QuarantineRepository{querier: querier}
 }
@@ -93,6 +95,7 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 	return nil
 }
 
+// Save persists the supplied value.
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	coll := r.collection(collectionQuarantine)
 	doc := QuarantineDocFromDomain(entry)
@@ -107,6 +110,7 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	return nil
 }
 
+// Get retrieves the requested value.
 func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	if tenantID == "" {
 		return nil, nil
@@ -126,6 +130,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 	return doc.ToDomain(), nil
 }
 
+// Delete deletes the requested record.
 func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
 	if tenantID == "" {
 		return domain.ErrQuarantineNotFound
@@ -141,6 +146,7 @@ func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) 
 	return nil
 }
 
+// List returns matching records.
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	if filter.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id is required")
@@ -193,6 +199,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	return entries, nil
 }
 
+// Replay replays the selected quarantined entry.
 func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
 	if tenantID == "" {
 		return domain.ErrQuarantineNotFound
@@ -216,6 +223,7 @@ func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) 
 	return nil
 }
 
+// QuarantineDoc represents a quarantined entry stored in MongoDB.
 type QuarantineDoc struct {
 	QuarantineID string    `bson:"quarantine_id"`
 	SourceType   string    `bson:"source_type"`
@@ -231,6 +239,7 @@ type QuarantineDoc struct {
 	UpdatedAt    time.Time `bson:"updated_at"`
 }
 
+// QuarantineDocFromDomain converts a domain value to its MongoDB representation.
 func QuarantineDocFromDomain(entry *domain.QuarantineEntry) *QuarantineDoc {
 	return &QuarantineDoc{
 		QuarantineID: entry.ID,
@@ -246,6 +255,7 @@ func QuarantineDocFromDomain(entry *domain.QuarantineEntry) *QuarantineDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 	return &domain.QuarantineEntry{
 		ID:         d.QuarantineID,

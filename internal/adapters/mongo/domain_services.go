@@ -13,14 +13,17 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// DomainServiceRepository persists tenant domains and domain services.
 type DomainServiceRepository struct {
 	querier Querier
 }
 
+// NewDomainServiceRepository creates and returns the configured value.
 func NewDomainServiceRepository(q Querier) *DomainServiceRepository {
 	return &DomainServiceRepository{querier: q}
 }
 
+// SaveDomain provides the corresponding repository operation.
 func (r *DomainServiceRepository) SaveDomain(ctx context.Context, item *domain.TenantDomain) error {
 	doc := tenantDomainDoc{
 		ID: item.ID, TenantID: item.TenantID, Name: item.Name, EventTypes: item.EventTypes,
@@ -38,6 +41,7 @@ func (r *DomainServiceRepository) SaveDomain(ctx context.Context, item *domain.T
 	return nil
 }
 
+// GetDomain retrieves the requested value.
 func (r *DomainServiceRepository) GetDomain(ctx context.Context, tenantID, domainID string) (*domain.TenantDomain, error) {
 	var doc tenantDomainDoc
 	err := r.querier.Collection(collectionTenantDomains).FindOne(ctx, bson.M{"tenant_id": tenantID, "domain_id": domainID}).Decode(&doc)
@@ -50,6 +54,7 @@ func (r *DomainServiceRepository) GetDomain(ctx context.Context, tenantID, domai
 	return doc.toDomain(), nil
 }
 
+// ListDomains returns matching records.
 func (r *DomainServiceRepository) ListDomains(ctx context.Context, tenantID string) ([]*domain.TenantDomain, error) {
 	cursor, err := r.querier.Collection(collectionTenantDomains).Find(ctx,
 		bson.M{"tenant_id": tenantID}, options.Find().SetSort(bson.D{{Key: "name", Value: 1}}))
@@ -71,6 +76,7 @@ func (r *DomainServiceRepository) ListDomains(ctx context.Context, tenantID stri
 	return items, nil
 }
 
+// DeleteDomain provides the corresponding repository operation.
 func (r *DomainServiceRepository) DeleteDomain(ctx context.Context, tenantID, domainID string) error {
 	_, err := r.querier.Collection(collectionTenantDomains).DeleteOne(ctx, bson.M{"tenant_id": tenantID, "domain_id": domainID})
 	if err != nil {
@@ -85,6 +91,7 @@ func (r *DomainServiceRepository) DeleteDomain(ctx context.Context, tenantID, do
 	return nil
 }
 
+// SaveService provides the corresponding repository operation.
 func (r *DomainServiceRepository) SaveService(ctx context.Context, item *domain.DomainService) error {
 	doc := domainServiceDoc{
 		ID: item.ID, TenantID: item.TenantID, Name: item.Name, EndpointURL: item.EndpointURL,
@@ -102,6 +109,7 @@ func (r *DomainServiceRepository) SaveService(ctx context.Context, item *domain.
 	return nil
 }
 
+// GetService retrieves the requested value.
 func (r *DomainServiceRepository) GetService(ctx context.Context, tenantID, serviceID string) (*domain.DomainService, error) {
 	var doc domainServiceDoc
 	err := r.querier.Collection(collectionDomainServices).FindOne(ctx,
@@ -115,6 +123,7 @@ func (r *DomainServiceRepository) GetService(ctx context.Context, tenantID, serv
 	return doc.toDomain(), nil
 }
 
+// ListServices returns matching records.
 func (r *DomainServiceRepository) ListServices(ctx context.Context, tenantID string) ([]*domain.DomainService, error) {
 	cursor, err := r.querier.Collection(collectionDomainServices).Find(ctx,
 		bson.M{"tenant_id": tenantID}, options.Find().SetSort(bson.D{{Key: "name", Value: 1}}))
@@ -136,6 +145,7 @@ func (r *DomainServiceRepository) ListServices(ctx context.Context, tenantID str
 	return items, nil
 }
 
+// DeleteService provides the corresponding repository operation.
 func (r *DomainServiceRepository) DeleteService(ctx context.Context, tenantID, serviceID string) error {
 	_, err := r.querier.Collection(collectionDomainServices).UpdateOne(ctx,
 		bson.M{"tenant_id": tenantID, "service_id": serviceID},
@@ -146,6 +156,7 @@ func (r *DomainServiceRepository) DeleteService(ctx context.Context, tenantID, s
 	return nil
 }
 
+// ListSubscribersForEvent returns matching records.
 func (r *DomainServiceRepository) ListSubscribersForEvent(ctx context.Context, tenantID, eventType string) ([]*domain.DomainService, error) {
 	domainCursor, err := r.querier.Collection(collectionTenantDomains).Find(ctx,
 		bson.M{"tenant_id": tenantID, "event_types": eventType}, options.Find().SetProjection(bson.M{"domain_id": 1}))

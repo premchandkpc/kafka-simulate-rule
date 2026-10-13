@@ -22,6 +22,7 @@ func newMockInbox() *mockInbox {
 	return &mockInbox{entries: make(map[string]*domain.InboxEntry)}
 }
 
+// Insert persists the supplied value.
 func (m *mockInbox) Insert(_ context.Context, entry *domain.InboxEntry) (bool, error) {
 	key := entry.TenantID + ":" + entry.EventID
 	if _, exists := m.entries[key]; exists {
@@ -31,11 +32,13 @@ func (m *mockInbox) Insert(_ context.Context, entry *domain.InboxEntry) (bool, e
 	return true, nil
 }
 
+// Get retrieves the requested value.
 func (m *mockInbox) Get(_ context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	key := tenantID + ":" + eventID
 	return m.entries[key], nil
 }
 
+// MarkCommitted persists the supplied value.
 func (m *mockInbox) MarkCommitted(_ context.Context, tenantID string, eventID string, executionID string) error {
 	key := tenantID + ":" + eventID
 	if entry, ok := m.entries[key]; ok {
@@ -55,23 +58,27 @@ func newMockActivation() *mockActivation {
 	return &mockActivation{activations: make(map[string]*domain.RuleActivation)}
 }
 
+// Get retrieves the requested value.
 func (m *mockActivation) Get(_ context.Context, tenantScope string, ruleSet string) (*domain.RuleActivation, error) {
 	key := tenantScope + ":" + ruleSet
 	return m.activations[key], nil
 }
 
+// Set persists the supplied value.
 func (m *mockActivation) Set(_ context.Context, activation *domain.RuleActivation) error {
 	key := activation.TenantScope + ":" + activation.RuleSet
 	m.activations[key] = activation
 	return nil
 }
 
+// Delete deletes the requested record.
 func (m *mockActivation) Delete(_ context.Context, tenantScope string, ruleSet string) error {
 	key := tenantScope + ":" + ruleSet
 	delete(m.activations, key)
 	return nil
 }
 
+// SetWithVersion provides the corresponding repository operation.
 func (m *mockActivation) SetWithVersion(_ context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
 	key := activation.TenantScope + ":" + activation.RuleSet
 	current := m.activations[key]
@@ -86,6 +93,7 @@ func (m *mockActivation) SetWithVersion(_ context.Context, activation *domain.Ru
 	return nil
 }
 
+// List returns matching records.
 func (m *mockActivation) List(_ context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
 	var result []*domain.RuleActivation
 	for _, act := range m.activations {
@@ -104,29 +112,34 @@ func newMockRuleRepo() *mockRuleRepo {
 	return &mockRuleRepo{revisions: make(map[string]*domain.RuleRevision)}
 }
 
+// GetActive retrieves the requested value.
 func (m *mockRuleRepo) GetActive(_ context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error) {
 	key := tenantScope + ":" + ruleSet
 	return m.revisions[key], nil
 }
 
+// Save persists the supplied value.
 func (m *mockRuleRepo) Save(_ context.Context, revision *domain.RuleRevision) error {
 	key := revision.TenantScope + ":" + revision.RuleID
 	m.revisions[key] = revision
 	return nil
 }
 
-func (m *mockRuleRepo) Delete(ctx context.Context, tenantScope, ruleSet string, revision int64) error {
+// Delete deletes the requested record.
+func (m *mockRuleRepo) Delete(_ context.Context, tenantScope, ruleSet string, revision int64) error {
 	key := tenantScope + ":" + ruleSet
 	delete(m.revisions, key)
 	return nil
 }
 
-func (m *mockRuleRepo) Get(ctx context.Context, tenantScope, ruleSet string, revision int64) (*domain.RuleRevision, error) {
+// Get retrieves the requested value.
+func (m *mockRuleRepo) Get(_ context.Context, tenantScope, ruleSet string, revision int64) (*domain.RuleRevision, error) {
 	key := tenantScope + ":" + ruleSet
 	return m.revisions[key], nil
 }
 
-func (m *mockRuleRepo) List(ctx context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
+// List returns matching records.
+func (m *mockRuleRepo) List(_ context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
 	var result []*domain.RuleRevision
 	for _, rev := range m.revisions {
 		result = append(result, rev)
@@ -142,15 +155,18 @@ func newMockExecutionRepo() *mockExecutionRepo {
 	return &mockExecutionRepo{executions: make(map[string]*domain.Execution)}
 }
 
+// Save persists the supplied value.
 func (m *mockExecutionRepo) Save(ctx context.Context, execution *domain.Execution) error {
 	m.executions[execution.ID] = execution
 	return nil
 }
 
+// Get retrieves the requested value.
 func (m *mockExecutionRepo) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
 	return m.executions[executionID], nil
 }
 
+// UpdateStatus persists the supplied value.
 func (m *mockExecutionRepo) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
 	if exec, ok := m.executions[executionID]; ok {
 		exec.Status = status
@@ -171,6 +187,7 @@ func newMockOutbox() *mockOutbox {
 	return &mockOutbox{effects: make(map[string]*domain.OutboxEffect)}
 }
 
+// Insert persists the supplied value.
 func (m *mockOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	for _, ef := range effects {
 		m.effects[ef.ID] = &ef
@@ -178,6 +195,7 @@ func (m *mockOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) 
 	return nil
 }
 
+// ClaimPending provides the corresponding repository operation.
 func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	var claimed []domain.OutboxEffect
 	for _, ef := range m.effects {
@@ -191,6 +209,7 @@ func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner stri
 	return claimed, nil
 }
 
+// MarkDelivered provides the corresponding repository operation.
 func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	for _, effectID := range effectIDs {
 		if ef, ok := m.effects[effectID]; ok {
@@ -200,6 +219,7 @@ func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string, clai
 	return nil
 }
 
+// ScheduleRetry provides the corresponding repository operation.
 func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	if ef, ok := m.effects[effectID]; ok {
 		ef.Attempts = attempts
@@ -209,6 +229,7 @@ func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID, claimant strin
 	return nil
 }
 
+// Quarantine provides the corresponding repository operation.
 func (m *mockOutbox) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	if ef, ok := m.effects[effectID]; ok {
 		ef.Status = domain.OutboxStatusQuarantined
@@ -217,6 +238,7 @@ func (m *mockOutbox) Quarantine(ctx context.Context, effectID, claimant, errMsg 
 	return nil
 }
 
+// GetPending provides the corresponding repository operation.
 func (m *mockOutbox) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
 	var pending []domain.OutboxEffect
 	for _, ef := range m.effects {
@@ -230,6 +252,7 @@ func (m *mockOutbox) GetPending(ctx context.Context, limit int) ([]domain.Outbox
 	return pending, nil
 }
 
+// GetByExecution provides the corresponding repository operation.
 func (m *mockOutbox) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	var result []domain.OutboxEffect
 	for _, ef := range m.effects {
@@ -248,15 +271,18 @@ func newMockQuarantine() *mockQuarantine {
 	return &mockQuarantine{entries: make(map[string]*domain.QuarantineEntry)}
 }
 
+// Save persists the supplied value.
 func (m *mockQuarantine) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	m.entries[entry.ID] = entry
 	return nil
 }
 
+// Get retrieves the requested value.
 func (m *mockQuarantine) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	return m.entries[id], nil
 }
 
+// List returns matching records.
 func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	var result []*domain.QuarantineEntry
 	for _, entry := range m.entries {
@@ -268,10 +294,12 @@ func (m *mockQuarantine) List(ctx context.Context, filter ports.QuarantineFilter
 	return result, nil
 }
 
+// Replay replays the selected quarantined entry.
 func (m *mockQuarantine) Replay(ctx context.Context, tenantID, id string) error {
 	return nil
 }
 
+// Delete deletes the requested record.
 func (m *mockQuarantine) Delete(ctx context.Context, tenantID, id string) error {
 	delete(m.entries, id)
 	return nil
@@ -362,10 +390,15 @@ type mockTx struct {
 	ctx         context.Context
 }
 
+// Commit provides the corresponding repository operation.
 func (m *mockTx) Commit(_ context.Context) error   { return nil }
+// Rollback provides the corresponding repository operation.
 func (m *mockTx) Rollback(_ context.Context) error { return nil }
+// Context provides the corresponding repository operation.
 func (m *mockTx) Context() context.Context         { return m.ctx }
+// FencingToken provides the corresponding repository operation.
 func (m *mockTx) FencingToken() int64              { return 0 }
+// SetFencingToken provides the corresponding repository operation.
 func (m *mockTx) SetFencingToken(_ int64)          {}
 
 type mockTxManager struct {
@@ -376,11 +409,13 @@ func newMockTxManager(tx *mockTx) *mockTxManager {
 	return &mockTxManager{tx: tx}
 }
 
+// Begin provides the corresponding repository operation.
 func (m *mockTxManager) Begin(ctx context.Context) (ports.Transaction, error) {
 	m.tx.ctx = ctx
 	return m.tx, nil
 }
 
+// WithTransaction provides the corresponding repository operation.
 func (m *mockTxManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return fn(ctx)
 }
@@ -391,30 +426,37 @@ func newMockShardLease() *mockShardLease {
 	return &mockShardLease{}
 }
 
+// Acquire provides the corresponding repository operation.
 func (m *mockShardLease) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: 1}, nil
 }
 
+// Renew provides the corresponding repository operation.
 func (m *mockShardLease) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: owner, FencingToken: fencingToken}, nil
 }
 
+// Release provides the corresponding repository operation.
 func (m *mockShardLease) Release(ctx context.Context, shard uint32, owner string) error {
 	return nil
 }
 
+// GetOwner provides the corresponding repository operation.
 func (m *mockShardLease) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: "test", FencingToken: 1}, nil
 }
 
+// ValidateFencingToken provides the corresponding repository operation.
 func (m *mockShardLease) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
 	return nil
 }
 
+// AssertHeld provides the corresponding repository operation.
 func (m *mockShardLease) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
 	return nil
 }
 
+// TestDuplicateRedeliveryProducesOneExecution provides the corresponding repository operation.
 func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 	uc, _, executions, _ := setupTestUseCase(t)
 
@@ -458,6 +500,7 @@ func TestDuplicateRedeliveryProducesOneExecution(t *testing.T) {
 	}
 }
 
+// TestDeterministicHashConsistency provides the corresponding repository operation.
 func TestDeterministicHashConsistency(t *testing.T) {
 	uc, _, _, _ := setupTestUseCase(t)
 
@@ -489,6 +532,7 @@ func TestDeterministicHashConsistency(t *testing.T) {
 	}
 }
 
+// TestEffectIDGenerationIsDeterministic provides the corresponding repository operation.
 func TestEffectIDGenerationIsDeterministic(t *testing.T) {
 	id1 := domain.ComputeEffectID("tenant", "event-1", "rule-set", 1, "rule-1", 0)
 	id2 := domain.ComputeEffectID("tenant", "event-1", "rule-set", 1, "rule-1", 0)
@@ -503,6 +547,7 @@ func TestEffectIDGenerationIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestActivateRuleUsesExplicitTenantScope provides the corresponding repository operation.
 func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	compiler := rules.NewCompiler(rules.DefaultLimits())
 	ruleRepo := newMockRuleRepo()
@@ -538,6 +583,7 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 	}
 }
 
+// TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated provides the corresponding repository operation.
 func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *testing.T) {
 	uc, inbox, executions, outbox := setupTestUseCase(t)
 	env := &domain.EventEnvelope{
@@ -570,6 +616,7 @@ func TestGivenActiveRule_WhenEventArrives_ThenExecutionAndOutboxAreCreated(t *te
 // noSubscribers is a domain service repository with no tenant subscriptions.
 type noSubscribers struct{ ports.DomainServiceRepository }
 
+// ListSubscribersForEvent returns matching records.
 func (noSubscribers) ListSubscribersForEvent(context.Context, string, string) ([]*domain.DomainService, error) {
 	return nil, nil
 }

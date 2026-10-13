@@ -22,6 +22,7 @@ type RuleRepository struct {
 // Repository is retained as a compatibility alias for legacy internal callers.
 type Repository = RuleRepository
 
+// NewRuleRepository creates and returns the configured value.
 func NewRuleRepository(q Querier) *RuleRepository {
 	return &RuleRepository{querier: q}
 }
@@ -35,6 +36,7 @@ func (r *RuleRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// GetActive retrieves the requested value.
 func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error) {
 	coll := r.collection(collectionRuleRevisions)
 
@@ -66,6 +68,7 @@ func (r *Repository) GetActive(ctx context.Context, tenantScope string, ruleSet 
 	return revision.ToDomain(), nil
 }
 
+// Get retrieves the requested value.
 func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string, revisionNum int64) (*domain.RuleRevision, error) {
 	coll := r.collection(collectionRuleRevisions)
 
@@ -85,6 +88,7 @@ func (r *Repository) Get(ctx context.Context, tenantScope string, ruleSet string
 	return revision.ToDomain(), nil
 }
 
+// Save persists the supplied value.
 func (r *Repository) Save(ctx context.Context, revision *domain.RuleRevision) error {
 	coll := r.collection(collectionRuleRevisions)
 
@@ -96,6 +100,7 @@ func (r *Repository) Save(ctx context.Context, revision *domain.RuleRevision) er
 	return err
 }
 
+// List returns matching records.
 func (r *Repository) List(ctx context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
 	coll := r.collection(collectionRuleRevisions)
 	cursor, err := coll.Find(ctx, bson.M{"tenant_scope": tenantScope})
@@ -115,6 +120,7 @@ func (r *Repository) List(ctx context.Context, tenantScope string) ([]*domain.Ru
 	return revisions, nil
 }
 
+// Delete deletes the requested record.
 func (r *Repository) Delete(ctx context.Context, tenantScope string, ruleSet string, revision int64) error {
 	coll := r.collection(collectionRuleRevisions)
 	_, err := coll.DeleteOne(ctx, bson.M{
@@ -128,6 +134,7 @@ func (r *Repository) Delete(ctx context.Context, tenantScope string, ruleSet str
 	return nil
 }
 
+// ActivationDoc provides the corresponding repository operation.
 type ActivationDoc struct {
 	TenantScope string    `bson:"tenant_scope"`
 	RuleSet     string    `bson:"rule_set"`
@@ -137,6 +144,7 @@ type ActivationDoc struct {
 	ActivatedAt time.Time `bson:"activated_at"`
 }
 
+// RevisionDoc provides the corresponding repository operation.
 type RevisionDoc struct {
 	TenantScope     string              `bson:"tenant_scope"`
 	RuleID          string              `bson:"rule_id"`
@@ -150,6 +158,7 @@ type RevisionDoc struct {
 	CreatedAt       time.Time           `bson:"created_at"`
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 	var compiled []domain.CompiledRule
 	_ = json.Unmarshal(d.Compiled, &compiled)
@@ -168,6 +177,7 @@ func (d *RevisionDoc) ToDomain() *domain.RuleRevision {
 	}
 }
 
+// RevisionDocFromDomain converts a domain value to its MongoDB representation.
 func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *RevisionDoc {
 	compiled, _ := json.Marshal(revision.Compiled)
 
@@ -185,10 +195,12 @@ func RevisionDocFromDomain(tenantScope string, revision *domain.RuleRevision) *R
 	}
 }
 
+// ActivationRepository stores and retrieves active rule revisions.
 type ActivationRepository struct {
 	querier Querier
 }
 
+// NewActivationRepository creates and returns the configured value.
 func NewActivationRepository(q Querier) *ActivationRepository {
 	return &ActivationRepository{querier: q}
 }
@@ -197,6 +209,7 @@ func (r *ActivationRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Get retrieves the requested value.
 func (r *ActivationRepository) Get(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleActivation, error) {
 	var doc ActivationDoc
 	err := r.collection(collectionRuleActivations).FindOne(ctx, bson.M{
@@ -212,6 +225,7 @@ func (r *ActivationRepository) Get(ctx context.Context, tenantScope string, rule
 	return doc.ToDomain(), nil
 }
 
+// Set persists the supplied value.
 func (r *ActivationRepository) Set(ctx context.Context, activation *domain.RuleActivation) error {
 	coll := r.collection(collectionRuleActivations)
 	filter := bson.M{"tenant_scope": activation.TenantScope, "rule_set": activation.RuleSet}
@@ -265,6 +279,7 @@ func (r *ActivationRepository) SetWithVersion(ctx context.Context, activation *d
 	return nil
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *ActivationDoc) ToDomain() *domain.RuleActivation {
 	return &domain.RuleActivation{
 		TenantScope: d.TenantScope,
@@ -276,6 +291,7 @@ func (d *ActivationDoc) ToDomain() *domain.RuleActivation {
 	}
 }
 
+// Delete deletes the requested record.
 func (r *ActivationRepository) Delete(ctx context.Context, tenantScope string, ruleSet string) error {
 	coll := r.collection(collectionRuleActivations)
 	_, err := coll.DeleteOne(ctx, bson.M{
@@ -288,6 +304,7 @@ func (r *ActivationRepository) Delete(ctx context.Context, tenantScope string, r
 	return nil
 }
 
+// List returns matching records.
 func (r *ActivationRepository) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
 	coll := r.collection(collectionRuleActivations)
 	cursor, err := coll.Find(ctx, bson.M{"tenant_scope": tenantScope})
