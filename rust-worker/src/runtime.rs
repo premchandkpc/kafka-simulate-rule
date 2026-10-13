@@ -5,7 +5,7 @@ mod quarantine;
 mod scheduler;
 
 use crate::{config::Config, engine};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use async_nats::jetstream;
 use chrono::Utc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
