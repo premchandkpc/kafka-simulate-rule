@@ -27,7 +27,7 @@ func NewWorkflowHandler(workflowSvc ports.WorkflowService, ruleSvc ports.RuleSer
 	}
 }
 
-// RegisterRoutes registers the handler's HTTP routes on mux.
+// WorkflowHandler.RegisterRoutes registers the handler's HTTP routes on mux.
 func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workflows", h.CreateWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{workflowID}", h.GetWorkflow)
@@ -38,7 +38,7 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}/{version}", h.GetWorkflowDefinition)
 }
 
-// CreateWorkflow creates a workflow instance for the current tenant.
+// WorkflowHandler.CreateWorkflow creates a workflow instance for the current tenant.
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var wf domain.WorkflowInstance
 	if err := decodeRequestBody(r, &wf); err != nil {
@@ -73,7 +73,7 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 	responses.WriteCreated(w, wf)
 }
 
-// GetWorkflow returns a workflow instance visible to the current tenant.
+// WorkflowHandler.GetWorkflow returns a workflow instance visible to the current tenant.
 func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := r.PathValue("workflowID")
 	if workflowID == "" {
@@ -100,7 +100,7 @@ type workflowTransitionRequest struct {
 	ToState   string `json:"to_state"`
 }
 
-// TransitionWorkflow transitions a workflow instance to a new state.
+// WorkflowHandler.TransitionWorkflow transitions a workflow instance to a new state.
 func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := r.PathValue("workflowID")
 	if workflowID == "" {
@@ -174,7 +174,7 @@ func (h *WorkflowHandler) applyWorkflowTransition(
 	return h.workflowSvc.UpdateState(ctx, tenantID, workflowID, request.ToState, 0)
 }
 
-// ListWorkflows lists workflow instances for the current tenant.
+// WorkflowHandler.ListWorkflows lists workflow instances for the current tenant.
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	state := r.URL.Query().Get(queryParamState)
@@ -213,7 +213,7 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// ListWorkflowDefinitions lists registered workflow definitions.
+// WorkflowHandler.ListWorkflowDefinitions lists registered workflow definitions.
 func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	defs, err := h.workflowDefRepo.List(ctx)
@@ -256,7 +256,7 @@ func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *htt
 	responses.WriteCreated(w, def)
 }
 
-// GetWorkflowDefinition returns a registered workflow definition.
+// WorkflowHandler.GetWorkflowDefinition returns a registered workflow definition.
 func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")
