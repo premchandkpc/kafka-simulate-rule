@@ -9,7 +9,6 @@ pub(crate) struct Config {
     pub(crate) stream: String,
     pub(crate) durable: String,
     pub(crate) database_url: String,
-    pub(crate) migrations_dir: String,
     pub(crate) worker_id: String,
     pub(crate) num_shards: u32,
     pub(crate) worker_replicas: u32,
@@ -37,7 +36,6 @@ impl Config {
         }
         let database_url = env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/flowrule?sslmode=disable".into());
-        let migrations_dir = env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "migrations".into());
         let worker_id = env::var("WORKER_ID").unwrap_or_else(|_| {
             format!("rust-{}", std::env::var("HOSTNAME").unwrap_or_else(|_| "worker".into()))
         });
@@ -74,7 +72,7 @@ impl Config {
             bail!("LEASE_RENEWAL_INTERVAL_MS must be positive and no greater than one third of LEASE_TTL_MS");
         }
         if ack_wait.is_zero() || retry_delay.is_zero() || fetch_batch_size == 0 { bail!("NATS_ACK_WAIT_MS, EVENT_RETRY_DELAY_MS and FETCH_BATCH_SIZE must be > 0"); }
-        Ok(Self { app_env, nats_url, stream, durable, database_url, migrations_dir, worker_id, num_shards, worker_replicas,
+        Ok(Self { app_env, nats_url, stream, durable, database_url, worker_id, num_shards, worker_replicas,
             lease_ttl, lease_renew_interval, ack_wait, retry_delay, fetch_batch_size, rulesets,
             effect_destination_url, effect_poll_interval, scheduler_poll_interval, scheduler_batch_size })
     }
