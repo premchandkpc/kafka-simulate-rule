@@ -1,12 +1,12 @@
 //! Runtime wiring: PostgreSQL fencing/transactions, JetStream consumers, outbox and scheduler.
 use crate::{engine::{self, EventEnvelope, ProcessOutcome}, Config};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_nats::jetstream::{self, consumer::pull};
 use chrono::Utc;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, fs, path::Path, time::Duration};
 use tokio::{task::JoinSet, time::{interval, MissedTickBehavior}};
 use tracing::{error, info, warn};
 
@@ -14,6 +14,7 @@ pub async fn run(config: Config) -> Result<()> {
     let pool = PgPoolOptions::new().max_connections(20).connect(&config.database_url)
         .await.context("connect PostgreSQL")?;
     sqlx::query("SELECT 1").execute(&pool).await.context("verify PostgreSQL")?;
+    run_migrations(&pool, Path::new(&config.migrations_dir)).await?;
     let client = async_nats::connect(config.nats_url.clone()).await.context("connect NATS")?;
     let js = jetstream::new(client);
     let _stream = js.get_stream(&config.stream).await
@@ -75,6 +76,23 @@ pub async fn run(config: Config) -> Result<()> {
         }
     }
     pool.close().await;
+    Ok(())
+}
+
+async fn run_migrations(pool: &PgPool, directory: &Path) -> Result<()> {
+    let mut files = fs::read_dir(directory)
+        .with_context(|| format!("read migrations directory {}", directory.display()))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sql"))
+        .collect::<Vec<_>>();
+    files.sort_by_key(|entry| entry.file_name());
+    for entry in &files {
+        let path = entry.path();
+        let sql = fs::read_to_string(&path).with_context(|| format!("read migration {}", path.display()))?;
+        sqlx::raw_sql(&sql).execute(pool).await.with_context(|| format!("execute migration {}", path.display()))?;
+    }
+    info!(migration_count = files.len(), "database migrations applied");
     Ok(())
 }
 
@@ -166,6 +184,11 @@ async fn consume_shard_subject(
                         info!(shard, event_id=%envelope.id, execution_id=%execution_id, "duplicate event confirmed");
                         message.ack().await.context("ack confirmed duplicate")?;
                     }
+                    Err(err) if is_permanent_event_error(&err) => {
+                        persist_quarantine(&pool, "event", &envelope.id, Some(&envelope.tenant_id), &message.payload, &err.to_string()).await
+                            .context("persist permanent event failure to quarantine")?;
+                        message.ack().await.context("ack quarantined permanent event")?;
+                    }
                     Err(err) => {
                         warn!(shard, event_id=%envelope.id, error=%err, "event processing failed; scheduling retry");
                         message.ack_with(jetstream::AckKind::Nak(Some(config.retry_delay)))
@@ -175,6 +198,14 @@ async fn consume_shard_subject(
             }
         }
     }
+}
+
+fn is_permanent_event_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    ["event id is required", "event type is required", "tenant_id is required",
+     "partition_key is required", "unsupported predicate operator", "unsupported partition key policy",
+     "emit topic is required", "resolved an empty partition key",
+     "action must contain exactly one supported action"].iter().any(|needle| message.contains(needle))
 }
 
 async fn persist_quarantine(
