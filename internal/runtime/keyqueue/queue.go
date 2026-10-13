@@ -181,7 +181,9 @@ func (kq *KeyQueue) queueSnapshot() map[string]*keyQueue {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()
 	queues := make(map[string]*keyQueue, len(kq.queues))
-	for key, queue := range kq.queues { queues[key] = queue }
+	for key, queue := range kq.queues {
+	    queues[key] = queue
+	}
 	return queues
 }
 
@@ -201,29 +203,43 @@ func (kq *KeyQueue) updateHotKeyState(queues map[string]*keyQueue, now time.Time
 		}
 	}
 	for key := range kq.hotKeys {
-		if _, exists := queues[key]; !exists { delete(kq.hotKeys, key) }
+		if _, exists := queues[key]; !exists {
+		    delete(kq.hotKeys, key)
+		}
 	}
 	return notices
 }
 
 func (kq *KeyQueue) notifyHotKeys(notices []hotKeyNotice) {
 	// Callbacks run on the owned checker goroutine; implementations should be quick.
-	for _, notice := range notices { kq.hotKeyCallback(notice.key, notice.depth) }
+	for _, notice := range notices {
+	    kq.hotKeyCallback(notice.key, notice.depth)
+	}
 }
 
 func (kq *KeyQueue) Submit(ctx context.Context, item ports.QueueItem) error {
-	if err := validateQueueSubmission(ctx, item); err != nil { return err }
-	if err := kq.beginSubmission(); err != nil { return err }
+	if err := validateQueueSubmission(ctx, item); err != nil {
+	    return err
+	}
+	if err := kq.beginSubmission(); err != nil {
+	    return err
+	}
 	defer kq.submitWG.Done()
 
-	if err := kq.acquireGlobalSlot(ctx); err != nil { return err }
+	if err := kq.acquireGlobalSlot(ctx); err != nil {
+	    return err
+	}
 	queue := kq.registerQueueSubmitter(item.Event.PartitionKey)
 	return kq.enqueueItem(ctx, queue, item)
 }
 
 func validateQueueSubmission(ctx context.Context, item ports.QueueItem) error {
-	if ctx == nil { return errors.New("submit event: context is nil") }
-	if item.Event == nil { return errors.New("submit event: envelope is nil") }
+	if ctx == nil {
+	    return errors.New("submit event: context is nil")
+	}
+	if item.Event == nil {
+	    return errors.New("submit event: envelope is nil")
+	}
 	return nil
 }
 
@@ -303,10 +319,14 @@ func (kq *KeyQueue) finishSubmit(q *keyQueue) {
 func (kq *KeyQueue) workerLoop(ctx context.Context, workerID int) {
 	defer kq.wg.Done()
 	for {
-		if !kq.workerShouldContinue(ctx) { return }
+		if !kq.workerShouldContinue(ctx) {
+		    return
+		}
 		item := kq.nextEvent()
 		if item == nil {
-			if !waitForQueueWork(ctx, kq.stopWorkers) { return }
+			if !waitForQueueWork(ctx, kq.stopWorkers) {
+			    return
+			}
 			continue
 		}
 		kq.processQueuedItem(ctx, workerID, item)
@@ -338,7 +358,9 @@ func waitForQueueWork(ctx context.Context, stop <-chan struct{}) bool {
 }
 
 func stopAndDrainTimer(timer *time.Timer) {
-	if timer.Stop() { return }
+	if timer.Stop() {
+	    return
+	}
 	select {
 	case <-timer.C:
 	default:
