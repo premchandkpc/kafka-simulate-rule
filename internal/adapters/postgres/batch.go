@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/flowrule/flowrule/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -33,6 +34,9 @@ func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID
 
 // ListRuns returns a paginated list of batch runs for a tenant, optionally filtered by rule set.
 func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, fmt.Errorf("tenant ID is required to list batch runs")
+	}
 	if limit <= 0 {
 		limit = 100
 	}
