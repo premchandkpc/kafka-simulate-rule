@@ -11,14 +11,17 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// RuleHandler handles HTTP requests for rule operations.
 type RuleHandler struct {
 	ruleSvc ports.RuleService
 }
 
+// NewRuleHandler constructs an HTTP handler with its required service dependencies.
 func NewRuleHandler(ruleSvc ports.RuleService) *RuleHandler {
 	return &RuleHandler{ruleSvc: ruleSvc}
 }
 
+// RegisterRoutes registers the handler's HTTP routes on mux.
 func (h *RuleHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/rules/check", h.CheckRule)
 	mux.HandleFunc("POST /v1/rules/{ruleSet}/revisions", h.CreateRevision)
@@ -66,6 +69,7 @@ func (h *RuleHandler) CreateRevision(w http.ResponseWriter, r *http.Request) {
 	responses.WriteCreated(w, activation)
 }
 
+// ListRevisions lists revisions visible to the current tenant.
 func (h *RuleHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	ruleSet := r.PathValue("ruleSet")
 	tenantScope := middleware.GetTenantID(r.Context())
@@ -94,6 +98,7 @@ func (h *RuleHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetRevision returns a specific rule revision.
 func (h *RuleHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	ruleSet := r.PathValue("ruleSet")
 	revisionStr := r.PathValue("revision")
@@ -119,6 +124,7 @@ func (h *RuleHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, rev)
 }
 
+// Deactivate deactivates the requested rule set.
 func (h *RuleHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	ruleSet := r.PathValue("ruleSet")
 	tenantScope := middleware.GetTenantID(r.Context())
@@ -132,6 +138,7 @@ func (h *RuleHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, map[string]string{"status": "deactivated"})
 }
 
+// ListActiveRules lists active rules for the current tenant.
 func (h *RuleHandler) ListActiveRules(w http.ResponseWriter, r *http.Request) {
 	tenantScope := middleware.GetTenantID(r.Context())
 

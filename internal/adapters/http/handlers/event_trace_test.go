@@ -47,7 +47,7 @@ type traceOutboxStub struct {
 	effects []domain.OutboxEffect
 }
 
-func (s *traceOutboxStub) GetByExecution(_ context.Context, executionID string) ([]domain.OutboxEffect, error) {
+func (s *traceOutboxStub) GetByExecution(_ context.Context, _ string) ([]domain.OutboxEffect, error) {
 	return s.effects, nil
 }
 

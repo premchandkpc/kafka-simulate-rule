@@ -1,3 +1,4 @@
+// Package http provides HTTP server readiness checks.
 package http
 
 import (

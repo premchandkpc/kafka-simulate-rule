@@ -1,3 +1,5 @@
+// Package shard provides shard lease management with fencing tokens.
+// It handles lease acquisition, renewal, and rebalancing across a fixed set of worker replicas.
 package shard
 
 import (
@@ -13,6 +15,9 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// LeaseManager acquires and renews shard leases with fencing tokens.
+// It uses a fixed-replica allocation policy where each worker targets
+// ceil(numShards/replicaCount) leases.
 type LeaseManager struct {
 	repo          ports.ShardLeaseRepository
 	clock         ports.Clock
@@ -32,6 +37,7 @@ type LeaseManager struct {
 	stopped     bool
 }
 
+// NewLeaseManager creates a new LeaseManager with default replica count (3).
 func NewLeaseManager(
 	repo ports.ShardLeaseRepository,
 	clock ports.Clock,
@@ -95,6 +101,7 @@ func NewLeaseManagerWithReplicaCountAndRenewInterval(
 	}
 }
 
+// Start acquires initial shard leases and begins the renewal loop.
 func (m *LeaseManager) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("start lease manager: context is nil")
@@ -208,66 +215,94 @@ type batchLeaseRenewer interface {
 }
 
 func (m *LeaseManager) renewOwned(ctx context.Context) {
+	leases := m.ownedLeaseTokens()
+	if renewer, ok := m.repo.(batchLeaseRenewer); ok {
+		if !m.renewOwnedBatch(ctx, renewer, leases) {
+			return
+		}
+	} else {
+		m.renewOwnedIndividually(ctx, leases)
+	}
+	m.rebalanceIfNeeded(ctx)
+}
+
+func (m *LeaseManager) ownedLeaseTokens() map[uint32]int64 {
 	m.mu.RLock()
+	defer m.mu.RUnlock()
 	leases := make(map[uint32]int64, len(m.ownedShards))
 	for shardID, lease := range m.ownedShards {
 		if lease != nil {
 			leases[shardID] = lease.FencingToken
 		}
 	}
-	m.mu.RUnlock()
+	return leases
+}
 
-	if renewer, ok := m.repo.(batchLeaseRenewer); ok {
-		// PostgreSQL renews all current leases in one statement, avoiding a serial
-		// two-round-trip renewal loop that can outlast the lease TTL.
-		renewed, err := renewer.RenewOwned(ctx, m.owner, leases, m.ttl)
+func (m *LeaseManager) renewOwnedBatch(
+	ctx context.Context,
+	renewer batchLeaseRenewer,
+	leases map[uint32]int64,
+) bool {
+	// Batch renewal avoids a serial two-round-trip loop that can outlast the TTL.
+	renewed, err := renewer.RenewOwned(ctx, m.owner, leases, m.ttl)
+	if err != nil {
+		// Failed batch results are ambiguous, so do not rebalance on stale state.
+		log.Printf("renew owned shards: %v", err)
+		return false
+	}
+	m.applyBatchRenewals(leases, renewed)
+	return true
+}
+
+func (m *LeaseManager) applyBatchRenewals(
+	expectedLeases map[uint32]int64,
+	renewed map[uint32]*domain.ShardLease,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for shardID, expectedToken := range expectedLeases {
+		current, stillOwned := m.ownedShards[shardID]
+		if !stillOwned || current == nil || current.FencingToken != expectedToken {
+			continue
+		}
+		lease, found := renewed[shardID]
+		if !found {
+			log.Printf("shard %d: lease lost during batch renewal, removing from owned shards", shardID)
+			delete(m.ownedShards, shardID)
+			continue
+		}
+		m.ownedShards[shardID] = lease
+	}
+}
+
+func (m *LeaseManager) renewOwnedIndividually(ctx context.Context, leases map[uint32]int64) {
+	for shardID, fencingToken := range leases {
+		lease, err := m.repo.Renew(ctx, shardID, m.owner, fencingToken, m.ttl)
 		if err != nil {
-			// A failed batch is ambiguous: retain snapshots and retry next cycle,
-			// but do not attempt rebalancing from an unconfirmed renewal.
-			log.Printf("renew owned shards: %v", err)
-			return
+			m.handleIndividualRenewalError(shardID, err)
+			continue
+		}
+		if lease == nil {
+			log.Printf("shard %d: renew returned an empty lease; retaining current ownership snapshot", shardID)
+			continue
 		}
 		m.mu.Lock()
-		for shardID, expectedToken := range leases {
-			current, stillOwned := m.ownedShards[shardID]
-			if !stillOwned || current == nil || current.FencingToken != expectedToken {
-				continue
-			}
-			lease, found := renewed[shardID]
-			if !found {
-				log.Printf("shard %d: lease lost during batch renewal, removing from owned shards", shardID)
-				delete(m.ownedShards, shardID)
-				continue
-			}
-			m.ownedShards[shardID] = lease
-		}
+		m.ownedShards[shardID] = lease
 		m.mu.Unlock()
-	} else {
-		// Compatibility fallback for repositories that do not implement batch renewal.
-		for shardID, fencingToken := range leases {
-			newLease, err := m.repo.Renew(ctx, shardID, m.owner, fencingToken, m.ttl)
-			if err != nil {
-				if errors.Is(err, domain.ErrLeaseExpired) || errors.Is(err, domain.ErrFencingTokenMismatch) || errors.Is(err, domain.ErrLeaseOwnedByOther) {
-					log.Printf("shard %d: lease lost (%v), removing from owned shards", shardID, err)
-					m.mu.Lock()
-					delete(m.ownedShards, shardID)
-					m.mu.Unlock()
-				} else {
-					log.Printf("shard %d: renew failed (transient): %v", shardID, err)
-				}
-				continue
-			}
-			if newLease == nil {
-				log.Printf("shard %d: renew returned an empty lease; retaining current ownership snapshot", shardID)
-				continue
-			}
-			m.mu.Lock()
-			m.ownedShards[shardID] = newLease
-			m.mu.Unlock()
-		}
 	}
+}
 
-	m.rebalanceIfNeeded(ctx)
+func (m *LeaseManager) handleIndividualRenewalError(shardID uint32, err error) {
+	if errors.Is(err, domain.ErrLeaseExpired) ||
+		errors.Is(err, domain.ErrFencingTokenMismatch) ||
+		errors.Is(err, domain.ErrLeaseOwnedByOther) {
+		log.Printf("shard %d: lease lost (%v), removing from owned shards", shardID, err)
+		m.mu.Lock()
+		delete(m.ownedShards, shardID)
+		m.mu.Unlock()
+		return
+	}
+	log.Printf("shard %d: renew failed (transient): %v", shardID, err)
 }
 
 // targetOwnedShards rounds up so the configured replicas can cover every shard,
@@ -340,6 +375,7 @@ func (m *LeaseManager) rebalanceIfNeeded(ctx context.Context) {
 	}
 }
 
+// OwnedShards returns the list of shard IDs currently owned by this lease manager.
 func (m *LeaseManager) OwnedShards() []uint32 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -350,6 +386,7 @@ func (m *LeaseManager) OwnedShards() []uint32 {
 	return shards
 }
 
+// IsOwner returns true if this lease manager owns the given shard.
 func (m *LeaseManager) IsOwner(shard uint32) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -357,6 +394,7 @@ func (m *LeaseManager) IsOwner(shard uint32) bool {
 	return ok
 }
 
+// GetFencingToken returns the fencing token for a shard if owned.
 func (m *LeaseManager) GetFencingToken(shard uint32) (int64, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -367,6 +405,7 @@ func (m *LeaseManager) GetFencingToken(shard uint32) (int64, bool) {
 	return lease.FencingToken, true
 }
 
+// VirtualShardForEvent computes the virtual shard for an event envelope.
 func (m *LeaseManager) VirtualShardForEvent(env *domain.EventEnvelope) uint32 {
 	return env.VirtualShard(m.numShards)
 }

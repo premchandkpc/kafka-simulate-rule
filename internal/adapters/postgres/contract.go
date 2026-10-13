@@ -12,10 +12,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ContractRegistry stores and retrieves contract schemas in PostgreSQL.
 type ContractRegistry struct {
 	db Querier
 }
 
+// NewContractRegistry creates a contract registry backed by a PostgreSQL query interface.
 func NewContractRegistry(db Querier) *ContractRegistry {
 	return &ContractRegistry{db: db}
 }
@@ -53,6 +55,7 @@ func (cr contractSchemaRow) toDomain() (*domain.ContractSchema, error) {
 	}, nil
 }
 
+// Register inserts or updates a contract schema.
 func (r *ContractRegistry) Register(ctx context.Context, schema *domain.ContractSchema) error {
 	fieldsJSON, err := json.Marshal(schema.Fields)
 	if err != nil {
@@ -77,6 +80,7 @@ func (r *ContractRegistry) Register(ctx context.Context, schema *domain.Contract
 	return nil
 }
 
+// Get retrieves a contract schema by name and version, or returns nil when it does not exist.
 func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*domain.ContractSchema, error) {
 	row := r.db.QueryRow(ctx, `
 		SELECT name, version, namespace, description, fields, compatibility, owner, deprecated, created_at, updated_at
@@ -100,6 +104,7 @@ func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*doma
 	return schema, nil
 }
 
+// List returns contract schemas, optionally filtered by contract name.
 func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.ContractSchema, error) {
 	var rows pgx.Rows
 	var err error
@@ -142,6 +147,7 @@ func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.Con
 	return schemas, nil
 }
 
+// Delete removes a contract schema by name and version.
 func (r *ContractRegistry) Delete(ctx context.Context, name, version string) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM contract_schemas WHERE name = $1 AND version = $2`, name, version)
 	if err != nil {

@@ -136,6 +136,7 @@ func Run(ctx context.Context, cfg Config, publisher Publisher) (Summary, error) 
 }
 
 func generate(ctx context.Context, cfg Config, jobs chan<- domain.EventEnvelope) (int, error) {
+	//nolint:gosec // math/rand is acceptable for test data generation
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	attempted := 0
 	globalSequence := 0

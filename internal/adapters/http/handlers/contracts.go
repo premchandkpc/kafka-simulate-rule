@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,14 +14,17 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// ContractHandler handles HTTP requests for contract operations.
 type ContractHandler struct {
 	registry ports.ContractRegistry
 }
 
+// NewContractHandler creates a new ContractHandler.
 func NewContractHandler(registry ports.ContractRegistry) *ContractHandler {
 	return &ContractHandler{registry: registry}
 }
 
+// RegisterRoutes registers the HTTP routes for the ContractHandler.
 func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/contracts", h.CreateContract)
 	mux.HandleFunc("GET /v1/contracts", h.ListContracts)
@@ -30,6 +34,7 @@ func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/contracts/{name}/{version}/generate", h.GenerateContract)
 }
 
+// CreateContract handles POST /v1/contracts requests.
 func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request) {
 	if !requireContractAdmin(w, r) {
 		return
@@ -57,6 +62,7 @@ func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request)
 	responses.WriteCreated(w, schema)
 }
 
+// ListContracts handles GET /v1/contracts requests.
 func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 
@@ -69,6 +75,7 @@ func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) 
 	responses.WriteOK(w, schemas)
 }
 
+// GetContract handles GET /v1/contracts/{name} requests.
 func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	version := r.URL.Query().Get(queryParamVersion)
@@ -91,6 +98,7 @@ func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, schema)
 }
 
+// GetContractVersion handles GET /v1/contracts/{name}/{version} requests.
 func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	version := r.PathValue("version")
@@ -108,6 +116,7 @@ func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, schema)
 }
 
+// DeleteContract handles DELETE /v1/contracts/{name}/{version} requests.
 func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request) {
 	if !requireContractAdmin(w, r) {
 		return
@@ -123,28 +132,24 @@ func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request)
 	responses.WriteNoContent(w)
 }
 
+type generateContractRequest struct {
+	Language string `json:"language"`
+	Output   string `json:"output_dir,omitempty"`
+}
+
+var errUnsupportedContractLanguage = errors.New("unsupported language")
+
+// GenerateContract handles POST /v1/contracts/{name}/{version}/generate requests.
 func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Request) {
 	if !requireContractAdmin(w, r) {
 		return
 	}
-	name := r.PathValue("name")
-	version := r.PathValue("version")
-
-	var req struct {
-		Language string `json:"language"`
-		Output   string `json:"output_dir,omitempty"`
-	}
-	if err := decodeRequestBody(r, &req); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+	name, version := r.PathValue("name"), r.PathValue("version")
+	req, ok := decodeGenerateContractRequest(w, r)
+	if !ok {
 		return
 	}
-
-	if req.Language == "" {
-		responses.WriteError(w, http.StatusBadRequest, "language is required ("+codegen.SupportedTargetsText+")", responses.CodeValidationFailed)
-		return
-	}
-	if req.Output != "" {
-		responses.WriteError(w, http.StatusBadRequest, "output_dir is not supported; generated files use a server-managed directory", responses.CodeValidationFailed)
+	if !validateGenerateContractRequest(w, req) {
 		return
 	}
 
@@ -158,55 +163,90 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Never let an API caller select a filesystem path. Generated output is
-	// written to a fresh directory under a private, server-managed temp root.
+	outputDir, ok := prepareGeneratedOutput(w)
+	if !ok {
+		return
+	}
+	generatedFiles, err := generateContractFiles(codegen.NewGenerator(schema), req.Language, outputDir)
+	if errors.Is(err, errUnsupportedContractLanguage) {
+		responses.WriteError(w, http.StatusBadRequest, "unsupported language", responses.CodeValidationFailed)
+		return
+	}
+	if err != nil {
+		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
+		return
+	}
+	writeGeneratedContractResponse(w, name, version, req.Language, outputDir, generatedFiles)
+}
+
+func decodeGenerateContractRequest(w http.ResponseWriter, r *http.Request) (generateContractRequest, bool) {
+	var req generateContractRequest
+	if err := decodeRequestBody(r, &req); err != nil {
+		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
+		return generateContractRequest{}, false
+	}
+	return req, true
+}
+
+func validateGenerateContractRequest(w http.ResponseWriter, req generateContractRequest) bool {
+	if req.Language == "" {
+		responses.WriteError(w, http.StatusBadRequest, "language is required ("+codegen.SupportedTargetsText+")", responses.CodeValidationFailed)
+		return false
+	}
+	if req.Output != "" {
+		responses.WriteError(w, http.StatusBadRequest, "output_dir is not supported; generated files use a server-managed directory", responses.CodeValidationFailed)
+		return false
+	}
+	return true
+}
+
+func prepareGeneratedOutput(w http.ResponseWriter) (string, bool) {
 	allowedBase := filepath.Join(os.TempDir(), generatedOutputRootName)
 	if err := os.MkdirAll(allowedBase, 0o700); err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, "could not prepare output root", responses.CodeInternalError)
-		return
+		return "", false
 	}
 	rootInfo, err := os.Lstat(allowedBase)
 	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		responses.WriteError(w, http.StatusInternalServerError, "generation output root is invalid", responses.CodeInternalError)
-		return
+		return "", false
 	}
-	if err := os.Chmod(allowedBase, 0o700); err != nil {
+	if err := os.Chmod(allowedBase, 0o700); err != nil { // #nosec G302 -- directory requires execute permission; 0700 restricts access to its owner.
 		responses.WriteError(w, http.StatusInternalServerError, "could not secure output root", responses.CodeInternalError)
-		return
+		return "", false
 	}
 	outputDir, err := os.MkdirTemp(allowedBase, "generation-")
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, "could not prepare output directory", responses.CodeInternalError)
-		return
+		return "", false
 	}
+	return outputDir, true
+}
 
-	generator := codegen.NewGenerator(schema)
-	var generatedFiles []string
-	var genErr error
-
-	switch strings.ToLower(req.Language) {
+func generateContractFiles(generator *codegen.Generator, language, outputDir string) ([]string, error) {
+	switch strings.ToLower(language) {
 	case codegen.TargetGo:
-		generatedFiles, genErr = generator.GenerateGo(outputDir)
+		return generator.GenerateGo(outputDir)
 	case codegen.TargetJava:
-		generatedFiles, genErr = generator.GenerateJava(outputDir)
+		return generator.GenerateJava(outputDir)
 	case codegen.TargetProtobuf:
-		generatedFiles, genErr = generator.GenerateProtobuf(outputDir)
+		return generator.GenerateProtobuf(outputDir)
 	case codegen.TargetJSONSchema:
-		generatedFiles, genErr = generator.GenerateJSONSchema(outputDir)
+		return generator.GenerateJSONSchema(outputDir)
 	default:
-		responses.WriteError(w, http.StatusBadRequest, "unsupported language", responses.CodeValidationFailed)
-		return
+		return nil, errUnsupportedContractLanguage
 	}
+}
 
-	if genErr != nil {
-		responses.WriteError(w, http.StatusInternalServerError, genErr.Error(), responses.CodeInternalError)
-		return
-	}
-
+func writeGeneratedContractResponse(
+	w http.ResponseWriter,
+	name, version, language, outputDir string,
+	generatedFiles []string,
+) {
 	responses.WriteOK(w, map[string]interface{}{
 		"contract":        name,
 		"version":         version,
-		"language":        req.Language,
+		"language":        language,
 		"output_dir":      outputDir,
 		"generated_files": generatedFiles,
 	})

@@ -1,3 +1,4 @@
+// Package main starts the FlowRule HTTP API service.
 package main
 
 import (

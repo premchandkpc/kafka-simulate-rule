@@ -1,3 +1,5 @@
+// Package keyqueue provides a per-partition-key ordered queue with bounded concurrency.
+// It preserves ordering for events sharing a partition key while limiting global in-flight work.
 package keyqueue
 
 import (
@@ -11,6 +13,8 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// KeyQueue is a per-partition-key ordered queue with bounded concurrency.
+// It preserves ordering for events sharing a partition key while limiting global in-flight work.
 type KeyQueue struct {
 	mu             sync.Mutex
 	queues         map[string]*keyQueue
@@ -57,6 +61,7 @@ type queuedItem struct {
 	workerID     string
 }
 
+// NewKeyQueue creates a new KeyQueue with the given configuration.
 func NewKeyQueue(
 	maxGlobalInFlight int,
 	maxPerKeyQueue int,
@@ -166,24 +171,33 @@ func (kq *KeyQueue) hotKeyCheckLoop(ctx context.Context) {
 	}
 }
 
+type hotKeyNotice struct {
+	key   string
+	depth int
+}
+
 func (kq *KeyQueue) checkHotKeys() {
+	queues := kq.queueSnapshot()
+	notices := kq.updateHotKeyState(queues, kq.clock())
+	kq.notifyHotKeys(notices)
+}
+
+func (kq *KeyQueue) queueSnapshot() map[string]*keyQueue {
 	kq.mu.Lock()
+	defer kq.mu.Unlock()
 	queues := make(map[string]*keyQueue, len(kq.queues))
-	for k, v := range kq.queues {
-		queues[k] = v
+	for key, queue := range kq.queues {
+		queues[key] = queue
 	}
-	kq.mu.Unlock()
+	return queues
+}
 
-	now := kq.clock()
-	type hotKeyNotice struct {
-		key   string
-		depth int
-	}
+func (kq *KeyQueue) updateHotKeyState(queues map[string]*keyQueue, now time.Time) []hotKeyNotice {
 	var notices []hotKeyNotice
-
 	kq.muHot.Lock()
-	for key, q := range queues {
-		depth := len(q.ch)
+	defer kq.muHot.Unlock()
+	for key, queue := range queues {
+		depth := len(queue.ch)
 		if depth >= kq.hotKeyThreshold {
 			if _, tracked := kq.hotKeys[key]; !tracked {
 				kq.hotKeys[key] = now
@@ -193,78 +207,103 @@ func (kq *KeyQueue) checkHotKeys() {
 			delete(kq.hotKeys, key)
 		}
 	}
-	// Queues may have been removed after draining. Remove their hot-key state too.
 	for key := range kq.hotKeys {
 		if _, exists := queues[key]; !exists {
 			delete(kq.hotKeys, key)
 		}
 	}
-	kq.muHot.Unlock()
+	return notices
+}
 
-	// Run callbacks on the owned checker goroutine instead of leaking one goroutine
-	// per hot key. Callback implementations should be quick and non-blocking.
+func (kq *KeyQueue) notifyHotKeys(notices []hotKeyNotice) {
+	// Callbacks run on the owned checker goroutine; implementations should be quick.
 	for _, notice := range notices {
 		kq.hotKeyCallback(notice.key, notice.depth)
 	}
 }
 
+// Submit enqueues an item for processing, respecting per-key ordering and global concurrency limits.
 func (kq *KeyQueue) Submit(ctx context.Context, item ports.QueueItem) error {
+	if err := validateQueueSubmission(ctx, item); err != nil {
+		return err
+	}
+	if err := kq.beginSubmission(); err != nil {
+		return err
+	}
+	defer kq.submitWG.Done()
+
+	if err := kq.acquireGlobalSlot(ctx); err != nil {
+		return err
+	}
+	queue := kq.registerQueueSubmitter(item.Event.PartitionKey)
+	return kq.enqueueItem(ctx, queue, item)
+}
+
+func validateQueueSubmission(ctx context.Context, item ports.QueueItem) error {
 	if ctx == nil {
 		return errors.New("submit event: context is nil")
 	}
 	if item.Event == nil {
 		return errors.New("submit event: envelope is nil")
 	}
+	return nil
+}
 
+func (kq *KeyQueue) beginSubmission() error {
 	kq.lifecycleMu.Lock()
+	defer kq.lifecycleMu.Unlock()
 	if !kq.started || kq.stopped {
-		kq.lifecycleMu.Unlock()
 		return errors.New("submit event: key queue is not running")
 	}
-	// Add while holding lifecycleMu so Stop cannot race Wait with a new Add.
+	// Add under lifecycleMu so Stop cannot race Wait with a new Add.
 	kq.submitWG.Add(1)
-	kq.lifecycleMu.Unlock()
-	defer kq.submitWG.Done()
+	return nil
+}
 
+func (kq *KeyQueue) acquireGlobalSlot(ctx context.Context) error {
 	select {
 	case kq.globalSem <- struct{}{}:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-kq.stopSubmitting:
 		return errors.New("submit event: key queue is stopping")
 	}
+}
 
+func (kq *KeyQueue) registerQueueSubmitter(partitionKey string) *keyQueue {
 	kq.mu.Lock()
-	q, ok := kq.queues[item.Event.PartitionKey]
-	if !ok {
-		q = &keyQueue{
+	defer kq.mu.Unlock()
+	queue, exists := kq.queues[partitionKey]
+	if !exists {
+		queue = &keyQueue{
 			ch:           make(chan *queuedItem, kq.maxPerKey),
-			partitionKey: item.Event.PartitionKey,
+			partitionKey: partitionKey,
 		}
-		kq.queues[item.Event.PartitionKey] = q
+		kq.queues[partitionKey] = queue
 	}
-	q.mu.Lock()
-	q.submitters++
-	q.mu.Unlock()
-	kq.mu.Unlock()
+	queue.mu.Lock()
+	queue.submitters++
+	queue.mu.Unlock()
+	return queue
+}
 
+func (kq *KeyQueue) enqueueItem(ctx context.Context, queue *keyQueue, item ports.QueueItem) error {
+	queued := &queuedItem{
+		env: item.Event, delivery: item.Delivery, fencingToken: item.FencingToken,
+		vshard: item.Shard, workerID: item.WorkerID,
+	}
 	select {
-	case q.ch <- &queuedItem{
-		env:          item.Event,
-		delivery:     item.Delivery,
-		fencingToken: item.FencingToken,
-		vshard:       item.Shard,
-		workerID:     item.WorkerID,
-	}:
-		kq.finishSubmit(q)
+	case queue.ch <- queued:
+		kq.finishSubmit(queue)
 		return nil
 	case <-ctx.Done():
 		<-kq.globalSem
-		kq.finishSubmit(q)
+		kq.finishSubmit(queue)
 		return ctx.Err()
 	case <-kq.stopSubmitting:
 		<-kq.globalSem
-		kq.finishSubmit(q)
+		kq.finishSubmit(queue)
 		return errors.New("submit event: key queue is stopping")
 	}
 }
@@ -285,46 +324,61 @@ func (kq *KeyQueue) finishSubmit(q *keyQueue) {
 
 func (kq *KeyQueue) workerLoop(ctx context.Context, workerID int) {
 	defer kq.wg.Done()
-
 	for {
-		select {
-		case <-ctx.Done():
+		if !kq.workerShouldContinue(ctx) {
 			return
-		case <-kq.stopWorkers:
-			return
-		default:
-			item := kq.nextEvent()
-			if item == nil {
-				timer := time.NewTimer(10 * time.Millisecond)
-				select {
-				case <-ctx.Done():
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					return
-				case <-kq.stopWorkers:
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					return
-				case <-timer.C:
-				}
-				continue
-			}
-
-			if err := kq.processor(ctx, item.env, item.delivery, item.fencingToken, item.vshard, item.workerID); err != nil {
-				log.Printf("keyqueue worker %d: process error for key %s: %v", workerID, item.env.PartitionKey, err)
-			}
-			kq.finishEvent(item.env.PartitionKey)
-			<-kq.globalSem
 		}
+		item := kq.nextEvent()
+		if item == nil {
+			if !waitForQueueWork(ctx, kq.stopWorkers) {
+				return
+			}
+			continue
+		}
+		kq.processQueuedItem(ctx, workerID, item)
 	}
+}
+
+func (kq *KeyQueue) workerShouldContinue(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-kq.stopWorkers:
+		return false
+	default:
+		return true
+	}
+}
+
+func waitForQueueWork(ctx context.Context, stop <-chan struct{}) bool {
+	timer := time.NewTimer(10 * time.Millisecond)
+	defer stopAndDrainTimer(timer)
+	select {
+	case <-ctx.Done():
+		return false
+	case <-stop:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func stopAndDrainTimer(timer *time.Timer) {
+	if timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C:
+	default:
+	}
+}
+
+func (kq *KeyQueue) processQueuedItem(ctx context.Context, workerID int, item *queuedItem) {
+	if err := kq.processor(ctx, item.env, item.delivery, item.fencingToken, item.vshard, item.workerID); err != nil {
+		log.Printf("keyqueue worker %d: process error for key %s: %v", workerID, item.env.PartitionKey, err)
+	}
+	kq.finishEvent(item.env.PartitionKey)
+	<-kq.globalSem
 }
 
 func (kq *KeyQueue) nextEvent() *queuedItem {
@@ -369,6 +423,7 @@ func (kq *KeyQueue) finishEvent(partitionKey string) {
 	kq.mu.Unlock()
 }
 
+// Stats returns current queue statistics including depth, active keys, and hot keys.
 func (kq *KeyQueue) Stats() ports.QueueStats {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()
@@ -396,6 +451,7 @@ func (kq *KeyQueue) Stats() ports.QueueStats {
 	return stats
 }
 
+// QueueDepth returns the number of queued items for a specific partition key.
 func (kq *KeyQueue) QueueDepth(partitionKey string) int {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()
@@ -405,6 +461,7 @@ func (kq *KeyQueue) QueueDepth(partitionKey string) int {
 	return 0
 }
 
+// ActiveKeys returns the number of partition keys currently having queued items.
 func (kq *KeyQueue) ActiveKeys() int {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()

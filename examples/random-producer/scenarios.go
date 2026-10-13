@@ -41,9 +41,9 @@ func scenarioForSequence(sequence int) Scenario {
 func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int, rng *rand.Rand) (domain.EventEnvelope, error) {
 	now := time.Now().UTC()
 	orderID := fmt.Sprintf("order-%s-%04d", clientID, sequence)
-	data := map[string]any{}
 	eventType := ""
 	partitionKey := ""
+	var data map[string]any
 
 	switch scenario {
 	case ScenarioEcommerce:

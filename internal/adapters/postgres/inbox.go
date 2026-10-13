@@ -10,14 +10,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// InboxRepository persists event inbox records in PostgreSQL.
 type InboxRepository struct {
 	db Querier
 }
 
+// NewInboxRepository creates an inbox repository backed by a PostgreSQL query interface.
 func NewInboxRepository(db Querier) *InboxRepository {
 	return &InboxRepository{db: db}
 }
 
+// Insert stores an inbox entry and reports whether a new row was created.
 func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
 	tag, err := r.db.Exec(ctx, `
 		INSERT INTO inbox (tenant_id, event_id, status, first_seen_at, partition_key, rule_set, payload, batch_id)
@@ -31,6 +34,7 @@ func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) 
 	return tag.RowsAffected() > 0, nil
 }
 
+// Get retrieves an inbox entry by tenant and event ID, or returns nil when it does not exist.
 func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	entry := &domain.InboxEntry{}
 	err := r.db.QueryRow(ctx, `
@@ -52,6 +56,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 	return entry, nil
 }
 
+// MarkCommitted marks an inbox entry as committed and records its execution ID.
 func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error {
 	now := time.Now().UTC()
 	_, err := r.db.Exec(ctx, `
@@ -64,14 +69,17 @@ func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, ev
 	return nil
 }
 
+// ExecutionRepository persists execution records in PostgreSQL.
 type ExecutionRepository struct {
 	db Querier
 }
 
+// NewExecutionRepository creates an execution repository backed by a PostgreSQL query interface.
 func NewExecutionRepository(db Querier) *ExecutionRepository {
 	return &ExecutionRepository{db: db}
 }
 
+// Save inserts an execution record unless its execution ID already exists.
 func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execution) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO executions (execution_id, event_id, tenant_id, rule_set, revision, decision_hash, status, error, trace_id, created_at)
@@ -85,6 +93,7 @@ func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execut
 	return nil
 }
 
+// Get retrieves an execution by ID, or returns nil when it does not exist.
 func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
 	exec := &domain.Execution{}
 	err := r.db.QueryRow(ctx, `
@@ -104,6 +113,7 @@ func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*dom
 	return exec, nil
 }
 
+// UpdateStatus changes an execution's status, error message, and completion timestamp.
 func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
 	var completedAt *time.Time
 	if status == domain.ExecutionStatusCompleted || status == domain.ExecutionStatusFailed || status == domain.ExecutionStatusQuarantined {
@@ -120,6 +130,7 @@ func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID stri
 	return nil
 }
 
+// GetByEvent retrieves an execution by event ID, or returns nil when no execution exists.
 func (r *ExecutionRepository) GetByEvent(ctx context.Context, eventID string) (*domain.Execution, error) {
 	exec := &domain.Execution{}
 	err := r.db.QueryRow(ctx, `
@@ -139,6 +150,7 @@ func (r *ExecutionRepository) GetByEvent(ctx context.Context, eventID string) (*
 	return exec, nil
 }
 
+// GetPending returns pending executions ordered by creation time, up to the requested limit.
 func (r *ExecutionRepository) GetPending(ctx context.Context, limit int) ([]*domain.Execution, error) {
 	if limit <= 0 {
 		limit = 100

@@ -1,3 +1,4 @@
+// Package responses writes standardized HTTP API responses.
 package responses
 
 import (

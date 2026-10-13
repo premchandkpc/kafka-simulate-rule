@@ -8,6 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Config holds Redis connection configuration.
 type Config struct {
 	Addr         string
 	Password     string
@@ -20,10 +21,12 @@ type Config struct {
 	WriteTimeout time.Duration
 }
 
+// Client wraps a Redis client for use by FlowRule components.
 type Client struct {
 	client *redis.Client
 }
 
+// New creates a new Redis client with the given configuration.
 func New(ctx context.Context, cfg Config) (*Client, error) {
 	if cfg.Addr == "" {
 		cfg.Addr = "localhost:6379"
@@ -66,10 +69,12 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
+// Close closes the Redis client connection.
 func (c *Client) Close() error {
 	return c.client.Close()
 }
 
+// Client returns the underlying Redis client.
 func (c *Client) Client() *redis.Client {
 	return c.client
 }

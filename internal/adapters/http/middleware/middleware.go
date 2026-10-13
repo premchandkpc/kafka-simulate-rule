@@ -1,3 +1,4 @@
+// Package middleware provides HTTP middleware for request context and authentication.
 package middleware
 
 import (
@@ -15,6 +16,7 @@ import (
 type TenantContextKey string
 
 const (
+	// TenantIDKey identifies the tenant value stored in request context.
 	TenantIDKey TenantContextKey = "tenant_id"
 
 	trustedProxyTokenEnv    = "FLOWRULE_TRUSTED_PROXY_TOKEN"

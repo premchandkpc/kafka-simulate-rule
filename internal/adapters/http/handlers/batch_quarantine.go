@@ -1,3 +1,4 @@
+// Package handlers provides HTTP request handlers for the FlowRule API.
 package handlers
 
 import (
@@ -11,20 +12,24 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// BatchHandler handles HTTP requests for batch operations.
 type BatchHandler struct {
 	batchSvc ports.BatchService
 }
 
+// NewBatchHandler creates a new BatchHandler.
 func NewBatchHandler(batchSvc ports.BatchService) *BatchHandler {
 	return &BatchHandler{batchSvc: batchSvc}
 }
 
+// RegisterRoutes registers the HTTP routes for the BatchHandler.
 func (h *BatchHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/batches", h.CreateBatch)
 	mux.HandleFunc("GET /v1/batches/{batchID}", h.GetBatch)
 	mux.HandleFunc("GET /v1/batches", h.ListBatches)
 }
 
+// CreateBatch handles POST /v1/batches requests.
 func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TenantID     string   `json:"tenant_id"`
@@ -66,6 +71,7 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	responses.WriteCreated(w, batch)
 }
 
+// GetBatch handles GET /v1/batches/{batchID} requests.
 func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 	batchID := r.PathValue("batchID")
 	if batchID == "" {
@@ -87,6 +93,7 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, batch)
 }
 
+// ListBatches handles GET /v1/batches requests.
 func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	ruleSet := r.URL.Query().Get(queryParamRuleSet)
@@ -112,14 +119,17 @@ func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// QuarantineHandler handles HTTP requests for quarantine operations.
 type QuarantineHandler struct {
 	quarantineSvc ports.QuarantineService
 }
 
+// NewQuarantineHandler creates a new QuarantineHandler.
 func NewQuarantineHandler(quarantineSvc ports.QuarantineService) *QuarantineHandler {
 	return &QuarantineHandler{quarantineSvc: quarantineSvc}
 }
 
+// RegisterRoutes registers the HTTP routes for the QuarantineHandler.
 func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/quarantine", h.ListQuarantine)
 	mux.HandleFunc("GET /v1/quarantine/{id}", h.GetQuarantine)
@@ -127,58 +137,74 @@ func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/quarantine/{id}", h.DeleteQuarantine)
 }
 
+// ListQuarantine handles GET /v1/quarantine requests.
 func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	if tenantID == "" {
 		responses.WriteError(w, http.StatusUnauthorized, messageTenantRequired, responses.CodeTenantRequired)
 		return
 	}
-
-	filter := ports.QuarantineFilter{
-		TenantID:   tenantID,
-		SourceType: r.URL.Query().Get(queryParamSourceType),
-		ErrorClass: r.URL.Query().Get(queryParamErrorClass),
-		Limit:      100,
-	}
-	if value := r.URL.Query().Get(queryParamFrom); value != "" {
-		parsed, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			responses.WriteError(w, http.StatusBadRequest, "invalid from timestamp; expected RFC3339", responses.CodeValidationFailed)
-			return
-		}
-		filter.From = parsed
-	}
-	if value := r.URL.Query().Get(queryParamTo); value != "" {
-		parsed, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			responses.WriteError(w, http.StatusBadRequest, "invalid to timestamp; expected RFC3339", responses.CodeValidationFailed)
-			return
-		}
-		filter.To = parsed
-	}
-	if !filter.From.IsZero() && !filter.To.IsZero() && filter.From.After(filter.To) {
-		responses.WriteError(w, http.StatusBadRequest, "from must not be after to", responses.CodeValidationFailed)
-		return
-	}
-	pagination, err := parsePagination(r, 100, 500, 10000)
+	filter, err := buildQuarantineFilter(r, tenantID)
 	if err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
 		return
 	}
-	filter.Limit, filter.Offset = pagination.Limit, pagination.Offset
-
 	entries, err := h.quarantineSvc.List(r.Context(), filter)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	responses.WriteOK(w, map[string]interface{}{
-		"entries": entries,
-		"total":   len(entries),
-		"limit":   filter.Limit,
-		"offset":  filter.Offset,
-	})
+	responses.WriteOK(w, quarantineListResponse(entries, filter))
 }
+
+func buildQuarantineFilter(r *http.Request, tenantID string) (ports.QuarantineFilter, error) {
+	query := r.URL.Query()
+	filter := ports.QuarantineFilter{
+		TenantID: tenantID, SourceType: query.Get(queryParamSourceType),
+		ErrorClass: query.Get(queryParamErrorClass), Limit: 100,
+	}
+	from, to, err := parseQuarantineTimeRange(query.Get(queryParamFrom), query.Get(queryParamTo))
+	if err != nil {
+		return ports.QuarantineFilter{}, err
+	}
+	filter.From, filter.To = from, to
+	pagination, err := parsePagination(r, 100, 500, 10000)
+	if err != nil {
+		return ports.QuarantineFilter{}, err
+	}
+	filter.Limit, filter.Offset = pagination.Limit, pagination.Offset
+	return filter, nil
+}
+
+func parseQuarantineTimeRange(fromValue, toValue string) (time.Time, time.Time, error) {
+	var from, to time.Time
+	if fromValue != "" {
+		parsed, err := time.Parse(time.RFC3339, fromValue)
+		if err != nil {
+			return time.Time{}, time.Time{}, errors.New("invalid from timestamp; expected RFC3339")
+		}
+		from = parsed
+	}
+	if toValue != "" {
+		parsed, err := time.Parse(time.RFC3339, toValue)
+		if err != nil {
+			return time.Time{}, time.Time{}, errors.New("invalid to timestamp; expected RFC3339")
+		}
+		to = parsed
+	}
+	if !from.IsZero() && !to.IsZero() && from.After(to) {
+		return time.Time{}, time.Time{}, errors.New("from must not be after to")
+	}
+	return from, to, nil
+}
+
+func quarantineListResponse(entries []*domain.QuarantineEntry, filter ports.QuarantineFilter) map[string]interface{} {
+	return map[string]interface{}{
+		"entries": entries, "total": len(entries), "limit": filter.Limit, "offset": filter.Offset,
+	}
+}
+
+// GetQuarantine handles GET /v1/quarantine/{id} requests.
 func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -204,6 +230,7 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 	responses.WriteOK(w, entry)
 }
 
+// ReplayQuarantine handles POST /v1/quarantine/{id}/replay requests.
 func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -228,6 +255,7 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, map[string]string{"status": "replayed"})
 }
 
+// DeleteQuarantine handles DELETE /v1/quarantine/{id} requests.
 func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

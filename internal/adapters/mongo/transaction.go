@@ -13,15 +13,18 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// TransactionManager manages MongoDB transactions.
 type TransactionManager struct {
 	client *mongo.Client
 	db     *mongo.Database
 }
 
+// NewTransactionManager creates a new TransactionManager.
 func NewTransactionManager(client *mongo.Client, db *mongo.Database) *TransactionManager {
 	return &TransactionManager{client: client, db: db}
 }
 
+// Begin starts a new MongoDB transaction.
 func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, error) {
 	session, err := m.client.StartSession()
 	if err != nil {
@@ -45,6 +48,7 @@ func (m *TransactionManager) Begin(ctx context.Context) (ports.Transaction, erro
 	}, nil
 }
 
+// WithTransaction executes a function within a MongoDB transaction.
 func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	session, err := m.client.StartSession()
 	if err != nil {
@@ -62,6 +66,7 @@ func (m *TransactionManager) WithTransaction(ctx context.Context, fn func(ctx co
 	return err
 }
 
+// Transaction wraps a MongoDB session for transaction operations.
 type Transaction struct {
 	session      mongo.Session
 	fencingToken int64
@@ -71,6 +76,7 @@ type Transaction struct {
 	done         bool
 }
 
+// Commit commits the transaction.
 func (t *Transaction) Commit(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -85,6 +91,7 @@ func (t *Transaction) Commit(ctx context.Context) error {
 	return err
 }
 
+// Rollback aborts the transaction.
 func (t *Transaction) Rollback(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -97,14 +104,17 @@ func (t *Transaction) Rollback(ctx context.Context) error {
 	return err
 }
 
+// Context returns the transaction context.
 func (t *Transaction) Context() context.Context {
 	return t.ctx
 }
 
+// FencingToken returns the current fencing token.
 func (t *Transaction) FencingToken() int64 {
 	return t.fencingToken
 }
 
+// SetFencingToken sets the fencing token.
 func (t *Transaction) SetFencingToken(token int64) {
 	t.fencingToken = token
 }
@@ -114,6 +124,7 @@ func (t *Transaction) Session() mongo.Session {
 	return t.session
 }
 
+// Database returns the MongoDB database.
 func (t *Transaction) Database() *mongo.Database {
 	return t.db
 }
@@ -149,26 +160,32 @@ func (q *txQuerier) Session() mongo.Session {
 	return q.session
 }
 
+// NewQuerier creates a Querier for database operations.
 func NewQuerier(db *mongo.Database) Querier {
 	return &dbQuerier{db: db}
 }
 
+// NewTxQuerier creates a Querier for transaction operations.
 func NewTxQuerier(session mongo.Session, db *mongo.Database) Querier {
 	return &txQuerier{session: session, db: db}
 }
 
+// TxWrapper wraps a Transaction to implement the Querier interface.
 type TxWrapper struct {
 	*Transaction
 }
 
+// Collection returns a MongoDB collection.
 func (t *TxWrapper) Collection(name string, opts ...*options.CollectionOptions) *mongo.Collection {
 	return t.db.Collection(name, opts...)
 }
 
+// Session returns the MongoDB session.
 func (t *TxWrapper) Session() mongo.Session {
 	return t.session
 }
 
+// WrapTx wraps a Transaction as a Querier.
 func WrapTx(tx ports.Transaction) Querier {
 	if mw, ok := tx.(*Transaction); ok {
 		return &TxWrapper{mw}

@@ -13,10 +13,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// InboxRepository persists inbox entries used for event deduplication.
 type InboxRepository struct {
 	querier Querier
 }
 
+// NewInboxRepository creates and returns the configured value.
 func NewInboxRepository(q Querier) *InboxRepository {
 	return &InboxRepository{querier: q}
 }
@@ -25,6 +27,7 @@ func (r *InboxRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Insert persists the supplied value.
 func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
 	coll := r.collection(collectionInbox)
 	doc := InboxDocFromDomain(entry)
@@ -38,6 +41,7 @@ func (r *InboxRepository) Insert(ctx context.Context, entry *domain.InboxEntry) 
 	return true, nil
 }
 
+// Get retrieves the requested value.
 func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	coll := r.collection(collectionInbox)
 	var doc InboxDoc
@@ -54,6 +58,7 @@ func (r *InboxRepository) Get(ctx context.Context, tenantID string, eventID stri
 	return doc.ToDomain(), nil
 }
 
+// MarkCommitted persists the supplied value.
 func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error {
 	coll := r.collection(collectionInbox)
 	now := time.Now().UTC()
@@ -77,6 +82,7 @@ func (r *InboxRepository) MarkCommitted(ctx context.Context, tenantID string, ev
 	return nil
 }
 
+// InboxDoc represents an inbox entry stored in MongoDB.
 type InboxDoc struct {
 	TenantID     string     `bson:"tenant_id"`
 	EventID      string     `bson:"event_id"`
@@ -90,6 +96,7 @@ type InboxDoc struct {
 	BatchID      string     `bson:"batch_id,omitempty"`
 }
 
+// InboxDocFromDomain converts a domain value to its MongoDB representation.
 func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
 	return &InboxDoc{
 		TenantID:     entry.TenantID,
@@ -105,6 +112,7 @@ func InboxDocFromDomain(entry *domain.InboxEntry) *InboxDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *InboxDoc) ToDomain() *domain.InboxEntry {
 	var payload json.RawMessage
 	if d.Payload != nil {

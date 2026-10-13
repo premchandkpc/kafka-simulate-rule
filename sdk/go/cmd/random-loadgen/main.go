@@ -75,14 +75,14 @@ func main() {
 	for i := 0; i < *clientsFlag; i++ {
 		tenantID := fmt.Sprintf("load-client-%02d", i+1)
 		cfg := &flowrule.Config{
-			Transport:   flowrule.TransportNATS,
-			TenantID:    tenantID,
-			NATSURL:     natsURL,
-			NATSStream:  stream,
+			Transport:    flowrule.TransportNATS,
+			TenantID:     tenantID,
+			NATSURL:      natsURL,
+			NATSStream:   stream,
 			NATSSubjects: []string{"events"},
-			NumShards:   numShards,
-			SendTimeout: 5 * time.Second,
-			MaxRetries:  2,
+			NumShards:    numShards,
+			SendTimeout:  5 * time.Second,
+			MaxRetries:   2,
 			RetryBackoff: 100 * time.Millisecond,
 		}
 		client, err := flowrule.NewWithConfig(cfg)
@@ -136,8 +136,8 @@ func main() {
 		key := fmt.Sprintf("%s-account-%02d", sc.id, rng.Intn(10)+1)
 		message := payload{
 			ClientID: sc.id, MessageNo: i,
-			Text: fmt.Sprintf("random message %s", randomID()),
-			Value: rng.Intn(10000),
+			Text:      fmt.Sprintf("random message %s", randomID()),
+			Value:     rng.Intn(10000),
 			CreatedAt: time.Now().UTC(),
 		}
 		if err := sc.client.Send(ctx, eventType, message, flowrule.WithPartitionKey(key)); err != nil {

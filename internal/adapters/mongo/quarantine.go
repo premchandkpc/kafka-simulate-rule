@@ -14,10 +14,12 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// QuarantineRepository persists quarantined events and effects.
 type QuarantineRepository struct {
 	querier Querier
 }
 
+// NewQuarantineRepository creates and returns the configured value.
 func NewQuarantineRepository(querier Querier) *QuarantineRepository {
 	return &QuarantineRepository{querier: querier}
 }
@@ -41,7 +43,7 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 	if err != nil {
 		return fmt.Errorf("find legacy effect quarantine entries: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	for cursor.Next(ctx) {
 		var entry QuarantineDoc
@@ -93,6 +95,7 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 	return nil
 }
 
+// Save persists the supplied value.
 func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
 	coll := r.collection(collectionQuarantine)
 	doc := QuarantineDocFromDomain(entry)
@@ -107,6 +110,7 @@ func (r *QuarantineRepository) Save(ctx context.Context, entry *domain.Quarantin
 	return nil
 }
 
+// Get retrieves the requested value.
 func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*domain.QuarantineEntry, error) {
 	if tenantID == "" {
 		return nil, nil
@@ -126,6 +130,7 @@ func (r *QuarantineRepository) Get(ctx context.Context, tenantID, id string) (*d
 	return doc.ToDomain(), nil
 }
 
+// Delete deletes the requested record.
 func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) error {
 	if tenantID == "" {
 		return domain.ErrQuarantineNotFound
@@ -141,6 +146,7 @@ func (r *QuarantineRepository) Delete(ctx context.Context, tenantID, id string) 
 	return nil
 }
 
+// List returns matching records.
 func (r *QuarantineRepository) List(ctx context.Context, filter ports.QuarantineFilter) ([]*domain.QuarantineEntry, error) {
 	if filter.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id is required")
@@ -148,12 +154,15 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	filter.Limit, filter.Offset = normalizeQuarantinePagination(filter.Limit, filter.Offset)
 	coll := r.collection(collectionQuarantine)
 
-	f := bson.D{{Key: "tenant_id", Value: filter.TenantID}}
+	// Keep the query shape fixed and treat every caller-supplied filter as a
+	// literal equality operand. In particular, values must never become MongoDB
+	// query operators or nested query documents.
+	f := bson.D{{Key: "tenant_id", Value: mongoEquality(filter.TenantID)}}
 	if filter.SourceType != "" {
-		f = append(f, bson.E{Key: "source_type", Value: filter.SourceType})
+		f = append(f, bson.E{Key: "source_type", Value: mongoEquality(filter.SourceType)})
 	}
 	if filter.ErrorClass != "" {
-		f = append(f, bson.E{Key: "error_class", Value: filter.ErrorClass})
+		f = append(f, bson.E{Key: "error_class", Value: mongoEquality(filter.ErrorClass)})
 	}
 	if !filter.From.IsZero() || !filter.To.IsZero() {
 		dateRange := bson.D{}
@@ -173,7 +182,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	if err != nil {
 		return nil, fmt.Errorf("list quarantine: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var entries []*domain.QuarantineEntry
 	for cursor.Next(ctx) {
@@ -190,6 +199,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	return entries, nil
 }
 
+// Replay replays the selected quarantined entry.
 func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) error {
 	if tenantID == "" {
 		return domain.ErrQuarantineNotFound
@@ -213,6 +223,7 @@ func (r *QuarantineRepository) Replay(ctx context.Context, tenantID, id string) 
 	return nil
 }
 
+// QuarantineDoc represents a quarantined entry stored in MongoDB.
 type QuarantineDoc struct {
 	QuarantineID string    `bson:"quarantine_id"`
 	SourceType   string    `bson:"source_type"`
@@ -228,6 +239,7 @@ type QuarantineDoc struct {
 	UpdatedAt    time.Time `bson:"updated_at"`
 }
 
+// QuarantineDocFromDomain converts a domain value to its MongoDB representation.
 func QuarantineDocFromDomain(entry *domain.QuarantineEntry) *QuarantineDoc {
 	return &QuarantineDoc{
 		QuarantineID: entry.ID,
@@ -243,6 +255,7 @@ func QuarantineDocFromDomain(entry *domain.QuarantineEntry) *QuarantineDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 	return &domain.QuarantineEntry{
 		ID:         d.QuarantineID,
@@ -255,6 +268,12 @@ func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 		Error:      d.ErrorMessage,
 		CreatedAt:  d.CreatedAt,
 	}
+}
+
+// mongoEquality wraps an untrusted value in a fixed equality expression so it
+// is always interpreted as data, never as caller-controlled query syntax.
+func mongoEquality(value any) bson.D {
+	return bson.D{{Key: "$eq", Value: value}}
 }
 
 func normalizeQuarantinePagination(limit, offset int) (int, int) {

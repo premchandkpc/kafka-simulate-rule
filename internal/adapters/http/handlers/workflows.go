@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -10,12 +11,14 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// WorkflowHandler handles HTTP requests for workflow operations.
 type WorkflowHandler struct {
 	workflowSvc     ports.WorkflowService
 	ruleSvc         ports.RuleService
 	workflowDefRepo ports.WorkflowDefinitionRepository
 }
 
+// NewWorkflowHandler constructs an HTTP handler with its required service dependencies.
 func NewWorkflowHandler(workflowSvc ports.WorkflowService, ruleSvc ports.RuleService, workflowDefRepo ports.WorkflowDefinitionRepository) *WorkflowHandler {
 	return &WorkflowHandler{
 		workflowSvc:     workflowSvc,
@@ -24,6 +27,7 @@ func NewWorkflowHandler(workflowSvc ports.WorkflowService, ruleSvc ports.RuleSer
 	}
 }
 
+// RegisterRoutes registers the handler's HTTP routes on mux.
 func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workflows", h.CreateWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{workflowID}", h.GetWorkflow)
@@ -34,6 +38,7 @@ func (h *WorkflowHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workflows/definitions/{workflowType}/{version}", h.GetWorkflowDefinition)
 }
 
+// CreateWorkflow creates a workflow instance for the current tenant.
 func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var wf domain.WorkflowInstance
 	if err := decodeRequestBody(r, &wf); err != nil {
@@ -68,6 +73,7 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 	responses.WriteCreated(w, wf)
 }
 
+// GetWorkflow returns a workflow instance visible to the current tenant.
 func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := r.PathValue("workflowID")
 	if workflowID == "" {
@@ -89,55 +95,86 @@ func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, wf)
 }
 
+type workflowTransitionRequest struct {
+	FromState string `json:"from_state"`
+	ToState   string `json:"to_state"`
+}
+
+// TransitionWorkflow transitions a workflow instance to a new state.
 func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Request) {
 	workflowID := r.PathValue("workflowID")
 	if workflowID == "" {
 		responses.WriteError(w, http.StatusBadRequest, "workflowID is required", responses.CodeBadRequest)
 		return
 	}
-
-	var body struct {
-		FromState string `json:"from_state"`
-		ToState   string `json:"to_state"`
-	}
-	if err := decodeRequestBody(r, &body); err != nil {
+	request, err := decodeWorkflowTransitionRequest(r)
+	if err != nil {
 		responses.WriteError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), responses.CodeInvalidJSON)
 		return
 	}
-
-	if body.ToState == "" {
+	if request.ToState == "" {
 		responses.WriteError(w, http.StatusBadRequest, "to_state is required", responses.CodeBadRequest)
 		return
 	}
 
 	ctx := r.Context()
-	wf, err := h.workflowSvc.Get(ctx, middleware.GetTenantID(ctx), workflowID)
+	tenantID := middleware.GetTenantID(ctx)
+	workflow, err := h.loadWorkflowForTransition(ctx, tenantID, workflowID)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, err.Error(), responses.CodeInternalError)
 		return
 	}
-	if wf == nil || wf.TenantID != middleware.GetTenantID(ctx) {
+	if workflow == nil {
 		responses.WriteError(w, http.StatusNotFound, "not found", responses.CodeNotFound)
 		return
 	}
-	if body.FromState != "" && body.FromState != wf.State {
+	if request.FromState != "" && request.FromState != workflow.State {
 		responses.WriteError(w, http.StatusConflict, "from_state does not match current workflow state", responses.CodeConflict)
 		return
 	}
-	if body.FromState != "" {
-		err = h.workflowSvc.Transition(ctx, middleware.GetTenantID(ctx), workflowID, body.FromState, body.ToState)
-	} else {
-		err = h.workflowSvc.UpdateState(ctx, middleware.GetTenantID(ctx), workflowID, body.ToState, 0)
-	}
-
-	if err != nil {
+	if err := h.applyWorkflowTransition(ctx, tenantID, workflowID, request); err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeTransitionFailed)
 		return
 	}
-
 	responses.WriteOK(w, map[string]string{"status": "ok"})
 }
 
+func decodeWorkflowTransitionRequest(r *http.Request) (workflowTransitionRequest, error) {
+	var request workflowTransitionRequest
+	if err := decodeRequestBody(r, &request); err != nil {
+		return workflowTransitionRequest{}, err
+	}
+	return request, nil
+}
+
+func (h *WorkflowHandler) loadWorkflowForTransition(
+	ctx context.Context,
+	tenantID string,
+	workflowID string,
+) (*domain.WorkflowInstance, error) {
+	workflow, err := h.workflowSvc.Get(ctx, tenantID, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	if workflow == nil || workflow.TenantID != tenantID {
+		return nil, nil
+	}
+	return workflow, nil
+}
+
+func (h *WorkflowHandler) applyWorkflowTransition(
+	ctx context.Context,
+	tenantID string,
+	workflowID string,
+	request workflowTransitionRequest,
+) error {
+	if request.FromState != "" {
+		return h.workflowSvc.Transition(ctx, tenantID, workflowID, request.FromState, request.ToState)
+	}
+	return h.workflowSvc.UpdateState(ctx, tenantID, workflowID, request.ToState, 0)
+}
+
+// ListWorkflows lists workflow instances for the current tenant.
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	state := r.URL.Query().Get(queryParamState)
@@ -176,6 +213,7 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// ListWorkflowDefinitions lists registered workflow definitions.
 func (h *WorkflowHandler) ListWorkflowDefinitions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	defs, err := h.workflowDefRepo.List(ctx)
@@ -218,6 +256,7 @@ func (h *WorkflowHandler) CreateWorkflowDefinition(w http.ResponseWriter, r *htt
 	responses.WriteCreated(w, def)
 }
 
+// GetWorkflowDefinition returns a registered workflow definition.
 func (h *WorkflowHandler) GetWorkflowDefinition(w http.ResponseWriter, r *http.Request) {
 	workflowType := r.PathValue("workflowType")
 	versionStr := r.PathValue("version")

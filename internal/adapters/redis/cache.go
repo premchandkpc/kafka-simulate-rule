@@ -1,3 +1,4 @@
+// Package redis provides Redis-backed cache adapters.
 package redis
 
 import (
@@ -10,14 +11,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Cache implements a Redis-backed cache.
 type Cache struct {
 	client *redis.Client
 }
 
+// NewCache creates a new Cache from a Redis client.
 func NewCache(client *Client) *Cache {
 	return &Cache{client: client.client}
 }
 
+// Get retrieves a value from the cache.
 func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 	val, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
@@ -29,6 +33,7 @@ func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 	return val, nil
 }
 
+// Set stores a value in the cache with the given TTL.
 func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	err := c.client.Set(ctx, key, value, ttl).Err()
 	if err != nil {
@@ -37,6 +42,7 @@ func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Dura
 	return nil
 }
 
+// Delete removes a key from the cache.
 func (c *Cache) Delete(ctx context.Context, key string) error {
 	err := c.client.Del(ctx, key).Err()
 	if err != nil {
@@ -45,6 +51,7 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// Exists checks if a key exists in the cache.
 func (c *Cache) Exists(ctx context.Context, key string) (bool, error) {
 	n, err := c.client.Exists(ctx, key).Result()
 	if err != nil {
@@ -53,6 +60,7 @@ func (c *Cache) Exists(ctx context.Context, key string) (bool, error) {
 	return n > 0, nil
 }
 
+// Increment atomically increments a key by delta and returns the new value.
 func (c *Cache) Increment(ctx context.Context, key string, delta int64) (int64, error) {
 	val, err := c.client.IncrBy(ctx, key, delta).Result()
 	if err != nil {
@@ -61,6 +69,7 @@ func (c *Cache) Increment(ctx context.Context, key string, delta int64) (int64, 
 	return val, nil
 }
 
+// Expire sets the TTL for a key.
 func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	if ttl <= 0 {
 		return fmt.Errorf("cache expire: ttl must be positive")
@@ -72,6 +81,7 @@ func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error
 	return nil
 }
 
+// TTL returns the remaining time-to-live for a key.
 func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	dur, err := c.client.TTL(ctx, key).Result()
 	if err != nil {
@@ -80,6 +90,7 @@ func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	return dur, nil
 }
 
+// Keys returns all keys matching the given pattern.
 func (c *Cache) Keys(ctx context.Context, pattern string) ([]string, error) {
 	keys, err := c.client.Keys(ctx, pattern).Result()
 	if err != nil {
@@ -88,6 +99,7 @@ func (c *Cache) Keys(ctx context.Context, pattern string) ([]string, error) {
 	return keys, nil
 }
 
+// Flush removes all keys from the current database.
 func (c *Cache) Flush(ctx context.Context) error {
 	err := c.client.FlushDB(ctx).Err()
 	if err != nil {

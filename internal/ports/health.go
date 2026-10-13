@@ -11,6 +11,7 @@ type HealthChecker interface {
 	Name() string
 }
 
+// HealthStatus represents the health status of a component.
 type HealthStatus struct {
 	Healthy   bool
 	Message   string

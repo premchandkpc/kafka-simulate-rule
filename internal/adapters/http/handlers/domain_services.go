@@ -11,14 +11,17 @@ import (
 	"github.com/flowrule/flowrule/internal/services/domainservices"
 )
 
+// DomainServiceHandler handles HTTP requests for domain and service operations.
 type DomainServiceHandler struct {
 	service ports.DomainServiceUseCase
 }
 
+// NewDomainServiceHandler creates a new DomainServiceHandler.
 func NewDomainServiceHandler(service ports.DomainServiceUseCase) *DomainServiceHandler {
 	return &DomainServiceHandler{service: service}
 }
 
+// RegisterRoutes registers the HTTP routes for the DomainServiceHandler.
 func (h *DomainServiceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/domains", h.ListDomains)
 	mux.HandleFunc("POST /v1/domains", h.CreateDomain)
@@ -32,6 +35,7 @@ func (h *DomainServiceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/services/{serviceID}", h.DeleteService)
 }
 
+// ListDomains handles GET /v1/domains requests.
 func (h *DomainServiceHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	if !h.ready(w, r) {
 		return
@@ -44,6 +48,7 @@ func (h *DomainServiceHandler) ListDomains(w http.ResponseWriter, r *http.Reques
 	responses.WriteOK(w, map[string]any{"domains": items, "total": len(items)})
 }
 
+// CreateDomain handles POST /v1/domains requests.
 func (h *DomainServiceHandler) CreateDomain(w http.ResponseWriter, r *http.Request) {
 	var item domain.TenantDomain
 	if !h.decode(w, r, &item) {
@@ -60,6 +65,7 @@ func (h *DomainServiceHandler) CreateDomain(w http.ResponseWriter, r *http.Reque
 	responses.WriteCreated(w, saved)
 }
 
+// GetDomain handles GET /v1/domains/{domainID} requests.
 func (h *DomainServiceHandler) GetDomain(w http.ResponseWriter, r *http.Request) {
 	if !h.ready(w, r) {
 		return
@@ -72,6 +78,7 @@ func (h *DomainServiceHandler) GetDomain(w http.ResponseWriter, r *http.Request)
 	responses.WriteOK(w, item)
 }
 
+// UpdateDomain handles PUT /v1/domains/{domainID} requests.
 func (h *DomainServiceHandler) UpdateDomain(w http.ResponseWriter, r *http.Request) {
 	var item domain.TenantDomain
 	if !h.decode(w, r, &item) {
@@ -89,6 +96,7 @@ func (h *DomainServiceHandler) UpdateDomain(w http.ResponseWriter, r *http.Reque
 	responses.WriteOK(w, saved)
 }
 
+// DeleteDomain handles DELETE /v1/domains/{domainID} requests.
 func (h *DomainServiceHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
 	if !h.ready(w, r) {
 		return
@@ -100,6 +108,7 @@ func (h *DomainServiceHandler) DeleteDomain(w http.ResponseWriter, r *http.Reque
 	responses.WriteNoContent(w)
 }
 
+// ListServices handles GET /v1/services requests.
 func (h *DomainServiceHandler) ListServices(w http.ResponseWriter, r *http.Request) {
 	if !h.ready(w, r) {
 		return
@@ -112,6 +121,7 @@ func (h *DomainServiceHandler) ListServices(w http.ResponseWriter, r *http.Reque
 	responses.WriteOK(w, map[string]any{"services": items, "total": len(items)})
 }
 
+// CreateService handles POST /v1/services requests.
 func (h *DomainServiceHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 	var item domain.DomainService
 	if !h.decode(w, r, &item) {
@@ -128,6 +138,7 @@ func (h *DomainServiceHandler) CreateService(w http.ResponseWriter, r *http.Requ
 	responses.WriteCreated(w, saved)
 }
 
+// GetService handles GET /v1/services/{serviceID} requests.
 func (h *DomainServiceHandler) GetService(w http.ResponseWriter, r *http.Request) {
 	if !h.ready(w, r) {
 		return
@@ -140,6 +151,7 @@ func (h *DomainServiceHandler) GetService(w http.ResponseWriter, r *http.Request
 	responses.WriteOK(w, item)
 }
 
+// UpdateService handles PUT /v1/services/{serviceID} requests.
 func (h *DomainServiceHandler) UpdateService(w http.ResponseWriter, r *http.Request) {
 	var item domain.DomainService
 	if !h.decode(w, r, &item) {
@@ -157,6 +169,7 @@ func (h *DomainServiceHandler) UpdateService(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, saved)
 }
 
+// DeleteService handles DELETE /v1/services/{serviceID} requests.
 func (h *DomainServiceHandler) DeleteService(w http.ResponseWriter, r *http.Request) {
 	if !h.ready(w, r) {
 		return

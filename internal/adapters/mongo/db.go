@@ -10,11 +10,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// DB wraps a MongoDB client and database.
 type DB struct {
 	client   *mongo.Client
 	database *mongo.Database
 }
 
+// Config holds MongoDB connection configuration.
 type Config struct {
 	URI         string
 	Database    string
@@ -23,6 +25,7 @@ type Config struct {
 	MaxConnIdle time.Duration
 }
 
+// New creates a new MongoDB connection pool.
 func New(ctx context.Context, cfg Config) (*DB, error) {
 	if cfg.URI == "" {
 		cfg.URI = "mongodb://localhost:27017"
@@ -99,16 +102,19 @@ func verifyTransactionSupport(ctx context.Context, client *mongo.Client, db *mon
 	return nil
 }
 
+// Close disconnects the MongoDB client.
 func (d *DB) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = d.client.Disconnect(ctx)
 }
 
+// Database returns the configured MongoDB database.
 func (d *DB) Database() *mongo.Database {
 	return d.database
 }
 
+// Client returns the underlying MongoDB client.
 func (d *DB) Client() *mongo.Client {
 	return d.client
 }

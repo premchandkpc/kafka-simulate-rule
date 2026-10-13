@@ -40,7 +40,7 @@ func serviceEventPayload(t *testing.T) []byte {
 
 func TestDomainServiceSenderUsesStableEffectAndSourceEventIdentity(t *testing.T) {
 	var received int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		received++
 		if got := r.Header.Get("X-FlowRule-Effect-ID"); got != "outbox-effect-9" {
 			t.Errorf("effect ID header = %q", got)
@@ -54,7 +54,6 @@ func TestDomainServiceSenderUsesStableEffectAndSourceEventIdentity(t *testing.T)
 		if got := r.Header.Get("X-FlowRule-Tenant-ID"); got != "tenant-a" {
 			t.Errorf("tenant ID header = %q", got)
 		}
-		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer server.Close()
 
@@ -102,7 +101,7 @@ func TestDomainServiceSenderDoesNotFollowRedirects(t *testing.T) {
 func TestDomainServiceSenderHonorsCallerDeadline(t *testing.T) {
 	handlerStarted := make(chan struct{})
 	handlerExited := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		close(handlerStarted)
 		defer close(handlerExited)
 

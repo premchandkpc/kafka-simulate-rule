@@ -1,3 +1,4 @@
+// Package batches provides batch service tests.
 package batches
 
 import (
@@ -29,7 +30,7 @@ func newMemBatches() *memBatches {
 	}
 }
 
-func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
+func (m *memBatches) ListUnbatched(_ context.Context, limit int) ([]*domain.InboxEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []*domain.InboxEntry
@@ -44,7 +45,7 @@ func (m *memBatches) ListUnbatched(ctx context.Context, limit int) ([]*domain.In
 	return result, nil
 }
 
-func (m *memBatches) ListUnbatchedByIDs(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
+func (m *memBatches) ListUnbatchedByIDs(_ context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	wanted := make(map[string]struct{}, len(eventIDs))
@@ -64,7 +65,7 @@ func (m *memBatches) ListUnbatchedByIDs(ctx context.Context, tenantID, partition
 	return result, nil
 }
 
-func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
+func (m *memBatches) MarkBatched(_ context.Context, tenantID, eventID, batchID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := tenantID + "|" + eventID
@@ -74,7 +75,7 @@ func (m *memBatches) MarkBatched(ctx context.Context, tenantID, eventID, batchID
 	return nil
 }
 
-func (m *memBatches) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
+func (m *memBatches) CompleteBatch(_ context.Context, run *domain.BatchRun, eventIDs []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if run == nil || len(eventIDs) == 0 || len(eventIDs) != run.MemberCount {
@@ -100,20 +101,20 @@ func (m *memBatches) CompleteBatch(ctx context.Context, run *domain.BatchRun, ev
 	return nil
 }
 
-func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
+func (m *memBatches) SaveRun(_ context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runs[run.BatchID] = run
 	return nil
 }
 
-func (m *memBatches) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRun(_ context.Context, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.runs[batchID], nil
 }
 
-func (m *memBatches) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRunForTenant(_ context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	run := m.runs[batchID]
@@ -123,7 +124,7 @@ func (m *memBatches) GetRunForTenant(ctx context.Context, tenantID, batchID stri
 	return run, nil
 }
 
-func (m *memBatches) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+func (m *memBatches) ListRuns(_ context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []*domain.BatchRun
@@ -158,7 +159,7 @@ func newMemEventProcessor() *memEventProcessor {
 	}
 }
 
-func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
+func (m *memEventProcessor) Process(_ context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.envelopes = append(m.envelopes, envelope)
@@ -179,7 +180,7 @@ func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventE
 	return exec, nil
 }
 
-func (m *memEventProcessor) QuarantineEvent(ctx context.Context, sourceID, eventID, tenantID string, errClass domain.ErrorClass, errMsg string) error {
+func (m *memEventProcessor) QuarantineEvent(_ context.Context, _ string, _ string, _ string, _ domain.ErrorClass, _ string) error {
 	return nil
 }
 

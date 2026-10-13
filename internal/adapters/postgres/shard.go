@@ -9,14 +9,17 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// ShardLeaseRepository manages shard lease persistence.
 type ShardLeaseRepository struct {
 	db Querier
 }
 
+// NewShardLeaseRepository creates a new ShardLeaseRepository.
 func NewShardLeaseRepository(db Querier) *ShardLeaseRepository {
 	return &ShardLeaseRepository{db: db}
 }
 
+// Acquire attempts to acquire a shard lease for the given owner.
 func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO shard_leases (virtual_shard, owner, fencing_token, expires_at, routing_epoch)
@@ -32,6 +35,7 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 	return r.GetOwner(ctx, shard)
 }
 
+// Renew renews a shard lease if the fencing token matches.
 func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE shard_leases
@@ -93,6 +97,7 @@ func (r *ShardLeaseRepository) RenewOwned(ctx context.Context, owner string, lea
 	return renewed, nil
 }
 
+// Release expires a shard lease immediately.
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
 	// Preserve the row so the fencing token remains monotonic across release/reacquire.
 	// Deleting it would let the next INSERT reset the token to 1 and revive a zombie.
@@ -106,6 +111,7 @@ func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner 
 	return nil
 }
 
+// GetOwner retrieves the current owner of a shard.
 func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
 	lease := &domain.ShardLease{}
 	err := r.db.QueryRow(ctx, `
@@ -121,6 +127,7 @@ func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*dom
 	return lease, nil
 }
 
+// ValidateFencingToken checks if the fencing token matches the current lease.
 func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
 	var currentToken int64
 	err := r.db.QueryRow(ctx, `
@@ -138,6 +145,7 @@ func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard u
 
 // AssertHeld validates the lease is held by the owner with the given fencing token.
 // Uses row lock (FOR SHARE) to prevent stale holders from proceeding. Fails closed.
+// AssertHeld validates the lease is held by the owner with the given fencing token.
 func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
 	var currentToken int64
 	var expiresAt time.Time
@@ -164,6 +172,7 @@ func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, own
 	return nil
 }
 
+// ListOwned returns all active shards owned by the given owner.
 func (r *ShardLeaseRepository) ListOwned(ctx context.Context, owner string) ([]*domain.ShardLease, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT virtual_shard, owner, fencing_token, expires_at, routing_epoch

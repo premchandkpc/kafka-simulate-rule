@@ -1,3 +1,4 @@
+// Package contract provides test fixtures and contract tests for storage implementations.
 package contract
 
 import (

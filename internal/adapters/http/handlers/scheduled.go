@@ -10,14 +10,17 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// ScheduledHandler handles HTTP requests for scheduled operations.
 type ScheduledHandler struct {
 	repo ports.ScheduledEventRepository
 }
 
+// NewScheduledHandler constructs an HTTP handler with its required service dependencies.
 func NewScheduledHandler(repo ports.ScheduledEventRepository) *ScheduledHandler {
 	return &ScheduledHandler{repo: repo}
 }
 
+// RegisterRoutes registers the handler's HTTP routes on mux.
 func (h *ScheduledHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/scheduled-events", h.ScheduleEvent)
 	mux.HandleFunc("GET /v1/scheduled-events/{eventID}", h.GetScheduledEvent)
@@ -25,6 +28,7 @@ func (h *ScheduledHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/scheduled-events/{eventID}", h.CancelScheduledEvent)
 }
 
+// ScheduleEvent validates and stores a scheduled event.
 func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request) {
 	var evt domain.ScheduledEvent
 	if err := decodeRequestBody(r, &evt); err != nil {
@@ -59,6 +63,7 @@ func (h *ScheduledHandler) ScheduleEvent(w http.ResponseWriter, r *http.Request)
 	responses.WriteCreated(w, evt)
 }
 
+// GetScheduledEvent returns a scheduled event visible to the current tenant.
 func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("eventID")
 	if eventID == "" {
@@ -78,6 +83,7 @@ func (h *ScheduledHandler) GetScheduledEvent(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, evt)
 }
 
+// ListScheduledEvents lists scheduled events for the current tenant.
 func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Request) {
 	pagination, err := parsePagination(r, defaultPageLimit, maxPageLimit, maxPageOffset)
 	if err != nil {
@@ -99,6 +105,7 @@ func (h *ScheduledHandler) ListScheduledEvents(w http.ResponseWriter, r *http.Re
 	})
 }
 
+// CancelScheduledEvent cancels a pending scheduled event.
 func (h *ScheduledHandler) CancelScheduledEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("eventID")
 	if eventID == "" {

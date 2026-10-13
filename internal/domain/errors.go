@@ -1,100 +1,175 @@
+// Package domain defines domain errors and classifies failures.
 package domain
 
 import "errors"
 
 var (
-	ErrEventIDRequired      = errors.New("event id is required")
-	ErrEventTypeRequired    = errors.New("event type is required")
-	ErrTenantIDRequired     = errors.New("tenant id is required")
+	// ErrEventIDRequired indicates that an event ID is required.
+	ErrEventIDRequired = errors.New("event id is required")
+	// ErrEventTypeRequired indicates that an event type is required.
+	ErrEventTypeRequired = errors.New("event type is required")
+	// ErrTenantIDRequired indicates that a tenant ID is required.
+	ErrTenantIDRequired = errors.New("tenant id is required")
+	// ErrPartitionKeyRequired indicates that a partition key is required.
 	ErrPartitionKeyRequired = errors.New("partition key is required")
-	ErrOccurredAtRequired   = errors.New("occurred at is required")
+	// ErrOccurredAtRequired indicates that an event timestamp is required.
+	ErrOccurredAtRequired = errors.New("occurred at is required")
+	// ErrInvalidEventEnvelope indicates that an event envelope is invalid.
 	ErrInvalidEventEnvelope = errors.New("invalid event envelope")
 
-	ErrRuleIDRequired        = errors.New("rule id is required")
-	ErrRevisionRequired      = errors.New("revision is required")
-	ErrRuleSourceRequired    = errors.New("rule source is required")
-	ErrInvalidMatchMode      = errors.New("invalid match mode")
-	ErrInvalidOperator       = errors.New("invalid operator")
-	ErrInvalidPredicate      = errors.New("invalid predicate")
-	ErrInvalidAction         = errors.New("invalid action")
-	ErrDuplicateRuleID       = errors.New("duplicate rule id")
-	ErrAmbiguousPriority     = errors.New("ambiguous priority")
-	ErrUnknownDestination    = errors.New("unknown destination")
+	// ErrRuleIDRequired indicates that a rule ID is required.
+	ErrRuleIDRequired = errors.New("rule id is required")
+	// ErrRevisionRequired indicates that a revision is required.
+	ErrRevisionRequired = errors.New("revision is required")
+	// ErrRuleSourceRequired indicates that a rule source is required.
+	ErrRuleSourceRequired = errors.New("rule source is required")
+	// ErrInvalidMatchMode indicates an invalid match mode was provided.
+	ErrInvalidMatchMode = errors.New("invalid match mode")
+	// ErrInvalidOperator indicates an invalid operator.
+	ErrInvalidOperator = errors.New("invalid operator")
+	// ErrInvalidPredicate indicates an invalid predicate.
+	ErrInvalidPredicate = errors.New("invalid predicate")
+	// ErrInvalidAction indicates an invalid action.
+	ErrInvalidAction = errors.New("invalid action")
+	// ErrDuplicateRuleID indicates a duplicate rule ID.
+	ErrDuplicateRuleID = errors.New("duplicate rule id")
+	// ErrAmbiguousPriority indicates an ambiguous priority.
+	ErrAmbiguousPriority = errors.New("ambiguous priority")
+	// ErrUnknownDestination indicates an unknown destination.
+	ErrUnknownDestination = errors.New("unknown destination")
+	// ErrDestinationNotAllowed indicates a destination is not allowed.
 	ErrDestinationNotAllowed = errors.New("destination not allowed")
-	ErrRuleExceedsLimits     = errors.New("rule exceeds limits")
-	ErrInvalidRuleSchema     = errors.New("invalid rule schema")
-	ErrRuleNotFound          = errors.New("rule not found")
-	ErrRuleNotActive         = errors.New("rule not active")
-	ErrRuleNotReady          = errors.New("rule not ready, retry later")
+	// ErrRuleExceedsLimits indicates a rule exceeds limits.
+	ErrRuleExceedsLimits = errors.New("rule exceeds limits")
+	// ErrInvalidRuleSchema indicates an invalid rule schema.
+	ErrInvalidRuleSchema = errors.New("invalid rule schema")
+	// ErrRuleNotFound indicates a rule was not found.
+	ErrRuleNotFound = errors.New("rule not found")
+	// ErrRuleNotActive indicates a rule is not active.
+	ErrRuleNotActive = errors.New("rule not active")
+	// ErrRuleNotReady indicates a rule is not ready.
+	ErrRuleNotReady = errors.New("rule not ready, retry later")
 
-	ErrEffectIDRequired    = errors.New("effect id is required")
+	// ErrEffectIDRequired indicates an effect ID is required.
+	ErrEffectIDRequired = errors.New("effect id is required")
+	// ErrExecutionIDRequired indicates an execution ID is required.
 	ErrExecutionIDRequired = errors.New("execution id is required")
-	ErrInvalidEffectType   = errors.New("invalid effect type")
-	ErrEffectNotFound      = errors.New("effect not found")
+	// ErrInvalidEffectType indicates an invalid effect type.
+	ErrInvalidEffectType = errors.New("invalid effect type")
+	// ErrEffectNotFound indicates an effect was not found.
+	ErrEffectNotFound = errors.New("effect not found")
+	// ErrMaxAttemptsExceeded indicates max attempts were exceeded.
 	ErrMaxAttemptsExceeded = errors.New("max attempts exceeded")
-	ErrOutboxClaimLost     = errors.New("outbox claim lost")
+	// ErrOutboxClaimLost indicates an outbox claim was lost.
+	ErrOutboxClaimLost = errors.New("outbox claim lost")
 
-	ErrExecutionNotFound      = errors.New("execution not found")
+	// ErrExecutionNotFound indicates an execution was not found.
+	ErrExecutionNotFound = errors.New("execution not found")
+	// ErrInvalidExecutionStatus indicates an invalid execution status.
 	ErrInvalidExecutionStatus = errors.New("invalid execution status")
+	// ErrExecutionAlreadyExists indicates an execution already exists.
 	ErrExecutionAlreadyExists = errors.New("execution already exists")
 
+	// ErrInboxEntryNotFound indicates an inbox entry was not found.
 	ErrInboxEntryNotFound = errors.New("inbox entry not found")
-	ErrInboxDuplicate     = errors.New("duplicate event id")
+	// ErrInboxDuplicate indicates a duplicate event ID.
+	ErrInboxDuplicate = errors.New("duplicate event id")
+	// ErrInboxInvalidStatus indicates an invalid inbox status.
 	ErrInboxInvalidStatus = errors.New("invalid inbox status")
 
-	ErrLeaseNotFound        = errors.New("lease not found")
-	ErrLeaseExpired         = errors.New("lease expired")
-	ErrLeaseOwnedByOther    = errors.New("lease owned by another worker")
+	// ErrLeaseNotFound indicates a lease was not found.
+	ErrLeaseNotFound = errors.New("lease not found")
+	// ErrLeaseExpired indicates a lease has expired.
+	ErrLeaseExpired = errors.New("lease expired")
+	// ErrLeaseOwnedByOther indicates a lease is owned by another worker.
+	ErrLeaseOwnedByOther = errors.New("lease owned by another worker")
+	// ErrFencingTokenMismatch indicates a fencing token mismatch.
 	ErrFencingTokenMismatch = errors.New("fencing token mismatch")
 
-	ErrQuarantineNotFound     = errors.New("quarantine entry not found")
+	// ErrQuarantineNotFound indicates a quarantine entry was not found.
+	ErrQuarantineNotFound = errors.New("quarantine entry not found")
+	// ErrQuarantineReplayFailed indicates a quarantine replay failed.
 	ErrQuarantineReplayFailed = errors.New("quarantine replay failed")
 
+	// ErrActivationNotFound indicates an activation was not found.
 	ErrActivationNotFound = errors.New("activation not found")
+	// ErrActivationConflict indicates an activation conflict.
 	ErrActivationConflict = errors.New("activation conflict")
 
-	ErrWorkflowNotFound           = errors.New("workflow not found")
-	ErrWorkflowConflict           = errors.New("workflow version conflict")
-	ErrWorkflowInvalidTransition  = errors.New("invalid workflow state transition")
+	// ErrWorkflowNotFound indicates a workflow was not found.
+	ErrWorkflowNotFound = errors.New("workflow not found")
+	// ErrWorkflowConflict indicates a workflow version conflict.
+	ErrWorkflowConflict = errors.New("workflow version conflict")
+	// ErrWorkflowInvalidTransition indicates an invalid workflow state transition.
+	ErrWorkflowInvalidTransition = errors.New("invalid workflow state transition")
+	// ErrBatchProcessingUnavailable indicates batch processing is not configured.
 	ErrBatchProcessingUnavailable = errors.New("batch processing is not configured")
-	ErrDomainServiceConflict      = errors.New("tenant domain or service already exists")
+	// ErrDomainServiceConflict indicates a tenant domain or service already exists.
+	ErrDomainServiceConflict = errors.New("tenant domain or service already exists")
 
+	// ErrBrokerFetchFailed indicates a broker fetch failed.
 	ErrBrokerFetchFailed = errors.New("broker fetch failed")
-	ErrBrokerAckFailed   = errors.New("broker ack failed")
+	// ErrBrokerAckFailed indicates a broker ack failed.
+	ErrBrokerAckFailed = errors.New("broker ack failed")
+	// ErrBrokerRetryFailed indicates a broker retry failed.
 	ErrBrokerRetryFailed = errors.New("broker retry failed")
 
-	ErrEffectSendFailed      = errors.New("effect send failed")
+	// ErrEffectSendFailed indicates an effect send failed.
+	ErrEffectSendFailed = errors.New("effect send failed")
+	// ErrEffectDestinationDown indicates an effect destination is down.
 	ErrEffectDestinationDown = errors.New("effect destination down")
 
-	ErrDatabaseError         = errors.New("database error")
-	ErrTransactionFailed     = errors.New("transaction failed")
-	ErrSerializationFailed   = errors.New("serialization failed")
+	// ErrDatabaseError indicates a database error.
+	ErrDatabaseError = errors.New("database error")
+	// ErrTransactionFailed indicates a transaction failed.
+	ErrTransactionFailed = errors.New("transaction failed")
+	// ErrSerializationFailed indicates serialization failed.
+	ErrSerializationFailed = errors.New("serialization failed")
+	// ErrDeserializationFailed indicates deserialization failed.
 	ErrDeserializationFailed = errors.New("deserialization failed")
 
+	// ErrUnauthorized indicates unauthorized access.
 	ErrUnauthorized = errors.New("unauthorized")
-	ErrForbidden    = errors.New("forbidden")
+	// ErrForbidden indicates forbidden access.
+	ErrForbidden = errors.New("forbidden")
 
-	ErrEvaluationTimeout    = errors.New("evaluation timeout")
-	ErrEvaluationError      = errors.New("evaluation error")
+	// ErrEvaluationTimeout indicates an evaluation timeout.
+	ErrEvaluationTimeout = errors.New("evaluation timeout")
+	// ErrEvaluationError indicates an evaluation error.
+	ErrEvaluationError = errors.New("evaluation error")
+	// ErrFactSnapshotRequired indicates a fact snapshot is required.
 	ErrFactSnapshotRequired = errors.New("fact snapshot required")
-	ErrInvalidFactPath      = errors.New("invalid fact path")
+	// ErrInvalidFactPath indicates an invalid fact path.
+	ErrInvalidFactPath = errors.New("invalid fact path")
 )
 
+// ErrorClass contains error class settings.
 type ErrorClass string
 
 const (
-	ErrorClassValidation    ErrorClass = "validation"
-	ErrorClassRule          ErrorClass = "rule"
-	ErrorClassEvaluation    ErrorClass = "evaluation"
-	ErrorClassExecution     ErrorClass = "execution"
-	ErrorClassEffect        ErrorClass = "effect"
-	ErrorClassBroker        ErrorClass = "broker"
-	ErrorClassDatabase      ErrorClass = "database"
+	// ErrorClassValidation indicates a validation error.
+	ErrorClassValidation ErrorClass = "validation"
+	// ErrorClassRule indicates a rule error.
+	ErrorClassRule ErrorClass = "rule"
+	// ErrorClassEvaluation indicates an evaluation error.
+	ErrorClassEvaluation ErrorClass = "evaluation"
+	// ErrorClassExecution indicates an execution error.
+	ErrorClassExecution ErrorClass = "execution"
+	// ErrorClassEffect indicates an effect error.
+	ErrorClassEffect ErrorClass = "effect"
+	// ErrorClassBroker indicates a broker error.
+	ErrorClassBroker ErrorClass = "broker"
+	// ErrorClassDatabase indicates a database error.
+	ErrorClassDatabase ErrorClass = "database"
+	// ErrorClassAuthorization indicates an authorization error.
 	ErrorClassAuthorization ErrorClass = "authorization"
-	ErrorClassQuarantine    ErrorClass = "quarantine"
-	ErrorClassInternal      ErrorClass = "internal"
+	// ErrorClassQuarantine indicates a quarantine error.
+	ErrorClassQuarantine ErrorClass = "quarantine"
+	// ErrorClassInternal indicates an internal error.
+	ErrorClassInternal ErrorClass = "internal"
 )
 
+// ClassifyError provides the classify error.
 func ClassifyError(err error) ErrorClass {
 	if err == nil {
 		return ErrorClassInternal
@@ -166,11 +241,13 @@ func ClassifyError(err error) ErrorClass {
 	}
 }
 
+// IsRetryable provides the is retryable.
 func IsRetryable(err error) bool {
 	cls := ClassifyError(err)
 	return cls == ErrorClassBroker || cls == ErrorClassEffect || cls == ErrorClassDatabase
 }
 
+// IsPermanent provides the is permanent.
 func IsPermanent(err error) bool {
 	cls := ClassifyError(err)
 	return cls == ErrorClassValidation ||

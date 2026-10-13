@@ -13,11 +13,13 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// EventIngestionHandler handles HTTP requests for event ingestion.
 type EventIngestionHandler struct {
 	publisher ports.BrokerPublisher
 	numShards uint32
 }
 
+// NewEventIngestionHandler creates a new EventIngestionHandler.
 func NewEventIngestionHandler(publisher ports.BrokerPublisher, numShards uint32) *EventIngestionHandler {
 	if numShards == 0 {
 		numShards = config.DefaultNumShards
@@ -25,82 +27,46 @@ func NewEventIngestionHandler(publisher ports.BrokerPublisher, numShards uint32)
 	return &EventIngestionHandler{publisher: publisher, numShards: numShards}
 }
 
+// RegisterRoutes registers the HTTP routes for the EventIngestionHandler.
 func (h *EventIngestionHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/events/{eventType}", h.PublishEvent)
 }
 
+type eventIngestionRequest struct {
+	ID            string            `json:"id"`
+	Type          string            `json:"type"`
+	TenantID      string            `json:"tenant_id"`
+	PartitionKey  string            `json:"partition_key"`
+	WorkflowID    string            `json:"workflow_id,omitempty"`
+	OccurredAt    time.Time         `json:"occurred_at"`
+	Data          []byte            `json:"data"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	CorrelationID string            `json:"correlation_id,omitempty"`
+	CausationID   string            `json:"causation_id,omitempty"`
+	SchemaVersion string            `json:"schema_version,omitempty"`
+}
+
+// PublishEvent handles POST /v1/events/{eventType} requests.
 func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 	if h.publisher == nil {
 		responses.WriteError(w, http.StatusServiceUnavailable, "event ingestion is not configured", responses.CodeInternalError)
 		return
 	}
-
-	var req struct {
-		ID            string            `json:"id"`
-		Type          string            `json:"type"`
-		TenantID      string            `json:"tenant_id"`
-		PartitionKey  string            `json:"partition_key"`
-		WorkflowID    string            `json:"workflow_id,omitempty"`
-		OccurredAt    time.Time         `json:"occurred_at"`
-		Data          []byte            `json:"data"`
-		Headers       map[string]string `json:"headers,omitempty"`
-		CorrelationID string            `json:"correlation_id,omitempty"`
-		CausationID   string            `json:"causation_id,omitempty"`
-		SchemaVersion string            `json:"schema_version,omitempty"`
-	}
-	if err := decodeRequestBody(r, &req); err != nil {
-		responses.WriteError(w, http.StatusBadRequest, "invalid event envelope: "+err.Error(), responses.CodeInvalidJSON)
+	request, ok := decodeEventIngestionRequest(w, r)
+	if !ok {
 		return
 	}
-
 	eventType := strings.TrimSpace(r.PathValue("eventType"))
-	if eventType == "" || req.Type != eventType {
-		responses.WriteError(w, http.StatusBadRequest, "event type must match the eventType path parameter", responses.CodeValidationFailed)
-		return
-	}
 	tenantID := middleware.GetTenantID(r.Context())
-	if tenantID == "" {
-		responses.WriteError(w, http.StatusUnauthorized, messageTenantRequired, responses.CodeTenantRequired)
-		return
-	}
-	if req.TenantID != "" && req.TenantID != tenantID {
-		responses.WriteError(w, http.StatusForbidden, "tenant_id does not match request tenant", responses.CodeForbidden)
-		return
-	}
-	if len(req.Data) == 0 || !json.Valid(req.Data) {
-		responses.WriteError(w, http.StatusBadRequest, "data must contain a valid JSON value", responses.CodeValidationFailed)
+	if !validateEventIngestionRequest(w, request, eventType, tenantID) {
 		return
 	}
 
-	headers := make(map[string]string, len(req.Headers)+3)
-	for key, value := range req.Headers {
-		headers[key] = value
-	}
-	if req.CorrelationID != "" {
-		headers["Correlation-ID"] = req.CorrelationID
-	}
-	if req.CausationID != "" {
-		headers["Causation-ID"] = req.CausationID
-	}
-	if req.SchemaVersion != "" {
-		headers["Schema-Version"] = req.SchemaVersion
-	}
-
-	event := &domain.EventEnvelope{
-		ID:           strings.TrimSpace(req.ID),
-		Type:         eventType,
-		TenantID:     tenantID,
-		PartitionKey: strings.TrimSpace(req.PartitionKey),
-		WorkflowID:   req.WorkflowID,
-		OccurredAt:   req.OccurredAt,
-		Data:         json.RawMessage(req.Data),
-		Headers:      headers,
-	}
+	event := buildEventEnvelope(request, eventType, tenantID)
 	if err := event.Validate(); err != nil {
 		responses.WriteError(w, http.StatusBadRequest, err.Error(), responses.CodeValidationFailed)
 		return
 	}
-
 	payload, err := json.Marshal(event)
 	if err != nil {
 		responses.WriteError(w, http.StatusInternalServerError, "failed to encode event envelope", responses.CodeInternalError)
@@ -111,10 +77,75 @@ func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Requ
 		responses.WriteError(w, http.StatusServiceUnavailable, "event publication failed", responses.CodeInternalError)
 		return
 	}
+	writeEventAcceptedResponse(w, event.ID, shard)
+}
 
+func decodeEventIngestionRequest(w http.ResponseWriter, r *http.Request) (eventIngestionRequest, bool) {
+	var request eventIngestionRequest
+	if err := decodeRequestBody(r, &request); err != nil {
+		responses.WriteError(w, http.StatusBadRequest, "invalid event envelope: "+err.Error(), responses.CodeInvalidJSON)
+		return eventIngestionRequest{}, false
+	}
+	return request, true
+}
+
+func validateEventIngestionRequest(
+	w http.ResponseWriter,
+	request eventIngestionRequest,
+	eventType string,
+	tenantID string,
+) bool {
+	if eventType == "" || request.Type != eventType {
+		responses.WriteError(w, http.StatusBadRequest, "event type must match the eventType path parameter", responses.CodeValidationFailed)
+		return false
+	}
+	if tenantID == "" {
+		responses.WriteError(w, http.StatusUnauthorized, messageTenantRequired, responses.CodeTenantRequired)
+		return false
+	}
+	if request.TenantID != "" && request.TenantID != tenantID {
+		responses.WriteError(w, http.StatusForbidden, "tenant_id does not match request tenant", responses.CodeForbidden)
+		return false
+	}
+	if len(request.Data) == 0 || !json.Valid(request.Data) {
+		responses.WriteError(w, http.StatusBadRequest, "data must contain a valid JSON value", responses.CodeValidationFailed)
+		return false
+	}
+	return true
+}
+
+func buildEventEnvelope(
+	request eventIngestionRequest,
+	eventType string,
+	tenantID string,
+) *domain.EventEnvelope {
+	headers := buildEventHeaders(request)
+	return &domain.EventEnvelope{
+		ID: strings.TrimSpace(request.ID), Type: eventType, TenantID: tenantID,
+		PartitionKey: strings.TrimSpace(request.PartitionKey), WorkflowID: request.WorkflowID,
+		OccurredAt: request.OccurredAt, Data: json.RawMessage(request.Data), Headers: headers,
+	}
+}
+
+func buildEventHeaders(request eventIngestionRequest) map[string]string {
+	headers := make(map[string]string, len(request.Headers)+3)
+	for key, value := range request.Headers {
+		headers[key] = value
+	}
+	if request.CorrelationID != "" {
+		headers["Correlation-ID"] = request.CorrelationID
+	}
+	if request.CausationID != "" {
+		headers["Causation-ID"] = request.CausationID
+	}
+	if request.SchemaVersion != "" {
+		headers["Schema-Version"] = request.SchemaVersion
+	}
+	return headers
+}
+
+func writeEventAcceptedResponse(w http.ResponseWriter, eventID string, shard uint32) {
 	responses.WriteSuccess(w, http.StatusAccepted, map[string]interface{}{
-		"event_id": event.ID,
-		"status":   "accepted",
-		"shard":    shard,
+		"event_id": eventID, "status": "accepted", "shard": shard,
 	})
 }

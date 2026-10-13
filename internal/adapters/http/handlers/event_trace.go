@@ -17,6 +17,7 @@ const (
 	maxTraceNodes = 100
 )
 
+// EventTraceHandler handles HTTP requests for event tracing.
 type EventTraceHandler struct {
 	inbox      ports.InboxRepository
 	executions ports.ExecutionRepository
@@ -24,6 +25,7 @@ type EventTraceHandler struct {
 	numShards  uint32
 }
 
+// EventTrace represents the trace of an event through the system.
 type EventTrace struct {
 	EventID      string          `json:"event_id"`
 	Type         string          `json:"type"`
@@ -35,6 +37,7 @@ type EventTrace struct {
 	Truncated    bool            `json:"truncated,omitempty"`
 }
 
+// TraceExecution represents an execution in an event trace.
 type TraceExecution struct {
 	RuleSet     string                 `json:"rule_set"`
 	Revision    int64                  `json:"revision"`
@@ -43,6 +46,7 @@ type TraceExecution struct {
 	CompletedAt *string                `json:"completed_at,omitempty"`
 }
 
+// TraceEffect represents an effect in an event trace.
 type TraceEffect struct {
 	EffectID    string              `json:"effect_id"`
 	Type        domain.EffectType   `json:"effect_type"`
@@ -57,16 +61,19 @@ type traceBudget struct {
 	truncated bool
 }
 
+// NewEventTraceHandler creates a new EventTraceHandler.
 func NewEventTraceHandler(inbox ports.InboxRepository, executions ports.ExecutionRepository, outbox ports.OutboxRepository, numShards uint32) *EventTraceHandler {
 	return &EventTraceHandler{
 		inbox: inbox, executions: executions, outbox: outbox, numShards: numShards,
 	}
 }
 
+// RegisterRoutes registers the HTTP routes for the EventTraceHandler.
 func (h *EventTraceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/events/{eventID}/trace", h.GetTrace)
 }
 
+// GetTrace handles GET /v1/events/{eventID}/trace requests.
 func (h *EventTraceHandler) GetTrace(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("eventID")
 	tenantID := middleware.GetTenantID(r.Context())

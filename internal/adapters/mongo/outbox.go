@@ -15,10 +15,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// OutboxRepository stores and manages pending side effects.
 type OutboxRepository struct {
 	querier Querier
 }
 
+// NewOutboxRepository creates and returns the configured repository.
 func NewOutboxRepository(q Querier) *OutboxRepository {
 	return &OutboxRepository{querier: q}
 }
@@ -27,6 +29,7 @@ func (r *OutboxRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Insert persists or updates the corresponding record.
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	coll := r.collection(collectionOutboxEffects)
 	if len(effects) == 0 {
@@ -52,51 +55,23 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 	return nil
 }
 
+// ClaimPending claims pending records for processing.
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
 		return nil, err
 	}
-	coll := r.collection(collectionOutboxEffects)
+	collection := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
-
-	filter := bson.M{
-		"$or": []bson.M{
-			{
-				"status":       domain.OutboxStatusPending,
-				"available_at": bson.M{"$lte": now},
-			},
-			{
-				"status":           domain.OutboxStatusClaimed,
-				"claim_expires_at": bson.M{"$lte": now},
-			},
-		},
-	}
-
-	update := bson.M{
-		"$set": bson.M{
-			"status":           domain.OutboxStatusClaimed,
-			"claimed_by":       owner,
-			"claimed_at":       now,
-			"claim_expires_at": now.Add(claimTTL),
-			"updated_at":       now,
-		},
-	}
-
-	opts := options.FindOneAndUpdate().
-		SetSort(bson.D{{Key: "available_at", Value: 1}, {Key: "created_at", Value: 1}}).
-		SetReturnDocument(options.After)
-
-	var effects []domain.OutboxEffect
+	filter, update, options := outboxClaimOperation(owner, now, claimTTL)
+	effects := make([]domain.OutboxEffect, 0, batchSize)
 	for i := 0; i < batchSize; i++ {
-		var doc OutboxDoc
-		err := coll.FindOneAndUpdate(ctx, filter, bson.M{"$set": update["$set"]}, opts).Decode(&doc)
+		effect, claimed, err := r.claimNextEffect(ctx, collection, filter, update, options)
 		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				break
-			}
-			return nil, fmt.Errorf("claim pending: %w", err)
+			return nil, err
 		}
-		effect := doc.ToDomain()
+		if !claimed {
+			break
+		}
 		if effect.TenantID == "" {
 			if err := r.resolveLegacyTenant(ctx, effect); err != nil {
 				return nil, fmt.Errorf("resolve tenant for legacy outbox effect %s: %w", effect.ID, err)
@@ -104,8 +79,44 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 		}
 		effects = append(effects, *effect)
 	}
-
 	return effects, nil
+}
+
+func outboxClaimOperation(
+	owner string,
+	now time.Time,
+	claimTTL time.Duration,
+) (bson.M, bson.M, *options.FindOneAndUpdateOptions) {
+	filter := bson.M{"$or": []bson.M{
+		{"status": domain.OutboxStatusPending, "available_at": bson.M{"$lte": now}},
+		{"status": domain.OutboxStatusClaimed, "claim_expires_at": bson.M{"$lte": now}},
+	}}
+	update := bson.M{"$set": bson.M{
+		"status": domain.OutboxStatusClaimed, "claimed_by": owner,
+		"claimed_at": now, "claim_expires_at": now.Add(claimTTL), "updated_at": now,
+	}}
+	opts := options.FindOneAndUpdate().
+		SetSort(bson.D{{Key: "available_at", Value: 1}, {Key: "created_at", Value: 1}}).
+		SetReturnDocument(options.After)
+	return filter, update, opts
+}
+
+func (r *OutboxRepository) claimNextEffect(
+	ctx context.Context,
+	collection *mongo.Collection,
+	filter, update bson.M,
+	opts *options.FindOneAndUpdateOptions,
+) (*domain.OutboxEffect, bool, error) {
+	var doc OutboxDoc
+	err := collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("claim pending: %w", err)
+	}
+	effect := doc.ToDomain()
+	return effect, true, nil
 }
 
 // resolveLegacyTenant backfills tenant identity for effects written before the
@@ -133,6 +144,8 @@ func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *doma
 	effect.TenantID = execution.TenantID
 	return nil
 }
+
+// MarkDelivered persists or updates the corresponding record.
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
 		return nil
@@ -166,6 +179,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	return nil
 }
 
+// ScheduleRetry persists or updates the corresponding record.
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
@@ -200,6 +214,7 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 	return nil
 }
 
+// Quarantine persists or updates the corresponding record.
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	coll := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
@@ -231,6 +246,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 	return nil
 }
 
+// OutboxDoc represents an outbox record stored in MongoDB.
 type OutboxDoc struct {
 	EffectID       string     `bson:"effect_id"`
 	ExecutionID    string     `bson:"execution_id"`
@@ -251,6 +267,7 @@ type OutboxDoc struct {
 	UpdatedAt      time.Time  `bson:"updated_at"`
 }
 
+// OutboxDocFromDomain converts a domain value to its MongoDB representation.
 func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	return &OutboxDoc{
 		EffectID:       ef.ID,
@@ -273,6 +290,7 @@ func OutboxDocFromDomain(ef *domain.OutboxEffect) *OutboxDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	return &domain.OutboxEffect{
 		ID:             d.EffectID,
@@ -295,6 +313,7 @@ func (d *OutboxDoc) ToDomain() *domain.OutboxEffect {
 	}
 }
 
+// GetByExecution retrieves records matching the supplied criteria.
 func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	coll := r.collection(collectionOutboxEffects)
 
@@ -304,7 +323,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 	if err != nil {
 		return nil, fmt.Errorf("get outbox by execution: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var effects []domain.OutboxEffect
 	for cursor.Next(ctx) {
@@ -318,6 +337,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 	return effects, nil
 }
 
+// GetPending retrieves records matching the supplied criteria.
 func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
 	limit = normalizeOutboxLimit(limit)
 	coll := r.collection(collectionOutboxEffects)
@@ -342,7 +362,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 	if err != nil {
 		return nil, fmt.Errorf("get pending outbox: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var effects []domain.OutboxEffect
 	for cursor.Next(ctx) {

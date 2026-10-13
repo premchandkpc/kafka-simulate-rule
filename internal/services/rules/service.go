@@ -1,3 +1,4 @@
+// Package rules provides rule compilation.
 package rules
 
 import (
@@ -20,6 +21,7 @@ type Service struct {
 	newTxRepos  ports.RuleTxRepositoryFactory
 }
 
+// NewService performs its documented repository operation.
 func NewService(
 	compiler ports.RuleCompiler,
 	ruleRepo ports.RuleRepository,

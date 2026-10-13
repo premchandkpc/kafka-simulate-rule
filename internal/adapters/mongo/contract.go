@@ -14,10 +14,12 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// ContractRegistry registers and retrieves contract schemas.
 type ContractRegistry struct {
 	querier Querier
 }
 
+// NewContractRegistry creates and returns the configured value.
 func NewContractRegistry(q Querier) *ContractRegistry {
 	return &ContractRegistry{querier: q}
 }
@@ -26,6 +28,7 @@ func (r *ContractRegistry) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Register persists the supplied value.
 func (r *ContractRegistry) Register(ctx context.Context, schema *domain.ContractSchema) error {
 	coll := r.collection(collectionContractSchemas)
 	doc := ContractSchemaDocFromDomain(schema)
@@ -40,6 +43,7 @@ func (r *ContractRegistry) Register(ctx context.Context, schema *domain.Contract
 	return nil
 }
 
+// Get retrieves the requested value.
 func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*domain.ContractSchema, error) {
 	coll := r.collection(collectionContractSchemas)
 	var doc ContractSchemaDoc
@@ -58,6 +62,7 @@ func (r *ContractRegistry) Get(ctx context.Context, name, version string) (*doma
 	return doc.ToDomain(), nil
 }
 
+// List returns matching records.
 func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.ContractSchema, error) {
 	coll := r.collection(collectionContractSchemas)
 	filter := bson.M{}
@@ -68,7 +73,7 @@ func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.Con
 	if err != nil {
 		return nil, fmt.Errorf("list contracts: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var schemas []*domain.ContractSchema
 	for cursor.Next(ctx) {
@@ -81,6 +86,7 @@ func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.Con
 	return schemas, nil
 }
 
+// Delete deletes the requested record.
 func (r *ContractRegistry) Delete(ctx context.Context, name, version string) error {
 	coll := r.collection(collectionContractSchemas)
 	_, err := coll.DeleteOne(ctx, bson.M{"name": name, "version": version})
@@ -90,6 +96,7 @@ func (r *ContractRegistry) Delete(ctx context.Context, name, version string) err
 	return nil
 }
 
+// ContractSchemaDoc represents a contract schema stored in MongoDB.
 type ContractSchemaDoc struct {
 	Name          string                          `bson:"name"`
 	Version       string                          `bson:"version"`
@@ -103,6 +110,7 @@ type ContractSchemaDoc struct {
 	UpdatedAt     time.Time                       `bson:"updated_at"`
 }
 
+// ContractSchemaDocFromDomain converts a domain value to its MongoDB representation.
 func ContractSchemaDocFromDomain(s *domain.ContractSchema) *ContractSchemaDoc {
 	return &ContractSchemaDoc{
 		Name:          s.Name,
@@ -118,6 +126,7 @@ func ContractSchemaDocFromDomain(s *domain.ContractSchema) *ContractSchemaDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *ContractSchemaDoc) ToDomain() *domain.ContractSchema {
 	return &domain.ContractSchema{
 		Name:          d.Name,

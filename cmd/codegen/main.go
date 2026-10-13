@@ -1,3 +1,6 @@
+// cmd/codegen is the code generation CLI for FlowRule contracts.
+// It generates typed clients, runtime components, evaluators, and service scaffolding
+// from registered contract schemas and rule sets.
 package main
 
 import (
@@ -88,7 +91,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create temporary directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	files, err := generateTargetFiles(generator, *target, tmpDir)
 	if err != nil {

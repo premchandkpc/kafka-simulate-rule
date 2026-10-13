@@ -1,3 +1,4 @@
+// Package ports defines consumer-facing interfaces for external systems.
 package ports
 
 import (
@@ -68,13 +69,14 @@ type OrderEventBroker interface {
 	ConsumeOrderCreate(ctx context.Context, maxMessages int, shards []uint32) ([]Delivery, error)
 }
 
+// PublishMessage represents a message to be published to a broker.
 type PublishMessage struct {
 	Subject string
 	Data    []byte
 	Headers map[string]string
 }
 
-// StreamAdmin provides administrative operations for streams
+// StreamAdmin provides administrative operations for streams.
 type StreamAdmin interface {
 	CreateStream(ctx context.Context, config StreamConfig) error
 	DeleteStream(ctx context.Context, name string) error
@@ -83,10 +85,12 @@ type StreamAdmin interface {
 	GetStreamInfo(ctx context.Context, name string) (*StreamInfo, error)
 }
 
+// PlacementConfig configures stream placement.
 type PlacementConfig struct {
 	Tags map[string]string
 }
 
+// StreamConfig configures a stream.
 type StreamConfig struct {
 	Name      string
 	Subjects  []string
@@ -99,6 +103,7 @@ type StreamConfig struct {
 	Placement *PlacementConfig
 }
 
+// ConsumerConfig configures a consumer.
 type ConsumerConfig struct {
 	Durable       string
 	AckPolicy     AckPolicy
@@ -110,6 +115,7 @@ type ConsumerConfig struct {
 	NumReplicas   int
 }
 
+// StreamInfo provides stream metadata.
 type StreamInfo struct {
 	Name      string
 	Subjects  []string
@@ -119,6 +125,7 @@ type StreamInfo struct {
 	Consumers []ConsumerInfo
 }
 
+// ConsumerInfo provides consumer metadata.
 type ConsumerInfo struct {
 	Name          string
 	NumPending    uint64
@@ -127,43 +134,63 @@ type ConsumerInfo struct {
 	AckFloor      uint64
 }
 
+// RetentionPolicy defines the stream retention policy.
 type RetentionPolicy string
 
 const (
-	RetentionPolicyLimits    RetentionPolicy = "limits"
-	RetentionPolicyInterest  RetentionPolicy = "interest"
+	// RetentionPolicyLimits retains messages up to configured limits.
+	RetentionPolicyLimits RetentionPolicy = "limits"
+	// RetentionPolicyInterest retains messages while there are interested consumers.
+	RetentionPolicyInterest RetentionPolicy = "interest"
+	// RetentionPolicyWorkQueue retains messages for work queue processing.
 	RetentionPolicyWorkQueue RetentionPolicy = "workqueue"
 )
 
+// StorageType defines the stream storage type.
 type StorageType string
 
 const (
-	StorageTypeFile   StorageType = "file"
+	// StorageTypeFile uses file-based storage.
+	StorageTypeFile StorageType = "file"
+	// StorageTypeMemory uses in-memory storage.
 	StorageTypeMemory StorageType = "memory"
 )
 
+// AckPolicy defines the acknowledgment policy.
 type AckPolicy string
 
 const (
+	// AckPolicyExplicit requires explicit acknowledgment.
 	AckPolicyExplicit AckPolicy = "explicit"
-	AckPolicyAll      AckPolicy = "all"
-	AckPolicyNone     AckPolicy = "none"
+	// AckPolicyAll acknowledges all messages up to the current one.
+	AckPolicyAll AckPolicy = "all"
+	// AckPolicyNone disables acknowledgment.
+	AckPolicyNone AckPolicy = "none"
 )
 
+// DeliverPolicy defines the delivery policy.
 type DeliverPolicy string
 
 const (
-	DeliverPolicyAll         DeliverPolicy = "all"
-	DeliverPolicyLast        DeliverPolicy = "last"
-	DeliverPolicyNew         DeliverPolicy = "new"
-	DeliverPolicyByStartSeq  DeliverPolicy = "by_start_sequence"
+	// DeliverPolicyAll delivers all available messages.
+	DeliverPolicyAll DeliverPolicy = "all"
+	// DeliverPolicyLast delivers the last available message.
+	DeliverPolicyLast DeliverPolicy = "last"
+	// DeliverPolicyNew delivers only new messages.
+	DeliverPolicyNew DeliverPolicy = "new"
+	// DeliverPolicyByStartSeq delivers messages from a start sequence.
+	DeliverPolicyByStartSeq DeliverPolicy = "by_start_sequence"
+	// DeliverPolicyByStartTime delivers messages from a start time.
 	DeliverPolicyByStartTime DeliverPolicy = "by_start_time"
 )
 
+// StreamState defines the stream state.
 type StreamState string
 
 const (
-	StreamStateActive  StreamState = "active"
+	// StreamStateActive indicates the stream is active.
+	StreamStateActive StreamState = "active"
+	// StreamStateDeleted indicates the stream has been deleted.
 	StreamStateDeleted StreamState = "deleted"
 )
 

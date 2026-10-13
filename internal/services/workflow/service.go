@@ -1,3 +1,4 @@
+// Package workflow provides workflow instance management use cases.
 package workflow
 
 import (
@@ -8,11 +9,13 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// Service manages workflow instances.
 type Service struct {
 	repo  ports.WorkflowRepository
 	clock ports.Clock
 }
 
+// NewService creates a new workflow service.
 func NewService(repo ports.WorkflowRepository, clock ports.Clock) *Service {
 	return &Service{
 		repo:  repo,
@@ -20,6 +23,7 @@ func NewService(repo ports.WorkflowRepository, clock ports.Clock) *Service {
 	}
 }
 
+// Create persists a new workflow instance.
 func (s *Service) Create(ctx context.Context, workflow *domain.WorkflowInstance) error {
 	if workflow.WorkflowID == "" {
 		workflow.WorkflowID = domain.NewID()
@@ -32,6 +36,7 @@ func (s *Service) Create(ctx context.Context, workflow *domain.WorkflowInstance)
 	return s.repo.Save(ctx, workflow)
 }
 
+// Get retrieves a workflow instance by tenant and workflow ID.
 func (s *Service) Get(ctx context.Context, tenantID, workflowID string) (*domain.WorkflowInstance, error) {
 	if tenantID == "" {
 		return nil, domain.ErrWorkflowNotFound
@@ -39,10 +44,12 @@ func (s *Service) Get(ctx context.Context, tenantID, workflowID string) (*domain
 	return s.repo.Get(ctx, tenantID, workflowID)
 }
 
+// UpdateState updates a workflow's state with optimistic concurrency control.
 func (s *Service) UpdateState(ctx context.Context, tenantID, workflowID, newState string, revision int64) error {
 	return s.transition(ctx, tenantID, workflowID, "", newState, &revision)
 }
 
+// Transition performs a workflow state transition.
 func (s *Service) Transition(ctx context.Context, tenantID, workflowID, fromState, toState string) error {
 	return s.transition(ctx, tenantID, workflowID, fromState, toState, nil)
 }
@@ -83,6 +90,7 @@ func (s *Service) transition(ctx context.Context, tenantID, workflowID, expected
 	return s.repo.Update(ctx, workflow)
 }
 
+// GetByTenantAndState retrieves workflows by tenant and state.
 func (s *Service) GetByTenantAndState(ctx context.Context, tenantID, state string, limit int) ([]*domain.WorkflowInstance, error) {
 	if limit <= 0 {
 		limit = 100
@@ -90,6 +98,7 @@ func (s *Service) GetByTenantAndState(ctx context.Context, tenantID, state strin
 	return s.repo.GetByTenantAndState(ctx, tenantID, state, limit)
 }
 
+// GetByCorrelation retrieves workflows by tenant and correlation ID.
 func (s *Service) GetByCorrelation(ctx context.Context, tenantID, correlationID string) ([]*domain.WorkflowInstance, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("tenant_id is required")

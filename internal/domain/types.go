@@ -9,10 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// SystemClock represents the system clock.
 type SystemClock struct{}
 
+// Now provides the now.
 func (SystemClock) Now() time.Time { return time.Now().UTC() }
 
+// EventEnvelope represents the event envelope.
 type EventEnvelope struct {
 	ID           string            `json:"id"`
 	Type         string            `json:"type"`
@@ -24,6 +27,7 @@ type EventEnvelope struct {
 	Headers      map[string]string `json:"headers,omitempty"`
 }
 
+// VirtualShard provides the virtual shard.
 func (e *EventEnvelope) VirtualShard(modulus uint32) uint32 {
 	key := e.TenantID + ":" + e.PartitionKey
 	return ShardHash(key) % modulus
@@ -39,6 +43,7 @@ func ShardHash(key string) uint32 {
 	return h
 }
 
+// Validate provides the validate.
 func (e *EventEnvelope) Validate() error {
 	if e.ID == "" {
 		return ErrEventIDRequired
@@ -58,13 +63,17 @@ func (e *EventEnvelope) Validate() error {
 	return nil
 }
 
+// MatchMode represents the match mode.
 type MatchMode string
 
 const (
+	// MatchModeFirstMatch identifies the match mode first match value.
 	MatchModeFirstMatch MatchMode = "first_match"
+	// MatchModeAllMatches identifies the match mode all matches value.
 	MatchModeAllMatches MatchMode = "all_matches"
 )
 
+// RuleRevision represents the rule revision.
 type RuleRevision struct {
 	TenantScope     string          `json:"tenant_scope"`
 	RuleID          string          `json:"rule_id"`
@@ -78,12 +87,14 @@ type RuleRevision struct {
 	CreatedAt       time.Time       `json:"created_at"`
 }
 
+// ContractRef represents the contract ref.
 type ContractRef struct {
 	Name       string `json:"name"`
 	Version    string `json:"version"`
 	SchemaHash string `json:"schema_hash,omitempty"`
 }
 
+// ContractSchema represents the contract schema.
 type ContractSchema struct {
 	Name          string                   `json:"name"`
 	Version       string                   `json:"version"`
@@ -109,6 +120,7 @@ type TenantDomain struct {
 
 // DomainService is a tenant-owned HTTP consumer and its domain subscriptions.
 // nolint:revive // type name stutters with package name but is a domain concept
+// DomainService represents the domain service.
 type DomainService struct {
 	ID          string    `json:"id"`
 	TenantID    string    `json:"tenant_id"`
@@ -120,6 +132,7 @@ type DomainService struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// ContractField represents the contract field.
 type ContractField struct {
 	Type        string                   `json:"type"`
 	Description string                   `json:"description,omitempty"`
@@ -131,6 +144,7 @@ type ContractField struct {
 	Properties  map[string]ContractField `json:"properties,omitempty"`
 }
 
+// CompiledRule represents the compiled rule.
 type CompiledRule struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name,omitempty"`
@@ -142,6 +156,7 @@ type CompiledRule struct {
 	Otherwise   []Action  `json:"otherwise,omitempty"`
 }
 
+// Predicate represents the predicate.
 type Predicate struct {
 	All   []*Predicate `json:"all,omitempty"`
 	Any   []*Predicate `json:"any,omitempty"`
@@ -151,21 +166,33 @@ type Predicate struct {
 	Value interface{}  `json:"value,omitempty"`
 }
 
+// Operator represents the operator.
 type Operator string
 
 const (
-	OpEq        Operator = "eq"
-	OpNeq       Operator = "neq"
-	OpGt        Operator = "gt"
-	OpGte       Operator = "gte"
-	OpLt        Operator = "lt"
-	OpLte       Operator = "lte"
-	OpIn        Operator = "in"
-	OpNotIn     Operator = "not_in"
-	OpExists    Operator = "exists"
+	// OpEq identifies the op eq value.
+	OpEq Operator = "eq"
+	// OpNeq identifies the op neq value.
+	OpNeq Operator = "neq"
+	// OpGt identifies the op gt value.
+	OpGt Operator = "gt"
+	// OpGte identifies the op gte value.
+	OpGte Operator = "gte"
+	// OpLt identifies the op lt value.
+	OpLt Operator = "lt"
+	// OpLte identifies the op lte value.
+	OpLte Operator = "lte"
+	// OpIn identifies the op in value.
+	OpIn Operator = "in"
+	// OpNotIn identifies the op not_in value.
+	OpNotIn Operator = "not_in"
+	// OpExists identifies the op exists value.
+	OpExists Operator = "exists"
+	// OpNotExists identifies the op not_exists value.
 	OpNotExists Operator = "not_exists"
 )
 
+// ValidOp provides the valid op.
 func ValidOp(op Operator) bool {
 	switch op {
 	case OpEq, OpNeq, OpGt, OpGte, OpLt, OpLte, OpIn, OpNotIn, OpExists, OpNotExists:
@@ -175,12 +202,14 @@ func ValidOp(op Operator) bool {
 	}
 }
 
+// Action represents the action.
 type Action struct {
 	Emit      *EmitAction      `json:"emit,omitempty"`
 	EmitEvent *EmitEventAction `json:"emit_event,omitempty"`
 	Command   *CommandAction   `json:"command,omitempty"`
 }
 
+// EmitAction represents the emit action.
 type EmitAction struct {
 	Topic string          `json:"topic"`
 	Data  json.RawMessage `json:"data"`
@@ -190,13 +219,17 @@ type EmitAction struct {
 type PartitionKeyPolicy string
 
 const (
-	PartitionKeyPolicyExplicit PartitionKeyPolicy = "explicit"  // Use literal PartitionKey value
-	PartitionKeyPolicyInherit  PartitionKeyPolicy = "inherit"   // Inherit from parent event
+	// PartitionKeyPolicyExplicit identifies the partition key policy explicit value.
+	PartitionKeyPolicyExplicit PartitionKeyPolicy = "explicit" // Use literal PartitionKey value
+	// PartitionKeyPolicyInherit inherits the partition key from the parent event.
+	PartitionKeyPolicyInherit PartitionKeyPolicy = "inherit" // Inherit from parent event
+	// PartitionKeyPolicyFromData derives the partition key from JSON path in parent data.
 	PartitionKeyPolicyFromData PartitionKeyPolicy = "from_data" // Derive from JSON path in parent data
 )
 
 // EmitEventAction creates a new FlowRule event after the parent execution
 // commits. Supports explicit, inherit, and from_data partition key policies.
+// EmitEventAction represents the emit event action.
 type EmitEventAction struct {
 	Type               string             `json:"type"`
 	PartitionKey       string             `json:"partition_key,omitempty"`
@@ -205,12 +238,14 @@ type EmitEventAction struct {
 	Data               json.RawMessage    `json:"data"`
 }
 
+// CommandAction represents the command action.
 type CommandAction struct {
 	Destination string          `json:"destination"`
 	Name        string          `json:"name"`
 	Data        json.RawMessage `json:"data"`
 }
 
+// Effect represents the effect.
 type Effect struct {
 	ID          string          `json:"id"`
 	ExecutionID string          `json:"execution_id"`
@@ -222,15 +257,21 @@ type Effect struct {
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
+// EffectType represents the effect type.
 type EffectType string
 
 const (
-	EffectTypeEmit         EffectType = "emit"
-	EffectTypeEmitEvent    EffectType = "emit_event"
-	EffectTypeCommand      EffectType = "command"
+	// EffectTypeEmit identifies the effect type emit value.
+	EffectTypeEmit EffectType = "emit"
+	// EffectTypeEmitEvent identifies the effect type emit_event value.
+	EffectTypeEmitEvent EffectType = "emit_event"
+	// EffectTypeCommand identifies the effect type command value.
+	EffectTypeCommand EffectType = "command"
+	// EffectTypeServiceEvent identifies the effect type service_event value.
 	EffectTypeServiceEvent EffectType = "service_event"
 )
 
+// Decision represents the decision.
 type Decision struct {
 	MatchedRules []string          `json:"matched_rules"`
 	Effects      []Effect          `json:"effects"`
@@ -238,6 +279,7 @@ type Decision struct {
 	Explanations []RuleExplanation `json:"explanations,omitempty"`
 }
 
+// RuleExplanation represents the rule explanation.
 type RuleExplanation struct {
 	RuleID   string   `json:"rule_id"`
 	RuleName string   `json:"rule_name,omitempty"`
@@ -247,6 +289,7 @@ type RuleExplanation struct {
 	Actions  []string `json:"actions,omitempty"`
 }
 
+// Execution represents the execution.
 type Execution struct {
 	ID           string          `json:"id"`
 	EventID      string          `json:"event_id"`
@@ -261,12 +304,17 @@ type Execution struct {
 	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
 }
 
+// ExecutionStatus represents the execution status.
 type ExecutionStatus string
 
 const (
-	ExecutionStatusPending     ExecutionStatus = "pending"
-	ExecutionStatusCompleted   ExecutionStatus = "completed"
-	ExecutionStatusFailed      ExecutionStatus = "failed"
+	// ExecutionStatusPending identifies the execution status pending value.
+	ExecutionStatusPending ExecutionStatus = "pending"
+	// ExecutionStatusCompleted identifies the execution status completed value.
+	ExecutionStatusCompleted ExecutionStatus = "completed"
+	// ExecutionStatusFailed identifies the execution status failed value.
+	ExecutionStatusFailed ExecutionStatus = "failed"
+	// ExecutionStatusQuarantined identifies the execution status quarantined value.
 	ExecutionStatusQuarantined ExecutionStatus = "quarantined"
 )
 
@@ -302,6 +350,7 @@ func (e *Execution) Quarantine(now time.Time, errMsg string) error {
 	return nil
 }
 
+// OutboxEffect represents the outbox effect.
 type OutboxEffect struct {
 	ID             string          `json:"id"`
 	ExecutionID    string          `json:"execution_id"`
@@ -322,13 +371,19 @@ type OutboxEffect struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
+// OutboxStatus represents the outbox status.
 type OutboxStatus string
 
 const (
-	OutboxStatusPending     OutboxStatus = "pending"
-	OutboxStatusClaimed     OutboxStatus = "claimed"
-	OutboxStatusDelivered   OutboxStatus = "delivered"
-	OutboxStatusFailed      OutboxStatus = "failed"
+	// OutboxStatusPending identifies the outbox status pending value.
+	OutboxStatusPending OutboxStatus = "pending"
+	// OutboxStatusClaimed identifies the outbox status claimed value.
+	OutboxStatusClaimed OutboxStatus = "claimed"
+	// OutboxStatusDelivered identifies the outbox status delivered value.
+	OutboxStatusDelivered OutboxStatus = "delivered"
+	// OutboxStatusFailed identifies the outbox status failed value.
+	OutboxStatusFailed OutboxStatus = "failed"
+	// OutboxStatusQuarantined identifies the outbox status quarantined value.
 	OutboxStatusQuarantined OutboxStatus = "quarantined"
 )
 
@@ -376,6 +431,7 @@ func (e *OutboxEffect) Quarantine(now time.Time, errMsg string) error {
 	return nil
 }
 
+// InboxEntry represents the inbox entry.
 type InboxEntry struct {
 	TenantID     string          `json:"tenant_id"`
 	EventID      string          `json:"event_id"`
@@ -389,11 +445,14 @@ type InboxEntry struct {
 	CommittedAt  *time.Time      `json:"committed_at,omitempty"`
 }
 
+// InboxStatus represents the inbox status.
 type InboxStatus string
 
 const (
+	// InboxStatusProcessing identifies the inbox status processing value.
 	InboxStatusProcessing InboxStatus = "processing"
-	InboxStatusCommitted  InboxStatus = "committed"
+	// InboxStatusCommitted identifies the inbox status committed value.
+	InboxStatusCommitted InboxStatus = "committed"
 )
 
 // Commit transitions inbox entry to committed state. Only valid from processing.
@@ -412,6 +471,7 @@ func (e *InboxEntry) IsDuplicate() bool {
 	return e.Status == InboxStatusCommitted && e.ExecutionID != ""
 }
 
+// ShardLease represents the shard lease.
 type ShardLease struct {
 	VirtualShard uint32    `json:"virtual_shard"`
 	Owner        string    `json:"owner"`
@@ -420,6 +480,7 @@ type ShardLease struct {
 	RoutingEpoch int64     `json:"routing_epoch"`
 }
 
+// QuarantineEntry represents the quarantine entry.
 type QuarantineEntry struct {
 	ID         string    `json:"id"`
 	SourceType string    `json:"source_type"`
@@ -432,6 +493,7 @@ type QuarantineEntry struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// RuleActivation represents the rule activation.
 type RuleActivation struct {
 	TenantScope string    `json:"tenant_scope"`
 	RuleSet     string    `json:"rule_set"`
@@ -441,22 +503,26 @@ type RuleActivation struct {
 	ActivatedAt time.Time `json:"activated_at"`
 }
 
+// NewID provides the new id.
 func NewID() string { return uuid.New().String() }
 
 // ComputeExecutionID returns a stable identity for an event evaluated against a rule revision.
 // Re-evaluating the same event under a different revision intentionally yields a different ID.
+// ComputeExecutionID provides the compute execution id.
 func ComputeExecutionID(tenantID, eventID, ruleSet string, revision int64) string {
 	raw := fmt.Sprintf("execution|%d:%s|%d:%s|%d:%s|%d", len(tenantID), tenantID, len(eventID), eventID, len(ruleSet), ruleSet, revision)
 	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h)
 }
 
+// ComputeEffectID provides the compute effect id.
 func ComputeEffectID(tenantID, eventID, ruleSet string, revision int64, ruleID string, actionIndex int) string {
 	raw := fmt.Sprintf("%s|%s|%s|%d|%s|%d", tenantID, eventID, ruleSet, revision, ruleID, actionIndex)
 	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h)
 }
 
+// ComputeDecisionHash provides the compute decision hash.
 func ComputeDecisionHash(revisionHash, eventID, factsHash string, matched []string, effects []Effect) string {
 	for _, id := range matched {
 		revisionHash += id
@@ -468,17 +534,20 @@ func ComputeDecisionHash(revisionHash, eventID, factsHash string, matched []stri
 	return fmt.Sprintf("%x", h)
 }
 
+// ComputeSourceHash provides the compute source hash.
 func ComputeSourceHash(source json.RawMessage) string {
 	h := sha256.Sum256(source)
 	return fmt.Sprintf("%x", h)
 }
 
+// ComputeChildEventID provides the compute child event id.
 func ComputeChildEventID(parentEventID, ruleID string, actionIndex int) string {
 	raw := fmt.Sprintf("child|%s|%s|%d", parentEventID, ruleID, actionIndex)
 	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h)
 }
 
+// ScheduledEvent represents the scheduled event.
 type ScheduledEvent struct {
 	EventID      string               `json:"event_id"`
 	TenantID     string               `json:"tenant_id"`
@@ -496,6 +565,7 @@ type ScheduledEvent struct {
 	ReleasedAt   *time.Time           `json:"released_at,omitempty"`
 }
 
+// WorkflowInstance represents the workflow instance.
 type WorkflowInstance struct {
 	WorkflowID      string          `json:"workflow_id"`
 	TenantID        string          `json:"tenant_id"`
@@ -510,13 +580,19 @@ type WorkflowInstance struct {
 }
 
 const (
-	WorkflowStatusPending   = "pending"
-	WorkflowStatusRunning   = "running"
+	// WorkflowStatusPending identifies the workflow status pending value.
+	WorkflowStatusPending = "pending"
+	// WorkflowStatusRunning identifies the workflow status running value.
+	WorkflowStatusRunning = "running"
+	// WorkflowStatusCompleted identifies the workflow status completed value.
 	WorkflowStatusCompleted = "completed"
-	WorkflowStatusFailed    = "failed"
-	WorkflowStatusPaused    = "paused"
+	// WorkflowStatusFailed identifies the workflow status failed value.
+	WorkflowStatusFailed = "failed"
+	// WorkflowStatusPaused identifies the workflow status paused value.
+	WorkflowStatusPaused = "paused"
 )
 
+// CanTransition provides the can transition.
 func (w *WorkflowInstance) CanTransition(from, to string) bool {
 	// Basic state machine - can be extended
 	validTransitions := map[string][]string{
@@ -536,6 +612,7 @@ func (w *WorkflowInstance) CanTransition(from, to string) bool {
 	return false
 }
 
+// Transition provides the transition.
 func (w *WorkflowInstance) Transition(to string) error {
 	if !w.CanTransition(w.State, to) {
 		return fmt.Errorf("invalid workflow transition: %s -> %s", w.State, to)
@@ -550,14 +627,19 @@ func (w *WorkflowInstance) Transition(to string) error {
 	return nil
 }
 
+// WorkflowStateType represents the workflow state type.
 type WorkflowStateType string
 
 const (
-	WorkflowStateTypeStart        WorkflowStateType = "start"
-	WorkflowStateTypeEnd          WorkflowStateType = "end"
+	// WorkflowStateTypeStart identifies the workflow state type start value.
+	WorkflowStateTypeStart WorkflowStateType = "start"
+	// WorkflowStateTypeEnd identifies the workflow state type end value.
+	WorkflowStateTypeEnd WorkflowStateType = "end"
+	// WorkflowStateTypeIntermediate identifies the workflow state type intermediate value.
 	WorkflowStateTypeIntermediate WorkflowStateType = "intermediate"
 )
 
+// WorkflowState represents the workflow state.
 type WorkflowState struct {
 	Name     string            `json:"name"`
 	Type     WorkflowStateType `json:"type"`
@@ -566,6 +648,7 @@ type WorkflowState struct {
 	OnExit   []Action          `json:"on_exit,omitempty"`
 }
 
+// WorkflowTransition represents the workflow transition.
 type WorkflowTransition struct {
 	From      string     `json:"from"`
 	To        string     `json:"to"`
@@ -573,6 +656,7 @@ type WorkflowTransition struct {
 	Condition *Predicate `json:"condition,omitempty"`
 }
 
+// WorkflowDefinition represents the workflow definition.
 type WorkflowDefinition struct {
 	WorkflowType string               `json:"workflow_type"`
 	Version      int64                `json:"version"`

@@ -33,7 +33,9 @@ func TestKeyQueue_PerKeySerialization(t *testing.T) {
 
 	kq := NewKeyQueue(10, 10, 1, processor, time.Now, 1000, 10*time.Second, nil)
 	ctx := context.Background()
-	kq.Start(ctx)
+	if err := kq.Start(ctx); err != nil {
+		t.Fatalf("start key queue: %v", err)
+	}
 	defer func() { _ = kq.Stop(ctx) }()
 
 	// Submit 5 events for key A, 5 for key B
@@ -112,7 +114,9 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 
 	kq := NewKeyQueue(10, 10, 3, processor, time.Now, 1000, 10*time.Second, nil) // 3 workers
 	ctx := context.Background()
-	kq.Start(ctx)
+	if err := kq.Start(ctx); err != nil {
+		t.Fatalf("start key queue: %v", err)
+	}
 	defer func() { _ = kq.Stop(ctx) }()
 
 	// Submit events for 5 different keys concurrently
@@ -160,7 +164,9 @@ func TestKeyQueue_Backpressure(t *testing.T) {
 
 	kq := NewKeyQueue(3, 2, 1, processor, time.Now, 1000, 10*time.Second, nil) // Max 3 in-flight, 2 per key
 	ctx := context.Background()
-	kq.Start(ctx)
+	if err := kq.Start(ctx); err != nil {
+		t.Fatalf("start key queue: %v", err)
+	}
 	defer func() { _ = kq.Stop(ctx) }()
 
 	// Try to submit more than max in-flight
@@ -195,7 +201,9 @@ func TestKeyQueue_ContextCancellation(t *testing.T) {
 
 	kq := NewKeyQueue(1, 10, 1, processor, time.Now, 1000, 10*time.Second, nil) // Only 1 global slot
 	ctx, cancel := context.WithCancel(context.Background())
-	kq.Start(ctx)
+	if err := kq.Start(ctx); err != nil {
+		t.Fatalf("start key queue: %v", err)
+	}
 
 	// Submit first event - fills the semaphore
 	env := &domain.EventEnvelope{ID: "evt-1", PartitionKey: "key-1"}
@@ -236,7 +244,9 @@ func TestKeyQueue_HotKeyDetection(t *testing.T) {
 	// Low threshold for testing - 3 items
 	kq := NewKeyQueue(10, 10, 1, processor, time.Now, 3, 50*time.Millisecond, callback)
 	ctx := context.Background()
-	kq.Start(ctx)
+	if err := kq.Start(ctx); err != nil {
+		t.Fatalf("start key queue: %v", err)
+	}
 	defer func() { _ = kq.Stop(ctx) }()
 
 	// Submit 5 events for the same key - should trigger hot-key detection
@@ -302,7 +312,9 @@ func TestKeyQueue_SameKeyNeverProcessesConcurrently(t *testing.T) {
 
 	kq := NewKeyQueue(eventCount, eventCount, 5, processor, time.Now, 1000, time.Second, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	kq.Start(ctx)
+	if err := kq.Start(ctx); err != nil {
+		t.Fatalf("start key queue: %v", err)
+	}
 	defer func() {
 		cancel()
 		_ = kq.Stop(ctx)

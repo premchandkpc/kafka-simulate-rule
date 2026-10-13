@@ -13,14 +13,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// DomainServiceRepository persists tenant domains and services.
 type DomainServiceRepository struct {
 	querier Querier
 }
 
+// NewDomainServiceRepository creates a new DomainServiceRepository.
 func NewDomainServiceRepository(querier Querier) *DomainServiceRepository {
 	return &DomainServiceRepository{querier: querier}
 }
 
+// SaveDomain inserts or updates a tenant domain.
 func (r *DomainServiceRepository) SaveDomain(ctx context.Context, item *domain.TenantDomain) error {
 	_, err := r.querier.Exec(ctx, `
 		INSERT INTO tenant_domains (tenant_id, domain_id, name, event_types, created_at, updated_at)
@@ -37,6 +40,7 @@ func (r *DomainServiceRepository) SaveDomain(ctx context.Context, item *domain.T
 	return nil
 }
 
+// GetDomain retrieves a tenant domain by ID.
 func (r *DomainServiceRepository) GetDomain(ctx context.Context, tenantID, domainID string) (*domain.TenantDomain, error) {
 	item := &domain.TenantDomain{}
 	err := r.querier.QueryRow(ctx, `
@@ -52,6 +56,7 @@ func (r *DomainServiceRepository) GetDomain(ctx context.Context, tenantID, domai
 	return item, nil
 }
 
+// ListDomains returns all domains for a tenant.
 func (r *DomainServiceRepository) ListDomains(ctx context.Context, tenantID string) ([]*domain.TenantDomain, error) {
 	rows, err := r.querier.Query(ctx, `
 		SELECT domain_id, tenant_id, name, event_types, created_at, updated_at
@@ -76,6 +81,7 @@ func (r *DomainServiceRepository) ListDomains(ctx context.Context, tenantID stri
 	return items, nil
 }
 
+// DeleteDomain removes a tenant domain.
 func (r *DomainServiceRepository) DeleteDomain(ctx context.Context, tenantID, domainID string) error {
 	_, err := r.querier.Exec(ctx, `DELETE FROM tenant_domains WHERE tenant_id = $1 AND domain_id = $2`, tenantID, domainID)
 	if err != nil {
@@ -84,6 +90,7 @@ func (r *DomainServiceRepository) DeleteDomain(ctx context.Context, tenantID, do
 	return nil
 }
 
+// SaveService inserts or updates a domain service.
 func (r *DomainServiceRepository) SaveService(ctx context.Context, item *domain.DomainService) error {
 	if pool, ok := r.querier.(*pgxpool.Pool); ok {
 		tx, err := pool.Begin(ctx)
@@ -130,6 +137,7 @@ func (r *DomainServiceRepository) saveService(ctx context.Context, item *domain.
 	return nil
 }
 
+// GetService retrieves a domain service by ID.
 func (r *DomainServiceRepository) GetService(ctx context.Context, tenantID, serviceID string) (*domain.DomainService, error) {
 	item := &domain.DomainService{}
 	err := r.querier.QueryRow(ctx, `
@@ -149,6 +157,7 @@ func (r *DomainServiceRepository) GetService(ctx context.Context, tenantID, serv
 	return item, nil
 }
 
+// ListServices returns all services for a tenant.
 func (r *DomainServiceRepository) ListServices(ctx context.Context, tenantID string) ([]*domain.DomainService, error) {
 	rows, err := r.querier.Query(ctx, `
 		SELECT service_id, tenant_id, name, endpoint_url, active, created_at, updated_at
@@ -179,6 +188,7 @@ func (r *DomainServiceRepository) ListServices(ctx context.Context, tenantID str
 	return items, nil
 }
 
+// DeleteService removes a domain service.
 func (r *DomainServiceRepository) DeleteService(ctx context.Context, tenantID, serviceID string) error {
 	_, err := r.querier.Exec(ctx, `
 		UPDATE tenant_domain_services SET active = FALSE, updated_at = $3
@@ -190,6 +200,7 @@ func (r *DomainServiceRepository) DeleteService(ctx context.Context, tenantID, s
 	return nil
 }
 
+// ListSubscribersForEvent returns services subscribed to an event type.
 func (r *DomainServiceRepository) ListSubscribersForEvent(ctx context.Context, tenantID, eventType string) ([]*domain.DomainService, error) {
 	rows, err := r.querier.Query(ctx, `
 		SELECT DISTINCT s.service_id, s.tenant_id, s.name, s.endpoint_url, s.active, s.created_at, s.updated_at

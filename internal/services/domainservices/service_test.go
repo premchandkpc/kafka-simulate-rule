@@ -25,8 +25,8 @@ func newRepositoryStub() *repositoryStub {
 }
 
 func (r *repositoryStub) SaveDomain(_ context.Context, item *domain.TenantDomain) error {
-	copy := *item
-	r.domains[item.TenantID+"/"+item.ID] = &copy
+	cloned := *item
+	r.domains[item.TenantID+"/"+item.ID] = &cloned
 	return nil
 }
 
@@ -35,24 +35,24 @@ func (r *repositoryStub) GetDomain(_ context.Context, tenantID, domainID string)
 	if item == nil {
 		return nil, nil
 	}
-	copy := *item
-	return &copy, nil
+	cloned := *item
+	return &cloned, nil
 }
 
 func (r *repositoryStub) ListDomains(_ context.Context, tenantID string) ([]*domain.TenantDomain, error) {
 	items := make([]*domain.TenantDomain, 0)
 	for _, item := range r.domains {
 		if item.TenantID == tenantID {
-			copy := *item
-			items = append(items, &copy)
+			cloned := *item
+			items = append(items, &cloned)
 		}
 	}
 	return items, nil
 }
 
 func (r *repositoryStub) SaveService(_ context.Context, item *domain.DomainService) error {
-	copy := *item
-	r.services[item.TenantID+"/"+item.ID] = &copy
+	cloned := *item
+	r.services[item.TenantID+"/"+item.ID] = &cloned
 	return nil
 }
 
@@ -61,16 +61,16 @@ func (r *repositoryStub) GetService(_ context.Context, tenantID, serviceID strin
 	if item == nil {
 		return nil, nil
 	}
-	copy := *item
-	return &copy, nil
+	cloned := *item
+	return &cloned, nil
 }
 
 func (r *repositoryStub) ListServices(_ context.Context, tenantID string) ([]*domain.DomainService, error) {
 	items := make([]*domain.DomainService, 0)
 	for _, item := range r.services {
 		if item.TenantID == tenantID {
-			copy := *item
-			items = append(items, &copy)
+			cloned := *item
+			items = append(items, &cloned)
 		}
 	}
 	return items, nil

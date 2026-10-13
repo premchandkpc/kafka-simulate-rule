@@ -1,3 +1,4 @@
+// Package application provides application-level worker orchestration.
 package application
 
 import (

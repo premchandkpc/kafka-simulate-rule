@@ -29,8 +29,8 @@ type scheduledRepositoryStub struct {
 
 func (s *scheduledRepositoryStub) Save(_ context.Context, evt *domain.ScheduledEvent) error {
 	s.saveCalls++
-	copy := *evt
-	s.saved = &copy
+	eventCopy := *evt
+	s.saved = &eventCopy
 	return nil
 }
 func (s *scheduledRepositoryStub) GetDue(context.Context, time.Time, int) ([]*domain.ScheduledEvent, error) {

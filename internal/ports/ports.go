@@ -42,7 +42,7 @@ type RuleTxRepos struct {
 	Activations ActivationRepository
 }
 
-// Transaction factory
+// TransactionFactory creates a new transaction.
 type TransactionFactory func(ctx context.Context) (Transaction, error)
 
 // EventTxRepositoryFactory builds event-processing repositories scoped to a transaction.

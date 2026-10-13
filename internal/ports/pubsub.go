@@ -12,6 +12,7 @@ type PubSub interface {
 	Close() error
 }
 
+// PubSubMessage represents a message received from a pub/sub channel.
 type PubSubMessage struct {
 	Channel string
 	Message []byte

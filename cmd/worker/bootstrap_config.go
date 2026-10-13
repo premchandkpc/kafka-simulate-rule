@@ -1,3 +1,4 @@
+// Package main configures dependencies for the FlowRule worker service.
 package main
 
 import (

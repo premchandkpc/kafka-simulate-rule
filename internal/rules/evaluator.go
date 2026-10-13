@@ -14,14 +14,17 @@ import (
 
 var _ ports.RuleEvaluator = (*Evaluator)(nil)
 
+// Evaluator evaluates compiled rules against events.
 type Evaluator struct {
 	clock ports.Clock
 }
 
+// NewEvaluator creates a new Evaluator with the given clock.
 func NewEvaluator(clock ports.Clock) *Evaluator {
 	return &Evaluator{clock: clock}
 }
 
+// Evaluate runs the rule evaluation against an event and returns a Decision.
 func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error) {
 	matched, effects, explanations, err := e.evaluateRules(revision, event, facts)
 	if err != nil {
@@ -102,172 +105,165 @@ func (e *Evaluator) processRuleResult(rule domain.CompiledRule, ok bool, matched
 
 func (e *Evaluator) evalPredicate(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
 	if p.All != nil {
-		for _, sub := range p.All {
-			if sub == nil {
-				return false, domain.ErrInvalidPredicate
-			}
-			ok, err := e.evalPredicate(*sub, data, facts)
-			if err != nil {
-				return false, err
-			}
-			if !ok {
-				return false, nil
-			}
-		}
-		return true, nil
+		return e.evalAll(p.All, data, facts)
 	}
-
 	if p.Any != nil {
-		for _, sub := range p.Any {
-			if sub == nil {
-				continue
-			}
-			ok, err := e.evalPredicate(*sub, data, facts)
-			if err != nil {
-				return false, err
-			}
-			if ok {
-				return true, nil
-			}
-		}
-		return false, nil
+		return e.evalAny(p.Any, data, facts)
 	}
-
 	if p.Not != nil {
-		if p.Not == nil {
-			return false, domain.ErrInvalidPredicate
-		}
-		ok, err := e.evalPredicate(*p.Not, data, facts)
-		if err != nil {
-			return false, err
-		}
-		return !ok, nil
+		return e.evalNot(p.Not, data, facts)
 	}
-
 	return e.evalLeaf(p, data, facts)
 }
 
+func (e *Evaluator) evalAll(predicates []*domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
+	for _, predicate := range predicates {
+		if predicate == nil {
+			return false, domain.ErrInvalidPredicate
+		}
+		matched, err := e.evalPredicate(*predicate, data, facts)
+		if err != nil {
+			return false, err
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (e *Evaluator) evalAny(predicates []*domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
+	for _, predicate := range predicates {
+		if predicate == nil {
+			continue
+		}
+		matched, err := e.evalPredicate(*predicate, data, facts)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (e *Evaluator) evalNot(predicate *domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
+	if predicate == nil {
+		return false, domain.ErrInvalidPredicate
+	}
+	matched, err := e.evalPredicate(*predicate, data, facts)
+	if err != nil {
+		return false, err
+	}
+	return !matched, nil
+}
+
 func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
-	val, err := resolvePath(p.Path, data, facts)
+	value, err := resolvePath(p.Path, data, facts)
 	if err != nil {
 		return false, fmt.Errorf("%w: resolve predicate path %q: %w", domain.ErrEvaluationError, p.Path, err)
 	}
-
 	if p.Op == domain.OpExists {
-		return val != nil, nil
+		return value != nil, nil
 	}
 	if p.Op == domain.OpNotExists {
-		return val == nil, nil
+		return value == nil, nil
 	}
-
-	if val == nil {
+	if value == nil {
 		return false, nil
 	}
+	return evaluateLeafValue(p.Op, value, p.Value)
+}
 
-	switch p.Op {
+func evaluateLeafValue(op domain.Operator, actual, expected interface{}) (bool, error) {
+	switch op {
 	case domain.OpEq:
-		return compareEq(val, p.Value), nil
+		return compareEq(actual, expected), nil
 	case domain.OpNeq:
-		return !compareEq(val, p.Value), nil
-	case domain.OpGt:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for gt: %v vs %v", val, p.Value)
-		}
-		return cmp > 0, nil
-	case domain.OpGte:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for gte: %v vs %v", val, p.Value)
-		}
-		return cmp >= 0, nil
-	case domain.OpLt:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for lt: %v vs %v", val, p.Value)
-		}
-		return cmp < 0, nil
-	case domain.OpLte:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for lte: %v vs %v", val, p.Value)
-		}
-		return cmp <= 0, nil
+		return !compareEq(actual, expected), nil
+	case domain.OpGt, domain.OpGte, domain.OpLt, domain.OpLte:
+		return compareNumericLeaf(op, actual, expected)
 	case domain.OpIn:
-		return compareIn(val, p.Value), nil
+		return compareIn(actual, expected), nil
 	case domain.OpNotIn:
-		return !compareIn(val, p.Value), nil
+		return !compareIn(actual, expected), nil
+	default:
+		return false, domain.ErrInvalidOperator
+	}
+}
+
+func compareNumericLeaf(op domain.Operator, actual, expected interface{}) (bool, error) {
+	comparison := compareCmp(actual, expected)
+	if comparison == 2 {
+		return false, fmt.Errorf("cannot compare non-numeric values for %s: %v vs %v", op, actual, expected)
+	}
+	switch op {
+	case domain.OpGt:
+		return comparison > 0, nil
+	case domain.OpGte:
+		return comparison >= 0, nil
+	case domain.OpLt:
+		return comparison < 0, nil
+	case domain.OpLte:
+		return comparison <= 0, nil
 	default:
 		return false, domain.ErrInvalidOperator
 	}
 }
 
 func resolvePath(path string, data json.RawMessage, facts map[string]json.RawMessage) (interface{}, error) {
-	if path == "" {
+	if path == "" || !strings.HasPrefix(path, "$.") {
 		return nil, domain.ErrInvalidFactPath
 	}
-
-	if !strings.HasPrefix(path, "$.") {
-		return nil, domain.ErrInvalidFactPath
-	}
-
 	parts := strings.Split(path[2:], ".")
-	var current interface{}
-
-	// If first part is "facts", resolve from facts map
 	if len(parts) > 0 && parts[0] == "facts" {
-		if len(parts) < 2 {
-			return nil, nil
-		}
-		factKey := parts[1]
-		factData, ok := facts[factKey]
-		if !ok {
-			return nil, nil
-		}
-		if err := json.Unmarshal(factData, &current); err != nil {
-			return nil, fmt.Errorf("unmarshal fact %s: %w", factKey, err)
-		}
-		// Process remaining parts
-		for _, part := range parts[2:] {
-			if part == "" {
-				continue
-			}
-			switch v := current.(type) {
-			case map[string]interface{}:
-				val, ok := v[part]
-				if !ok {
-					return nil, nil
-				}
-				current = val
-			default:
-				return nil, nil
-			}
-		}
-		return current, nil
+		return resolveFactPath(parts[1:], facts)
 	}
+	return resolveEventDataPath(data, parts)
+}
 
-	// Otherwise resolve from event data
-	if err := json.Unmarshal(data, &current); err != nil {
+func resolveFactPath(parts []string, facts map[string]json.RawMessage) (interface{}, error) {
+	if len(parts) < 1 {
+		return nil, nil
+	}
+	factKey := parts[0]
+	factData, exists := facts[factKey]
+	if !exists {
+		return nil, nil
+	}
+	var value interface{}
+	if err := json.Unmarshal(factData, &value); err != nil {
+		return nil, fmt.Errorf("unmarshal fact %s: %w", factKey, err)
+	}
+	return walkObjectPath(value, parts[1:]), nil
+}
+
+func resolveEventDataPath(data json.RawMessage, parts []string) (interface{}, error) {
+	var value interface{}
+	if err := json.Unmarshal(data, &value); err != nil {
 		return nil, fmt.Errorf("unmarshal data: %w", err)
 	}
+	return walkObjectPath(value, parts), nil
+}
 
+func walkObjectPath(value interface{}, parts []string) interface{} {
+	current := value
 	for _, part := range parts {
 		if part == "" {
 			continue
 		}
-		switch v := current.(type) {
-		case map[string]interface{}:
-			val, ok := v[part]
-			if !ok {
-				return nil, nil
-			}
-			current = val
-		default:
-			return nil, nil
+		object, ok := current.(map[string]interface{})
+		if !ok {
+			return nil
 		}
+		next, exists := object[part]
+		if !exists {
+			return nil
+		}
+		current = next
 	}
-
-	return current, nil
+	return current
 }
 
 func compareEq(actual interface{}, expected interface{}) bool {
@@ -436,86 +432,112 @@ func (c templateContext) expand(s string) interface{} {
 }
 
 func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {
-	effectType := domain.EffectTypeEmit
-	var dest, name string
-	var payload json.RawMessage
-
+	effect := domain.Effect{
+		ID:          domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex),
+		ExecutionID: "",
+	}
 	switch {
 	case action.Emit != nil:
-		dest = action.Emit.Topic
-		name = action.Emit.Topic
-		payload = action.Emit.Data
+		effect = e.buildEmitEffect(effect, action.Emit)
 	case action.EmitEvent != nil:
-		childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
-
-		// Resolve partition key based on policy
-		partitionKey := action.EmitEvent.PartitionKey
-		policy := action.EmitEvent.PartitionKeyPolicy
-		if policy == "" {
-			policy = domain.PartitionKeyPolicyExplicit
-		}
-
-		switch policy {
-		case domain.PartitionKeyPolicyInherit:
-			partitionKey = event.PartitionKey
-		case domain.PartitionKeyPolicyFromData:
-			if action.EmitEvent.PartitionKeyPath != "" {
-				val, err := resolvePath(action.EmitEvent.PartitionKeyPath, event.Data, nil)
-				if err != nil || val == nil {
-					return domain.Effect{}, fmt.Errorf("resolve partition key from path %s: %w", action.EmitEvent.PartitionKeyPath, err)
-				}
-				partitionKey = fmt.Sprintf("%v", val)
-			}
-		}
-
-		if partitionKey == "" {
-			return domain.Effect{}, fmt.Errorf("partition key resolution resulted in empty value for policy %s", policy)
-		}
-
-		// Interpolate template values in the effect data
-		interpolatedData, err := interpolateTemplates(action.EmitEvent.Data, event, childID, e.clock)
+		var err error
+		effect, err = e.buildEmitEventEffect(effect, event, ruleID, actionIndex, action.EmitEvent)
 		if err != nil {
-			return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
+			return domain.Effect{}, err
 		}
-
-		child := domain.EventEnvelope{
-			ID:           childID,
-			Type:         action.EmitEvent.Type,
-			TenantID:     event.TenantID,
-			PartitionKey: partitionKey,
-			OccurredAt:   e.clock.Now(),
-			Data:         interpolatedData,
-			Headers: map[string]string{
-				"flowrule_parent_event_id": event.ID,
-				"flowrule_child_event_id":  childID,
-			},
-		}
-		encoded, err := json.Marshal(child)
-		if err != nil {
-			return domain.Effect{}, fmt.Errorf("marshal child event: %w", err)
-		}
-		effectType = domain.EffectTypeEmitEvent
-		dest = "events." + child.Type
-		name = child.Type
-		payload = encoded
 	case action.Command != nil:
-		effectType = domain.EffectTypeCommand
-		dest = action.Command.Destination
-		name = action.Command.Name
-		payload = action.Command.Data
+		effect = buildCommandEffect(effect, action.Command)
+	}
+	effect.CreatedAt = e.clock.Now()
+	return effect, nil
+}
+
+func (e *Evaluator) buildEmitEffect(effect domain.Effect, action *domain.EmitAction) domain.Effect {
+	effect.Destination = action.Topic
+	effect.Name = action.Topic
+	effect.Payload = action.Data
+	effect.EffectType = domain.EffectTypeEmit
+	return effect
+}
+
+func buildCommandEffect(effect domain.Effect, action *domain.CommandAction) domain.Effect {
+	effect.EffectType = domain.EffectTypeCommand
+	effect.Destination = action.Destination
+	effect.Name = action.Name
+	effect.Payload = action.Data
+	return effect
+}
+
+func (e *Evaluator) buildEmitEventEffect(
+	effect domain.Effect,
+	event *domain.EventEnvelope,
+	ruleID string,
+	actionIndex int,
+	action *domain.EmitEventAction,
+) (domain.Effect, error) {
+	childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
+	partitionKey, err := resolveEmitEventPartitionKey(action, event)
+	if err != nil {
+		return domain.Effect{}, err
 	}
 
-	effectID := domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex)
+	childData, err := interpolateTemplates(action.Data, event, childID, e.clock)
+	if err != nil {
+		return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
+	}
+	child := buildChildEventEnvelope(event, action, childID, partitionKey, childData, e.clock.Now())
+	encoded, err := json.Marshal(child)
+	if err != nil {
+		return domain.Effect{}, fmt.Errorf("marshal child event: %w", err)
+	}
 
-	return domain.Effect{
-		ID:          effectID,
-		ExecutionID: "",
-		Destination: dest,
-		Name:        name,
-		Payload:     payload,
-		EffectType:  effectType,
-		CreatedAt:   e.clock.Now(),
-	}, nil
+	effect.EffectType = domain.EffectTypeEmitEvent
+	effect.Destination = "events." + child.Type
+	effect.Name = child.Type
+	effect.Payload = encoded
+	return effect, nil
+}
+
+func resolveEmitEventPartitionKey(action *domain.EmitEventAction, event *domain.EventEnvelope) (string, error) {
+	partitionKey := action.PartitionKey
+	policy := action.PartitionKeyPolicy
+	if policy == "" {
+		policy = domain.PartitionKeyPolicyExplicit
+	}
+	switch policy {
+	case domain.PartitionKeyPolicyInherit:
+		partitionKey = event.PartitionKey
+	case domain.PartitionKeyPolicyFromData:
+		if action.PartitionKeyPath != "" {
+			value, err := resolvePath(action.PartitionKeyPath, event.Data, nil)
+			if err != nil || value == nil {
+				return "", fmt.Errorf("resolve partition key from path %s: %w", action.PartitionKeyPath, err)
+			}
+			partitionKey = fmt.Sprintf("%v", value)
+		}
+	}
+	if partitionKey == "" {
+		return "", fmt.Errorf("partition key resolution resulted in empty value for policy %s", policy)
+	}
+	return partitionKey, nil
+}
+
+func buildChildEventEnvelope(
+	parent *domain.EventEnvelope,
+	action *domain.EmitEventAction,
+	childID string,
+	partitionKey string,
+	data json.RawMessage,
+	occurredAt time.Time,
+) domain.EventEnvelope {
+	return domain.EventEnvelope{
+		ID: childID, Type: action.Type, TenantID: parent.TenantID,
+		PartitionKey: partitionKey, OccurredAt: occurredAt, Data: data,
+		Headers: map[string]string{
+			"flowrule_parent_event_id": parent.ID,
+			"flowrule_child_event_id":  childID,
+		},
+	}
 }
 
 func describeAction(action domain.Action) string {

@@ -13,10 +13,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// ScheduledEventRepository stores and manages scheduled events.
 type ScheduledEventRepository struct {
 	querier Querier
 }
 
+// NewScheduledEventRepository creates and returns the configured repository.
 func NewScheduledEventRepository(q Querier) *ScheduledEventRepository {
 	return &ScheduledEventRepository{querier: q}
 }
@@ -25,6 +27,7 @@ func (r *ScheduledEventRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Save persists or updates the corresponding record.
 func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.ScheduledEvent) error {
 	coll := r.collection(collectionScheduledEvents)
 	doc := ScheduledDocFromDomain(event)
@@ -38,6 +41,7 @@ func (r *ScheduledEventRepository) Save(ctx context.Context, event *domain.Sched
 	return nil
 }
 
+// GetDue retrieves records matching the supplied criteria.
 func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time, limit int) ([]*domain.ScheduledEvent, error) {
 	if limit <= 0 {
 		limit = 100
@@ -56,7 +60,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	if err != nil {
 		return nil, fmt.Errorf("get due scheduled events: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []*domain.ScheduledEvent
 	for cursor.Next(ctx) {
@@ -72,53 +76,93 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	return events, nil
 }
 
-func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
+// Claim persists or updates the corresponding record.
+func (r *ScheduledEventRepository) Claim(
+	ctx context.Context,
+	eventIDs []string,
+	claimant string,
+	leaseTTL time.Duration,
+) ([]*domain.ScheduledEvent, error) {
 	if len(eventIDs) == 0 {
 		return nil, nil
 	}
-	if claimant == "" {
-		return nil, fmt.Errorf("claim scheduled events: claimant is required")
+	if err := validateScheduledClaim(eventIDs, claimant, leaseTTL); err != nil {
+		return nil, err
 	}
-	if leaseTTL <= 0 {
-		return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
-	}
-
-	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
-	var events []*domain.ScheduledEvent
+	collection := r.collection(collectionScheduledEvents)
+	events := make([]*domain.ScheduledEvent, 0, len(eventIDs))
 	for _, eventID := range eventIDs {
-		var doc ScheduledDoc
-		filter := bson.D{
-			{Key: "event_id", Value: eventID},
-			{Key: "$or", Value: bson.A{
-				bson.D{{Key: "status", Value: domain.ScheduledEventStatusPending}, {Key: "$or", Value: bson.A{
-					bson.D{{Key: "retry_at", Value: bson.D{{Key: "$lte", Value: now}}}},
-					bson.D{{Key: "retry_at", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "scheduled_at", Value: bson.D{{Key: "$lte", Value: now}}}},
-				}}},
-				bson.D{{Key: "status", Value: domain.ScheduledEventStatusClaimed}, {Key: "claim_expires_at", Value: bson.D{{Key: "$lte", Value: now}}}},
-			}},
-		}
-		err := coll.FindOneAndUpdate(ctx, filter,
-			bson.D{{Key: "$set", Value: bson.D{
-				{Key: "status", Value: domain.ScheduledEventStatusClaimed},
-				{Key: "claimant", Value: claimant},
-				{Key: "claimed_at", Value: now},
-				{Key: "claim_expires_at", Value: expiresAt},
-			}}},
-			options.FindOneAndUpdate().SetReturnDocument(options.After),
-		).Decode(&doc)
+		event, claimed, err := claimScheduledEvent(ctx, collection, eventID, claimant, now, expiresAt)
 		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				continue
-			}
-			return nil, fmt.Errorf("claim scheduled event: %w", err)
+			return nil, err
 		}
-		events = append(events, doc.ToDomain())
+		if claimed {
+			events = append(events, event)
+		}
 	}
 	return events, nil
 }
 
+func validateScheduledClaim(eventIDs []string, claimant string, leaseTTL time.Duration) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	if claimant == "" {
+		return fmt.Errorf("claim scheduled events: claimant is required")
+	}
+	if leaseTTL <= 0 {
+		return fmt.Errorf("claim scheduled events: lease TTL must be positive")
+	}
+	return nil
+}
+
+func claimScheduledEvent(
+	ctx context.Context,
+	collection *mongo.Collection,
+	eventID, claimant string,
+	now, expiresAt time.Time,
+) (*domain.ScheduledEvent, bool, error) {
+	var doc ScheduledDoc
+	err := collection.FindOneAndUpdate(
+		ctx,
+		scheduledClaimFilter(eventID, now),
+		scheduledClaimUpdate(claimant, now, expiresAt),
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("claim scheduled event: %w", err)
+	}
+	return doc.ToDomain(), true, nil
+}
+
+func scheduledClaimFilter(eventID string, now time.Time) bson.D {
+	return bson.D{
+		{Key: "event_id", Value: eventID},
+		{Key: "$or", Value: bson.A{
+			bson.D{{Key: "status", Value: domain.ScheduledEventStatusPending}, {Key: "$or", Value: bson.A{
+				bson.D{{Key: "retry_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+				bson.D{{Key: "retry_at", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "scheduled_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+			}}},
+			bson.D{{Key: "status", Value: domain.ScheduledEventStatusClaimed}, {Key: "claim_expires_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+		}},
+	}
+}
+
+func scheduledClaimUpdate(claimant string, now, expiresAt time.Time) bson.D {
+	return bson.D{{Key: "$set", Value: bson.D{
+		{Key: "status", Value: domain.ScheduledEventStatusClaimed},
+		{Key: "claimant", Value: claimant},
+		{Key: "claimed_at", Value: now},
+		{Key: "claim_expires_at", Value: expiresAt},
+	}}}
+}
+
+// MarkReleased persists or updates the corresponding record.
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
 	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
@@ -139,6 +183,7 @@ func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, cl
 	return nil
 }
 
+// ScheduleRetry persists or updates the corresponding record.
 func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, claimant string, retryAt time.Time, errMsg string) error {
 	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
@@ -172,6 +217,7 @@ func (r *ScheduledEventRepository) ScheduleRetry(ctx context.Context, eventID, c
 	return nil
 }
 
+// MarkFailed persists or updates the corresponding record.
 func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, claimant, errMsg string) error {
 	coll := r.collection(collectionScheduledEvents)
 	now := time.Now().UTC()
@@ -192,6 +238,7 @@ func (r *ScheduledEventRepository) MarkFailed(ctx context.Context, eventID, clai
 	return nil
 }
 
+// Get retrieves records matching the supplied criteria.
 func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.ScheduledEvent, error) {
 	coll := r.collection(collectionScheduledEvents)
 	var doc ScheduledDoc
@@ -205,6 +252,7 @@ func (r *ScheduledEventRepository) Get(ctx context.Context, tenantID, eventID st
 	return doc.ToDomain(), nil
 }
 
+// List returns records matching the supplied criteria.
 func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, limit, offset int) ([]*domain.ScheduledEvent, error) {
 	if limit <= 0 {
 		limit = 100
@@ -226,7 +274,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 	if err != nil {
 		return nil, fmt.Errorf("list scheduled events: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []*domain.ScheduledEvent
 	for cursor.Next(ctx) {
@@ -242,6 +290,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 	return events, nil
 }
 
+// Cancel persists or updates the corresponding record.
 func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID string) error {
 	coll := r.collection(collectionScheduledEvents)
 	result, err := coll.UpdateOne(ctx,
@@ -257,6 +306,7 @@ func (r *ScheduledEventRepository) Cancel(ctx context.Context, tenantID, eventID
 	return nil
 }
 
+// ScheduledDoc represents a scheduled event stored in MongoDB.
 type ScheduledDoc struct {
 	EventID        string            `bson:"event_id"`
 	TenantID       string            `bson:"tenant_id"`
@@ -277,6 +327,7 @@ type ScheduledDoc struct {
 	RetryCount     int               `bson:"retry_count,omitempty"`
 }
 
+// ScheduledDocFromDomain converts a domain value to its MongoDB representation.
 func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 	return &ScheduledDoc{
 		EventID:      event.EventID,
@@ -296,6 +347,7 @@ func ScheduledDocFromDomain(event *domain.ScheduledEvent) *ScheduledDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *ScheduledDoc) ToDomain() *domain.ScheduledEvent {
 	var payload json.RawMessage
 	if d.Payload != nil {

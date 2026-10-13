@@ -1,3 +1,6 @@
+// Package codegen provides code generation for FlowRule contracts.
+// It generates typed clients, runtime components (envelope, publisher, consumer),
+// evaluators, and service scaffolding for multiple target languages.
 package codegen
 
 import (
@@ -54,65 +57,93 @@ func sanitizeGeneratedOutputDir(outputDir string) (string, error) {
 }
 
 func createGeneratedFile(outputDir, relativePath string) (*os.File, string, error) {
-	var err error
-	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	paths, err := resolveGeneratedFilePaths(outputDir, relativePath)
 	if err != nil {
 		return nil, "", err
 	}
+	if err := ensureGeneratedOutputDirectory(paths.volumeRoot, paths.relativeOutputDir); err != nil {
+		return nil, "", err
+	}
+	file, err := createFileWithinOutputRoot(paths.absoluteOutputDir, paths.relativePath)
+	if err != nil {
+		return nil, "", err
+	}
+	return file, filepath.Join(paths.outputDir, paths.relativePath), nil
+}
+
+type generatedFilePaths struct {
+	outputDir         string
+	absoluteOutputDir string
+	relativePath      string
+	volumeRoot        string
+	relativeOutputDir string
+}
+
+func resolveGeneratedFilePaths(outputDir, relativePath string) (generatedFilePaths, error) {
+	outputDir, err := sanitizeGeneratedOutputDir(outputDir)
+	if err != nil {
+		return generatedFilePaths{}, err
+	}
 	if !filepath.IsLocal(relativePath) {
-		return nil, "", fmt.Errorf("generated file path must be local to the output directory")
+		return generatedFilePaths{}, fmt.Errorf("generated file path must be local to the output directory")
 	}
 	relativePath = filepath.Clean(relativePath)
-
 	absoluteOutputDir, err := filepath.Abs(outputDir)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolve output dir: %w", err)
+		return generatedFilePaths{}, fmt.Errorf("resolve output dir: %w", err)
 	}
 	volumeRoot := filepath.VolumeName(absoluteOutputDir) + string(filepath.Separator)
 	relativeOutputDir, err := filepath.Rel(volumeRoot, absoluteOutputDir)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolve output dir relative to volume root: %w", err)
+		return generatedFilePaths{}, fmt.Errorf("resolve output dir relative to volume root: %w", err)
 	}
 	if !filepath.IsLocal(relativeOutputDir) {
-		return nil, "", fmt.Errorf("output directory must be local to its volume root")
+		return generatedFilePaths{}, fmt.Errorf("output directory must be local to its volume root")
 	}
+	return generatedFilePaths{
+		outputDir: outputDir, absoluteOutputDir: absoluteOutputDir, relativePath: relativePath,
+		volumeRoot: volumeRoot, relativeOutputDir: relativeOutputDir,
+	}, nil
+}
 
-	volume, err := os.OpenRoot(volumeRoot)
+func ensureGeneratedOutputDirectory(volumeRoot, relativeOutputDir string) error {
+	root, err := os.OpenRoot(volumeRoot)
 	if err != nil {
-		return nil, "", fmt.Errorf("open volume root: %w", err)
+		return fmt.Errorf("open volume root: %w", err)
 	}
-	if err := volume.MkdirAll(relativeOutputDir, 0755); err != nil {
-		return nil, "", errors.Join(fmt.Errorf("create output dir: %w", err), volume.Close())
+	if err := root.MkdirAll(relativeOutputDir, 0755); err != nil {
+		return errors.Join(fmt.Errorf("create output dir: %w", err), root.Close())
 	}
-	if err := volume.Close(); err != nil {
-		return nil, "", fmt.Errorf("close volume root: %w", err)
+	if err := root.Close(); err != nil {
+		return fmt.Errorf("close volume root: %w", err)
 	}
+	return nil
+}
 
-	root, err := os.OpenRoot(absoluteOutputDir)
+func createFileWithinOutputRoot(outputDir, relativePath string) (*os.File, error) {
+	root, err := os.OpenRoot(outputDir)
 	if err != nil {
-		return nil, "", fmt.Errorf("open output dir: %w", err)
+		return nil, fmt.Errorf("open output dir: %w", err)
 	}
-
 	relativeDir := filepath.Dir(relativePath)
 	if relativeDir != "." {
 		if err := root.MkdirAll(relativeDir, 0755); err != nil {
-			return nil, "", errors.Join(fmt.Errorf("create generated file directory: %w", err), root.Close())
+			return nil, errors.Join(fmt.Errorf("create generated file directory: %w", err), root.Close())
 		}
 	}
-
 	file, err := root.Create(relativePath)
 	closeErr := root.Close()
 	if err != nil {
-		return nil, "", fmt.Errorf("create generated file: %w", err)
+		return nil, fmt.Errorf("create generated file: %w", err)
 	}
 	if closeErr != nil {
 		_ = file.Close()
-		return nil, "", fmt.Errorf("close output dir: %w", closeErr)
+		return nil, fmt.Errorf("close output dir: %w", closeErr)
 	}
-
-	return file, filepath.Join(outputDir, relativePath), nil
+	return file, nil
 }
 
+// RuleSet represents a collection of rules for a contract.
 type RuleSet struct {
 	RuleSet  string `yaml:"rule_set"`
 	Revision int    `yaml:"revision"`
@@ -120,6 +151,7 @@ type RuleSet struct {
 	Rules    []Rule `yaml:"rules"`
 }
 
+// Rule represents a single rule with a condition and actions.
 type Rule struct {
 	ID          string    `yaml:"id"`
 	Name        string    `yaml:"name"`
@@ -129,35 +161,42 @@ type Rule struct {
 	Then        []Action  `yaml:"then"`
 }
 
+// Condition represents a rule condition with a path, operator, and value.
 type Condition struct {
 	Path  string `yaml:"path"`
 	Op    string `yaml:"op"`
 	Value any    `yaml:"value"`
 }
 
+// Action represents a rule action, currently supporting event emission.
 type Action struct {
 	EmitEvent *EmitEvent `yaml:"emit_event"`
 }
 
+// EmitEvent represents an event to be emitted when a rule matches.
 type EmitEvent struct {
 	Type               string            `yaml:"type"`
 	PartitionKeyPolicy string            `yaml:"partition_key_policy"`
 	Data               map[string]string `yaml:"data"`
 }
 
+// Generator produces code from a contract schema and optional rule set.
 type Generator struct {
 	schema  *domain.ContractSchema
 	ruleSet *RuleSet
 }
 
+// NewGenerator creates a new Generator with the given contract schema.
 func NewGenerator(schema *domain.ContractSchema) *Generator {
 	return &Generator{schema: schema}
 }
 
+// NewGeneratorWithRules creates a new Generator with the given contract schema and rule set.
 func NewGeneratorWithRules(schema *domain.ContractSchema, ruleSet *RuleSet) *Generator {
 	return &Generator{schema: schema, ruleSet: ruleSet}
 }
 
+// GenerateGo generates Go contract types, typed client, and runtime components.
 func (g *Generator) GenerateGo(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -176,18 +215,22 @@ func (g *Generator) GenerateGo(outputDir string) ([]string, error) {
 	return append(files, clientFile), nil
 }
 
+// GenerateJava generates Java contract classes.
 func (g *Generator) GenerateJava(outputDir string) ([]string, error) {
 	return g.generate(outputDir, TargetJava, javaTemplate, javaFileExtension)
 }
 
+// GenerateProtobuf generates Protocol Buffers message definitions.
 func (g *Generator) GenerateProtobuf(outputDir string) ([]string, error) {
 	return g.generate(outputDir, TargetProtobuf, protobufTemplate, protobufFileExtension)
 }
 
+// GenerateJSONSchema generates a JSON Schema document for the contract.
 func (g *Generator) GenerateJSONSchema(outputDir string) ([]string, error) {
 	return g.generate(outputDir, TargetJSONSchema, jsonschemaTemplate, jsonSchemaFileExtension)
 }
 
+// GenerateAll generates Go types, runtime components, evaluator, and service scaffolding.
 func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -230,6 +273,8 @@ func (g *Generator) GenerateAll(outputDir string) ([]string, error) {
 	return allFiles, nil
 }
 
+// GenerateRuntime generates Go envelope, publisher, and consumer types.
+// GenerateRuntime generates envelope, publisher, and consumer runtime components.
 func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -260,221 +305,225 @@ func (g *Generator) GenerateRuntime(outputDir string) ([]string, error) {
 	return allFiles, nil
 }
 
+// GenerateEvaluator generates a compiled rule evaluator for the configured rule set.
+// GenerateEvaluator generates a Go evaluator from the rule set.
 func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
-	var err error
-	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
+	outputDir, err := sanitizeGeneratedOutputDir(outputDir)
 	if err != nil {
 		return nil, err
 	}
-
 	if g.ruleSet == nil {
 		return nil, fmt.Errorf("rule set required for evaluator generation")
 	}
 
-	pkgName := sanitizePackageName(g.schema.Name)
-	f, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "evaluator.go"))
+	file, filePath, err := createGeneratedFile(outputDir, filepath.Join(TargetGo, runtimeDirectoryName, "evaluator.go"))
 	if err != nil {
 		return nil, fmt.Errorf("create evaluator.go: %w", err)
 	}
-	defer f.Close()
+	defer file.Close()
 
+	pkgName := sanitizePackageName(g.schema.Name)
 	typeName := toPascalCase(g.schema.Name)
-
-	// Write evaluator using fmt.Fprintf to avoid template escaping issues
-	fmt.Fprint(f, "// Code generated by FlowRule. DO NOT EDIT.\n\n")
-	fmt.Fprint(f, "package runtime\n\n")
-	fmt.Fprint(f, "import (\n")
-	fmt.Fprint(f, "	\"encoding/json\"\n")
-	fmt.Fprint(f, "	\"fmt\"\n")
-	fmt.Fprint(f, "	\"strings\"\n")
-	fmt.Fprint(f, "	\"time\"\n\n")
-	fmt.Fprint(f, "	\"github.com/flowrule/flowrule/internal/domain\"\n")
-	fmt.Fprint(f, ")\n\n")
-
-	fmt.Fprint(f, "// Effect represents an effect to be emitted\n")
-	fmt.Fprint(f, "type Effect struct {\n")
-	fmt.Fprint(f, "	Type           string\n")
-	fmt.Fprint(f, "	Payload        map[string]any\n")
-	fmt.Fprint(f, "	PartitionKey   string\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "// Evaluator evaluates rules against a payload\n")
-	fmt.Fprint(f, "type Evaluator struct {\n")
-	fmt.Fprint(f, "	rules []CompiledRule\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "// CompiledRule is a pre-compiled rule for fast evaluation\n")
-	fmt.Fprint(f, "type CompiledRule struct {\n")
-	fmt.Fprint(f, "	ID        string\n")
-	fmt.Fprint(f, "	Priority  int\n")
-	fmt.Fprint(f, "	Condition ConditionFunc\n")
-	fmt.Fprint(f, "	Effects   []EffectTemplate\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "// ConditionFunc evaluates a condition against payload\n")
-	fmt.Fprint(f, "type ConditionFunc func(payload map[string]any) bool\n\n")
-
-	fmt.Fprint(f, "// EffectTemplate defines an effect to emit with template substitution\n")
-	fmt.Fprint(f, "type EffectTemplate struct {\n")
-	fmt.Fprint(f, "	EventType           string\n")
-	fmt.Fprint(f, "	PartitionKeyPolicy  string\n")
-	fmt.Fprint(f, "	DataTemplate        map[string]string\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "// NewEvaluator creates a new evaluator with compiled rules\n")
-	fmt.Fprint(f, "func NewEvaluator() *Evaluator {\n")
-	fmt.Fprint(f, "	return &Evaluator{\n")
-	fmt.Fprint(f, "		rules: []CompiledRule{\n")
-
-	compiledRules := g.buildCompiledRules()
-	for _, rule := range compiledRules {
-		fmt.Fprintf(f, "			{\n")
-		fmt.Fprintf(f, "				ID:       %q,\n", rule.ID)
-		fmt.Fprintf(f, "				Priority: %d,\n", rule.Priority)
-		fmt.Fprintf(f, "				Condition: func(payload map[string]any) bool {\n")
-		fmt.Fprintf(f, "					%s\n", rule.ConditionCode)
-		fmt.Fprintf(f, "				},\n")
-		fmt.Fprintf(f, "				Effects: []EffectTemplate{\n")
-		for _, effect := range rule.Effects {
-			fmt.Fprintf(f, "					{\n")
-			fmt.Fprintf(f, "						EventType:          %q,\n", effect.EventType)
-			fmt.Fprintf(f, "						PartitionKeyPolicy: %q,\n", effect.PartitionKeyPolicy)
-			fmt.Fprintf(f, "						DataTemplate: map[string]string{\n")
-			for k, v := range effect.DataTemplate {
-				fmt.Fprintf(f, "							%q: %q,\n", k, v)
-			}
-			fmt.Fprintf(f, "						},\n")
-			fmt.Fprintf(f, "					},\n")
-		}
-		fmt.Fprintf(f, "				},\n")
-		fmt.Fprintf(f, "			},\n")
-	}
-
-	fmt.Fprint(f, "		},\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "}\n\n")
-
-	// Evaluate method
-	fmt.Fprintf(f, "// Evaluate runs all rules against the payload and returns matching effects\n")
-	fmt.Fprintf(f, "func (e *Evaluator) Evaluate(payload *%s.%s) ([]Effect, error) {\n", pkgName, typeName)
-	fmt.Fprint(f, "	// Convert payload to map for evaluation\n")
-	fmt.Fprint(f, "	data, err := json.Marshal(payload)\n")
-	fmt.Fprint(f, "	if err != nil {\n")
-	fmt.Fprint(f, "		return nil, err\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	var payloadMap map[string]any\n")
-	fmt.Fprint(f, "	if err := json.Unmarshal(data, &payloadMap); err != nil {\n")
-	fmt.Fprint(f, "		return nil, err\n")
-	fmt.Fprint(f, "	}\n\n")
-	fmt.Fprint(f, "	var effects []Effect\n")
-	fmt.Fprint(f, "	for _, rule := range e.rules {\n")
-	fmt.Fprint(f, "		if rule.Condition(payloadMap) {\n")
-	fmt.Fprint(f, "			for _, effTmpl := range rule.Effects {\n")
-	fmt.Fprint(f, "				effect := Effect{\n")
-	fmt.Fprint(f, "					Type:          effTmpl.EventType,\n")
-	fmt.Fprint(f, "					PartitionKey:  computePartitionKey(payloadMap, effTmpl.PartitionKeyPolicy),\n")
-	fmt.Fprint(f, "				}\n")
-	fmt.Fprint(f, "				effect.Payload = substituteTemplate(effTmpl.DataTemplate, payloadMap)\n")
-	fmt.Fprint(f, "				effects = append(effects, effect)\n")
-	fmt.Fprint(f, "			}\n")
-	fmt.Fprint(f, "		}\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	return effects, nil\n")
-	fmt.Fprint(f, "}\n\n")
-
-	// Helper functions
-	fmt.Fprint(f, "func getFloat64(m map[string]any, key string) (float64, bool) {\n")
-	fmt.Fprint(f, "	switch v := m[key].(type) {\n")
-	fmt.Fprint(f, "	case float64:\n")
-	fmt.Fprint(f, "		return v, true\n")
-	fmt.Fprint(f, "	case int:\n")
-	fmt.Fprint(f, "		return float64(v), true\n")
-	fmt.Fprint(f, "	case int64:\n")
-	fmt.Fprint(f, "		return float64(v), true\n")
-	fmt.Fprint(f, "	case json.Number:\n")
-	fmt.Fprint(f, "		f, _ := v.Float64()\n")
-	fmt.Fprint(f, "		return f, true\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	return 0, false\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "func getString(m map[string]any, key string) (string, bool) {\n")
-	fmt.Fprint(f, "	v, ok := m[key]\n")
-	fmt.Fprint(f, "	if !ok {\n")
-	fmt.Fprint(f, "		return \"\", false\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	switch v := v.(type) {\n")
-	fmt.Fprint(f, "	case string:\n")
-	fmt.Fprint(f, "		return v, true\n")
-	fmt.Fprint(f, "	case json.Number:\n")
-	fmt.Fprint(f, "		return v.String(), true\n")
-	fmt.Fprint(f, "	}\n")
-	if _, err := f.WriteString("	return fmt.Sprintf(\"%v\", v), true\n"); err != nil {
+	writeGeneratedEvaluatorHeader(file)
+	writeGeneratedEvaluatorTypes(file)
+	writeGeneratedEvaluatorConstructor(file, g)
+	writeGeneratedEvaluatorMethod(file, pkgName, typeName)
+	if err := writeGeneratedEvaluatorHelpers(file); err != nil {
 		return nil, fmt.Errorf("write getString: %w", err)
 	}
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "func computePartitionKey(payload map[string]any, policy string) string {\n")
-	fmt.Fprint(f, "	switch policy {\n")
-	fmt.Fprint(f, "	case \"inherit\":\n")
-	fmt.Fprint(f, "		if pk, ok := getString(payload, \"customer_id\"); ok {\n")
-	fmt.Fprint(f, "			return pk\n")
-	fmt.Fprint(f, "		}\n")
-	fmt.Fprint(f, "		if pk, ok := getString(payload, \"partition_key\"); ok {\n")
-	fmt.Fprint(f, "			return pk\n")
-	fmt.Fprint(f, "		}\n")
-	fmt.Fprint(f, "		return \"default\"\n")
-	fmt.Fprint(f, "	default:\n")
-	fmt.Fprint(f, "		return policy\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "func substituteTemplate(tmpl map[string]string, payload map[string]any) map[string]any {\n")
-	fmt.Fprint(f, "	result := make(map[string]any)\n")
-	fmt.Fprint(f, "	for k, v := range tmpl {\n")
-	fmt.Fprint(f, "		result[k] = substituteValue(v, payload)\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	return result\n")
-	fmt.Fprint(f, "}\n\n")
-
-	fmt.Fprint(f, "func substituteValue(val string, payload map[string]any) any {\n")
-	fmt.Fprint(f, "	val = strings.TrimSpace(val)\n")
-	fmt.Fprint(f, "	\n")
-	fmt.Fprint(f, "	if val == \"{{new_id}}\" {\n")
-	fmt.Fprint(f, "		return domain.NewID()\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	if val == \"{{now}}\" {\n")
-	fmt.Fprint(f, "		return time.Now().UTC().Format(time.RFC3339)\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	\n")
-	fmt.Fprint(f, "	if strings.HasPrefix(val, \"{{$.\") && strings.HasSuffix(val, \"}}\") {\n")
-	fmt.Fprint(f, "		key := strings.TrimPrefix(val, \"{{$.\")\n")
-	fmt.Fprint(f, "		key = strings.TrimSuffix(key, \"}}\")\n")
-	fmt.Fprint(f, "		if v, ok := payload[key]; ok {\n")
-	fmt.Fprint(f, "			return v\n")
-	fmt.Fprint(f, "		}\n")
-	fmt.Fprint(f, "		return nil\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	\n")
-	fmt.Fprint(f, "	if strings.HasPrefix(val, \"{{\") && strings.HasSuffix(val, \"}}\") {\n")
-	fmt.Fprint(f, "		key := strings.TrimPrefix(val, \"{{\")\n")
-	fmt.Fprint(f, "		key = strings.TrimSuffix(key, \"}}\")\n")
-	fmt.Fprint(f, "		if v, ok := payload[key]; ok {\n")
-	fmt.Fprint(f, "			return v\n")
-	fmt.Fprint(f, "		}\n")
-	fmt.Fprint(f, "		return nil\n")
-	fmt.Fprint(f, "	}\n")
-	fmt.Fprint(f, "	\n")
-	fmt.Fprint(f, "	return val\n")
-	fmt.Fprint(f, "}\n")
-
-	if _, err := f.WriteString(""); err != nil {
-		return nil, fmt.Errorf("write evaluator: %w", err)
-	}
-
 	return []string{filePath}, nil
 }
 
+func writeGeneratedEvaluatorHeader(file *os.File) {
+	fmt.Fprint(file, "// Code generated by FlowRule. DO NOT EDIT.\n\n")
+	fmt.Fprint(file, "package runtime\n\n")
+	fmt.Fprint(file, "import (\n")
+	fmt.Fprint(file, "\t\"encoding/json\"\n")
+	fmt.Fprint(file, "\t\"fmt\"\n")
+	fmt.Fprint(file, "\t\"strings\"\n")
+	fmt.Fprint(file, "\t\"time\"\n\n")
+	fmt.Fprint(file, "\t\"github.com/flowrule/flowrule/internal/domain\"\n")
+	fmt.Fprint(file, ")\n\n")
+}
+
+func writeGeneratedEvaluatorTypes(file *os.File) {
+	writeGeneratedEffectType(file)
+	writeGeneratedEvaluatorType(file)
+	writeGeneratedCompiledRuleType(file)
+	writeGeneratedConditionType(file)
+	writeGeneratedEffectTemplateType(file)
+}
+
+func writeGeneratedEffectType(file *os.File) {
+	fmt.Fprint(file, "// Effect represents an effect to be emitted\n")
+	fmt.Fprint(file, "type Effect struct {\n")
+	fmt.Fprint(file, "\tType           string\n")
+	fmt.Fprint(file, "\tPayload        map[string]any\n")
+	fmt.Fprint(file, "\tPartitionKey   string\n")
+	fmt.Fprint(file, "}\n\n")
+}
+
+func writeGeneratedEvaluatorType(file *os.File) {
+	fmt.Fprint(file, "// Evaluator evaluates rules against a payload\n")
+	fmt.Fprint(file, "type Evaluator struct {\n")
+	fmt.Fprint(file, "\trules []CompiledRule\n")
+	fmt.Fprint(file, "}\n\n")
+}
+
+func writeGeneratedCompiledRuleType(file *os.File) {
+	fmt.Fprint(file, "// CompiledRule is a pre-compiled rule for fast evaluation\n")
+	fmt.Fprint(file, "type CompiledRule struct {\n")
+	fmt.Fprint(file, "\tID        string\n")
+	fmt.Fprint(file, "\tPriority  int\n")
+	fmt.Fprint(file, "\tCondition ConditionFunc\n")
+	fmt.Fprint(file, "\tEffects   []EffectTemplate\n")
+	fmt.Fprint(file, "}\n\n")
+}
+
+func writeGeneratedConditionType(file *os.File) {
+	fmt.Fprint(file, "// ConditionFunc evaluates a condition against payload\n")
+	fmt.Fprint(file, "type ConditionFunc func(payload map[string]any) bool\n\n")
+}
+
+func writeGeneratedEffectTemplateType(file *os.File) {
+	fmt.Fprint(file, "// EffectTemplate defines an effect to emit with template substitution\n")
+	fmt.Fprint(file, "type EffectTemplate struct {\n")
+	fmt.Fprint(file, "\tEventType           string\n")
+	fmt.Fprint(file, "\tPartitionKeyPolicy  string\n")
+	fmt.Fprint(file, "\tDataTemplate        map[string]string\n")
+	fmt.Fprint(file, "}\n\n")
+}
+
+func writeGeneratedEvaluatorConstructor(file *os.File, generator *Generator) {
+	fmt.Fprint(file, "// NewEvaluator creates a new evaluator with compiled rules\n")
+	fmt.Fprint(file, "func NewEvaluator() *Evaluator {\n")
+	fmt.Fprint(file, "\treturn &Evaluator{\n")
+	fmt.Fprint(file, "\t\trules: []CompiledRule{\n")
+	for _, rule := range generator.buildCompiledRules() {
+		writeGeneratedCompiledRule(file, rule)
+	}
+	fmt.Fprint(file, "\t\t},\n")
+	fmt.Fprint(file, "\t}\n")
+	fmt.Fprint(file, "}\n\n")
+}
+
+func writeGeneratedCompiledRule(file *os.File, rule CompiledRuleData) {
+	fmt.Fprint(file, "\t\t\t{\n")
+	fmt.Fprintf(file, "\t\t\t\tID:       %q,\n", rule.ID)
+	fmt.Fprintf(file, "\t\t\t\tPriority: %d,\n", rule.Priority)
+	fmt.Fprint(file, "\t\t\t\tCondition: func(payload map[string]any) bool {\n")
+	fmt.Fprintf(file, "\t\t\t\t\t%s\n", rule.ConditionCode)
+	fmt.Fprint(file, "\t\t\t\t},\n")
+	fmt.Fprint(file, "\t\t\t\tEffects: []EffectTemplate{\n")
+	for _, effect := range rule.Effects {
+		writeGeneratedEffectTemplate(file, effect)
+	}
+	fmt.Fprint(file, "\t\t\t\t},\n")
+	fmt.Fprint(file, "\t\t\t},\n")
+}
+
+func writeGeneratedEffectTemplate(file *os.File, effect EffectTemplateData) {
+	fmt.Fprint(file, "\t\t\t\t\t{\n")
+	fmt.Fprintf(file, "\t\t\t\t\t\tEventType:          %q,\n", effect.EventType)
+	fmt.Fprintf(file, "\t\t\t\t\t\tPartitionKeyPolicy: %q,\n", effect.PartitionKeyPolicy)
+	fmt.Fprint(file, "\t\t\t\t\t\tDataTemplate: map[string]string{\n")
+	for key, value := range effect.DataTemplate {
+		fmt.Fprintf(file, "\t\t\t\t\t\t\t%q: %q,\n", key, value)
+	}
+	fmt.Fprint(file, "\t\t\t\t\t\t},\n")
+	fmt.Fprint(file, "\t\t\t\t\t},\n")
+}
+
+func writeGeneratedEvaluatorMethod(file *os.File, packageName, typeName string) {
+	fmt.Fprint(file, "// Evaluate runs all rules against the payload and returns matching effects\n")
+	fmt.Fprintf(file, "func (e *Evaluator) Evaluate(payload *%s.%s) ([]Effect, error) {\n", packageName, typeName)
+	fmt.Fprint(file, "\t// Convert payload to map for evaluation\n")
+	fmt.Fprint(file, "\tdata, err := json.Marshal(payload)\n")
+	fmt.Fprint(file, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	fmt.Fprint(file, "\tvar payloadMap map[string]any\n")
+	fmt.Fprint(file, "\tif err := json.Unmarshal(data, &payloadMap); err != nil {\n\t\treturn nil, err\n\t}\n\n")
+	fmt.Fprint(file, "\tvar effects []Effect\n")
+	fmt.Fprint(file, "\tfor _, rule := range e.rules {\n")
+	fmt.Fprint(file, "\t\tif rule.Condition(payloadMap) {\n")
+	fmt.Fprint(file, "\t\t\tfor _, effTmpl := range rule.Effects {\n")
+	fmt.Fprint(file, "\t\t\t\teffect := Effect{\n")
+	fmt.Fprint(file, "\t\t\t\t\tType: effTmpl.EventType,\n")
+	fmt.Fprint(file, "\t\t\t\t\tPartitionKey: computePartitionKey(payloadMap, effTmpl.PartitionKeyPolicy),\n")
+	fmt.Fprint(file, "\t\t\t\t}\n")
+	fmt.Fprint(file, "\t\t\t\teffect.Payload = substituteTemplate(effTmpl.DataTemplate, payloadMap)\n")
+	fmt.Fprint(file, "\t\t\t\teffects = append(effects, effect)\n")
+	fmt.Fprint(file, "\t\t\t}\n\t\t}\n\t}\n")
+	fmt.Fprint(file, "\treturn effects, nil\n")
+	fmt.Fprint(file, "}\n\n")
+}
+
+func writeGeneratedEvaluatorHelpers(file *os.File) error {
+	fmt.Fprint(file, "// Helper functions\n")
+	writeGeneratedGetFloat64(file)
+	if err := writeGeneratedGetString(file); err != nil {
+		return err
+	}
+	writeGeneratedComputePartitionKey(file)
+	writeGeneratedSubstituteTemplate(file)
+	writeGeneratedSubstituteValue(file)
+	return nil
+}
+
+func writeGeneratedGetFloat64(file *os.File) {
+	fmt.Fprint(file, "func getFloat64(m map[string]any, key string) (float64, bool) {\n")
+	fmt.Fprint(file, "\tswitch v := m[key].(type) {\n")
+	fmt.Fprint(file, "\tcase float64:\n\t\treturn v, true\n")
+	fmt.Fprint(file, "\tcase int:\n\t\treturn float64(v), true\n")
+	fmt.Fprint(file, "\tcase int64:\n\t\treturn float64(v), true\n")
+	fmt.Fprint(file, "\tcase json.Number:\n\t\tf, _ := v.Float64()\n\t\treturn f, true\n")
+	fmt.Fprint(file, "\t}\n\treturn 0, false\n}\n\n")
+}
+
+func writeGeneratedGetString(file *os.File) error {
+	fmt.Fprint(file, "func getString(m map[string]any, key string) (string, bool) {\n")
+	fmt.Fprint(file, "\tv, ok := m[key]\n\tif !ok {\n\t\treturn \"\", false\n\t}\n")
+	fmt.Fprint(file, "\tswitch v := v.(type) {\n\tcase string:\n\t\treturn v, true\n")
+	fmt.Fprint(file, "\tcase json.Number:\n\t\treturn v.String(), true\n\t}\n")
+	if _, err := file.WriteString("\treturn fmt.Sprintf(\"%v\", v), true\n"); err != nil {
+		return err
+	}
+	fmt.Fprint(file, "}\n\n")
+	return nil
+}
+
+func writeGeneratedComputePartitionKey(file *os.File) {
+	fmt.Fprint(file, "func computePartitionKey(payload map[string]any, policy string) string {\n")
+	fmt.Fprint(file, "\tswitch policy {\n\tcase \"inherit\":\n")
+	fmt.Fprint(file, "\t\tif pk, ok := getString(payload, \"customer_id\"); ok {\n\t\t\treturn pk\n\t\t}\n")
+	fmt.Fprint(file, "\t\tif pk, ok := getString(payload, \"partition_key\"); ok {\n\t\t\treturn pk\n\t\t}\n")
+	fmt.Fprint(file, "\t\treturn \"default\"\n\tdefault:\n\t\treturn policy\n\t}\n}\n\n")
+}
+
+func writeGeneratedSubstituteTemplate(file *os.File) {
+	fmt.Fprint(file, "func substituteTemplate(tmpl map[string]string, payload map[string]any) map[string]any {\n")
+	fmt.Fprint(file, "\tresult := make(map[string]any)\n")
+	fmt.Fprint(file, "\tfor k, v := range tmpl {\n\t\tresult[k] = substituteValue(v, payload)\n\t}\n")
+	fmt.Fprint(file, "\treturn result\n}\n\n")
+}
+
+func writeGeneratedSubstituteValue(file *os.File) {
+	fmt.Fprint(file, "func substituteValue(val string, payload map[string]any) any {\n")
+	fmt.Fprint(file, "\tval = strings.TrimSpace(val)\n\n")
+	fmt.Fprint(file, "\tif val == \"{{new_id}}\" {\n\t\treturn domain.NewID()\n\t}\n")
+	fmt.Fprint(file, "\tif val == \"{{now}}\" {\n\t\treturn time.Now().UTC().Format(time.RFC3339)\n\t}\n\n")
+	fmt.Fprint(file, "\tif strings.HasPrefix(val, \"{{$.\") && strings.HasSuffix(val, \"}}\") {\n")
+	fmt.Fprint(file, "\t\tkey := strings.TrimPrefix(val, \"{{$.\")\n")
+	fmt.Fprint(file, "\t\tkey = strings.TrimSuffix(key, \"}}\")\n")
+	fmt.Fprint(file, "\t\tif v, ok := payload[key]; ok {\n\t\t\treturn v\n\t\t}\n\t\treturn nil\n\t}\n\n")
+	fmt.Fprint(file, "\tif strings.HasPrefix(val, \"{{\") && strings.HasSuffix(val, \"}}\") {\n")
+	fmt.Fprint(file, "\t\tkey := strings.TrimPrefix(val, \"{{\")\n")
+	fmt.Fprint(file, "\t\tkey = strings.TrimSuffix(key, \"}}\")\n")
+	fmt.Fprint(file, "\t\tif v, ok := payload[key]; ok {\n\t\t\treturn v\n\t\t}\n\t\treturn nil\n\t}\n\n")
+	fmt.Fprint(file, "\treturn val\n}\n")
+}
+
+// GenerateService generates a service that wires together consumer, evaluator, and publishers.
+// GenerateService generates a Go service bootstrap from the rule set.
 func (g *Generator) GenerateService(outputDir string) ([]string, error) {
 	var err error
 	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
@@ -624,6 +673,7 @@ func (g *Generator) generateTypedClient(outputDir string) (string, error) {
 	return filePath, nil
 }
 
+// FieldInfo represents a field for code generation templates.
 type FieldInfo struct {
 	Name        string
 	GoName      string
@@ -794,14 +844,14 @@ package {{.GoPackageName}}
 {{end}}// {{.TypeName}} represents the {{.Schema.Name}} contract v{{.Schema.Version}}
 type {{.TypeName}} struct {
 {{- range .Fields}}
-	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}{{if not .Required}},omitempty{{end}}"` + "`" + `
+		{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}{{if not .Required}},omitempty{{end}}"` + "`" + `
 {{- end}}
 }
 {{range .NestedTypes}}
 // {{.Name}} represents a nested type in {{$.Schema.Name}}
 type {{.Name}} struct {
 {{- range .Fields}}
-	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}{{if not .Required}},omitempty{{end}}"` + "`" + `
+		{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.Name}}{{if not .Required}},omitempty{{end}}"` + "`" + `
 {{- end}}
 }
 {{end}}`))
@@ -811,11 +861,11 @@ var typedClientTemplate = template.Must(template.New("typed-client").Parse(`// C
 package {{.GoPackageName}}
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
+		"context"
+		"encoding/json"
+		"fmt"
 
-	flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
+		flowrule "github.com/flowrule/flowrule-sdk/go/flowrule"
 )
 
 // DefaultRuleSet is the rule set associated with the {{.Schema.Name}} contract.
@@ -823,50 +873,50 @@ const DefaultRuleSet = {{printf "%q" .Schema.Name}}
 
 // Client provides typed event methods for the {{.Schema.Name}} contract.
 type Client struct {
-	client *flowrule.Client
+		client *flowrule.Client
 }
 
 // NewClient wraps a configured FlowRule SDK client.
 func NewClient(client *flowrule.Client) *Client {
-	return &Client{client: client}
+		return &Client{client: client}
 }
 
 // Send sends a typed payload using the contract's default rule set.
 func (c *Client) Send(ctx context.Context, payload *{{.TypeName}}, opts ...flowrule.SendOption) error {
-	return c.SendToRuleSet(ctx, DefaultRuleSet, payload, opts...)
+		return c.SendToRuleSet(ctx, DefaultRuleSet, payload, opts...)
 }
 
 // SendToRuleSet sends a typed payload using the supplied rule set.
 func (c *Client) SendToRuleSet(ctx context.Context, ruleSet string, payload *{{.TypeName}}, opts ...flowrule.SendOption) error {
-	if c == nil || c.client == nil {
-		return flowrule.ErrInvalidArgument("client is required")
-	}
-	return c.client.Send(ctx, ruleSet, payload, opts...)
+		if c == nil || c.client == nil {
+				return flowrule.ErrInvalidArgument("client is required")
+		}
+		return c.client.Send(ctx, ruleSet, payload, opts...)
 }
 
 // Subscribe receives live events for the contract's default rule set.
 func (c *Client) Subscribe(ctx context.Context, handler func(context.Context, *{{.TypeName}}, *flowrule.Envelope) error) error {
-	return c.SubscribeRuleSet(ctx, DefaultRuleSet, handler)
+		return c.SubscribeRuleSet(ctx, DefaultRuleSet, handler)
 }
 
 // SubscribeRuleSet receives live events for the supplied rule set.
 func (c *Client) SubscribeRuleSet(ctx context.Context, ruleSet string, handler func(context.Context, *{{.TypeName}}, *flowrule.Envelope) error) error {
-	if c == nil || c.client == nil {
-		return flowrule.ErrInvalidArgument("client is required")
-	}
-	if handler == nil {
-		return flowrule.ErrInvalidArgument("event handler is required")
-	}
-	return c.client.Subscribe(ctx, ruleSet, func(ctx context.Context, envelope *flowrule.Envelope) error {
-		if envelope == nil {
-			return flowrule.ErrInvalidArgument("event envelope is required")
+		if c == nil || c.client == nil {
+				return flowrule.ErrInvalidArgument("client is required")
 		}
-		var payload {{.TypeName}}
-		if err := json.Unmarshal(envelope.Data, &payload); err != nil {
-			return fmt.Errorf("decode %s payload: %w", envelope.Type, err)
+		if handler == nil {
+				return flowrule.ErrInvalidArgument("event handler is required")
 		}
-		return handler(ctx, &payload, envelope)
-	})
+		return c.client.Subscribe(ctx, ruleSet, func(ctx context.Context, envelope *flowrule.Envelope) error {
+				if envelope == nil {
+						return flowrule.ErrInvalidArgument("event envelope is required")
+				}
+				var payload {{.TypeName}}
+				if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+						return fmt.Errorf("decode %s payload: %w", envelope.Type, err)
+				}
+				return handler(ctx, &payload, envelope)
+		})
 }
 `))
 
@@ -876,23 +926,23 @@ package {{.PackageName}};
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 {{if .Schema.Description}}/**
- * {{.Schema.Description}}
- */
+* {{.Schema.Description}}
+*/
 {{end}}public class {{.TypeName}} {
 {{- range .Fields}}
-    @JsonProperty("{{.Name}}")
-    private {{.JavaType}} {{.Name}};
+	@JsonProperty("{{.Name}}")
+	private {{.JavaType}} {{.Name}};
 {{- end}}
 
-    // Getters and setters
+	// Getters and setters
 {{- range .Fields}}
-    public {{.JavaType}} get{{.Name}}() {
-        return {{.Name}};
-    }
+	public {{.JavaType}} get{{.Name}}() {
+		return {{.Name}};
+	}
 
-    public void set{{.Name}}({{.JavaType}} {{.Name}}) {
-        this.{{.Name}} = {{.Name}};
-    }
+	public void set{{.Name}}({{.JavaType}} {{.Name}}) {
+		this.{{.Name}} = {{.Name}};
+	}
 {{- end}}
 }
 `))
@@ -912,7 +962,7 @@ option go_package = "{{.Namespace}}/{{.PackageName}}";
 {{if .Schema.Description}}// {{.Schema.Description}}
 {{end}}message {{.TypeName}} {
 {{- range $i, $field := .Fields}}
-    {{.ProtoType}} {{.Name}} = {{add1 $i}};
+	{{.ProtoType}} {{.Name}} = {{add1 $i}};
 {{- end}}
 }
 `))
@@ -929,22 +979,22 @@ var jsonschemaTemplate = template.Must(template.New(TargetJSONSchema).Funcs(temp
 		return i + 1
 	},
 }).Parse(`{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://flowrule.io/schemas/{{.Schema.Name}}-v{{.Schema.Version}}.json",
-  "title": "{{.Schema.Name}}",
-  "type": "object",
-  {{if .Schema.Description}}"description": "{{.Schema.Description}}",{{end}}
-  "properties": {
+"$schema": "http://json-schema.org/draft-07/schema#",
+"$id": "https://flowrule.io/schemas/{{.Schema.Name}}-v{{.Schema.Version}}.json",
+"title": "{{.Schema.Name}}",
+"type": "object",
+{{if .Schema.Description}}"description": "{{.Schema.Description}}",{{end}}
+"properties": {
 {{- range $i, $field := .Fields}}
-    "{{.Name}}": {{toJSON .JSONSchema}}{{if ne $i (sub (len $.Fields) 1)}},{{end}}
+	"{{.Name}}": {{toJSON .JSONSchema}}{{if ne $i (sub (len $.Fields) 1)}},{{end}}
 {{- end}}
-  },
-  "required": [
+},
+"required": [
 {{- range $i, $field := .Fields}}
-    {{if .Required}}"{{.Name}}"{{if ne $i (sub (len $.Fields) 1)}},{{end}}{{end}}
+	{{if .Required}}"{{.Name}}"{{if ne $i (sub (len $.Fields) 1)}},{{end}}{{end}}
 {{- end}}
-  ],
-  "additionalProperties": false
+],
+"additionalProperties": false
 }
 `))
 
@@ -953,55 +1003,55 @@ var envelopeTemplate = template.Must(template.New("envelope").Parse(`// Code gen
 package runtime
 
 import (
-	"encoding/json"
-	"time"
+		"encoding/json"
+		"time"
 
-	"github.com/flowrule/flowrule-sdk/go/runtime"
-	"github.com/google/uuid"
+		"github.com/flowrule/flowrule-sdk/go/runtime"
+		"github.com/google/uuid"
 )
 
 // Envelope wraps a typed payload with metadata for event processing
 type Envelope struct {
-	ID           string            ` + "`" + `json:"id"` + "`" + `
-	Type         string            ` + "`" + `json:"type"` + "`" + `
-	TenantID     string            ` + "`" + `json:"tenant_id"` + "`" + `
-	PartitionKey string            ` + "`" + `json:"partition_key"` + "`" + `
-	WorkflowID   string            ` + "`" + `json:"workflow_id,omitempty"` + "`" + `
-	OccurredAt   time.Time         ` + "`" + `json:"occurred_at"` + "`" + `
-	Data         json.RawMessage   ` + "`" + `json:"data"` + "`" + `
-	Headers      map[string]string ` + "`" + `json:"headers,omitempty"` + "`" + `
+		ID           string            ` + "`" + `json:"id"` + "`" + `
+		Type         string            ` + "`" + `json:"type"` + "`" + `
+		TenantID     string            ` + "`" + `json:"tenant_id"` + "`" + `
+		PartitionKey string            ` + "`" + `json:"partition_key"` + "`" + `
+		WorkflowID   string            ` + "`" + `json:"workflow_id,omitempty"` + "`" + `
+		OccurredAt   time.Time         ` + "`" + `json:"occurred_at"` + "`" + `
+		Data         json.RawMessage   ` + "`" + `json:"data"` + "`" + `
+		Headers      map[string]string ` + "`" + `json:"headers,omitempty"` + "`" + `
 }
 
 // NewEnvelope creates an envelope for the {{.EventName}} event
 func NewEnvelope(payload *{{.ContractPkg}}.{{.ContractType}}, tenantID, partitionKey string) *Envelope {
-	data, _ := json.Marshal(payload)
-	return &Envelope{
-		ID:           uuid.New().String(),
-		Type:         "{{.EventName}}",
-		TenantID:     tenantID,
-		PartitionKey: partitionKey,
-		OccurredAt:   time.Now().UTC(),
-		Data:         data,
-	}
+		data, _ := json.Marshal(payload)
+		return &Envelope{
+				ID:           uuid.New().String(),
+				Type:         "{{.EventName}}",
+				TenantID:     tenantID,
+				PartitionKey: partitionKey,
+				OccurredAt:   time.Now().UTC(),
+				Data:         data,
+		}
 }
 
 // Payload unmarshals the envelope data into the typed payload
 func (e *Envelope) Payload() (*{{.ContractPkg}}.{{.ContractType}}, error) {
-	var payload {{.ContractPkg}}.{{.ContractType}}
-	if err := json.Unmarshal(e.Data, &payload); err != nil {
-		return nil, err
-	}
-	return &payload, nil
+		var payload {{.ContractPkg}}.{{.ContractType}}
+		if err := json.Unmarshal(e.Data, &payload); err != nil {
+				return nil, err
+		}
+		return &payload, nil
 }
 
 // Shard computes the virtual shard for this envelope
 func (e *Envelope) Shard(numShards uint32) uint32 {
-	return runtime.ComputeShard(e.TenantID, e.PartitionKey, numShards)
+		return runtime.ComputeShard(e.TenantID, e.PartitionKey, numShards)
 }
 
 // Marshal serializes the envelope to JSON
 func (e *Envelope) Marshal() ([]byte, error) {
-	return json.Marshal(e)
+		return json.Marshal(e)
 }
 `))
 
@@ -1010,54 +1060,54 @@ var publisherTemplate = template.Must(template.New("publisher").Parse(`// Code g
 package runtime
 
 import (
-	"context"
-	"encoding/json"
+		"context"
+		"encoding/json"
 
-	"github.com/nats-io/nats.go/jetstream"
+		"github.com/nats-io/nats.go/jetstream"
 )
 
 // Publisher handles publishing {{.EventName}} events
 type Publisher struct {
-	js        jetstream.JetStream
-	stream    string
-	numShards uint32
+		js        jetstream.JetStream
+		stream    string
+		numShards uint32
 }
 
 // NewPublisher creates a new publisher for {{.EventName}}
 func NewPublisher(js jetstream.JetStream, stream string, numShards uint32) *Publisher {
-	return &Publisher{
-		js:        js,
-		stream:    stream,
-		numShards: numShards,
-	}
+		return &Publisher{
+				js:        js,
+				stream:    stream,
+				numShards: numShards,
+		}
 }
 
 // Publish publishes a {{.EventName}} event
 func (p *Publisher) Publish(ctx context.Context, payload *{{.ContractPkg}}.{{.ContractType}}, tenantID, partitionKey string) error {
-	env := NewEnvelope(payload, tenantID, partitionKey)
-	data, err := json.Marshal(env)
-	if err != nil {
+		env := NewEnvelope(payload, tenantID, partitionKey)
+		data, err := json.Marshal(env)
+		if err != nil {
+				return err
+		}
+
+		shard := env.Shard(p.numShards)
+		subject := "events.shard." + string(rune('0'+shard%10))
+
+		_, err = p.js.Publish(ctx, subject, data)
 		return err
-	}
-
-	shard := env.Shard(p.numShards)
-	subject := "events.shard." + string(rune('0'+shard%10))
-
-	_, err = p.js.Publish(ctx, subject, data)
-	return err
 }
 
 // PublishToShard publishes to a specific shard
 func (p *Publisher) PublishToShard(ctx context.Context, payload *{{.ContractPkg}}.{{.ContractType}}, tenantID, partitionKey string, shard uint32) error {
-	env := NewEnvelope(payload, tenantID, partitionKey)
-	data, err := json.Marshal(env)
-	if err != nil {
-		return err
-	}
+		env := NewEnvelope(payload, tenantID, partitionKey)
+		data, err := json.Marshal(env)
+		if err != nil {
+				return err
+		}
 
-	subject := "events.shard." + string(rune('0'+shard%10))
-	_, err = p.js.Publish(ctx, subject, data)
-	return err
+		subject := "events.shard." + string(rune('0'+shard%10))
+		_, err = p.js.Publish(ctx, subject, data)
+		return err
 }
 `))
 
@@ -1066,11 +1116,11 @@ var consumerTemplate = template.Must(template.New("consumer").Parse(`// Code gen
 package runtime
 
 import (
-	"context"
-	"encoding/json"
-	"time"
+		"context"
+		"encoding/json"
+		"time"
 
-	"github.com/nats-io/nats.go/jetstream"
+		"github.com/nats-io/nats.go/jetstream"
 )
 
 // HandlerFunc is the function signature for handling {{.EventName}} events
@@ -1078,63 +1128,63 @@ type HandlerFunc func(ctx context.Context, payload *{{.ContractPkg}}.{{.Contract
 
 // Consumer handles consuming {{.EventName}} events
 type Consumer struct {
-	js        jetstream.JetStream
-	stream    string
-	consumer  string
-	handler   HandlerFunc
-	numShards uint32
+		js        jetstream.JetStream
+		stream    string
+		consumer  string
+		handler   HandlerFunc
+		numShards uint32
 }
 
 // NewConsumer creates a new consumer for {{.EventName}}
 func NewConsumer(js jetstream.JetStream, stream, consumer string, numShards uint32, handler HandlerFunc) *Consumer {
-	return &Consumer{
-		js:        js,
-		stream:    stream,
-		consumer:  consumer,
-		handler:   handler,
-		numShards: numShards,
-	}
+		return &Consumer{
+				js:        js,
+				stream:    stream,
+				consumer:  consumer,
+				handler:   handler,
+				numShards: numShards,
+		}
 }
 
 // Start begins consuming events
 func (c *Consumer) Start(ctx context.Context) error {
-	jsConsumer, err := c.js.Consumer(ctx, c.stream, c.consumer)
-	if err != nil {
-		return err
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			batch, err := jsConsumer.Fetch(10, jetstream.FetchMaxWait(5*time.Second))
-			if err != nil {
-				continue
-			}
-
-			for msg := range batch.Messages() {
-				var env Envelope
-				if err := json.Unmarshal(msg.Data(), &env); err != nil {
-					msg.Nak()
-					continue
-				}
-
-				payload, err := env.Payload()
-				if err != nil {
-					msg.Nak()
-					continue
-				}
-
-				if err := c.handler(ctx, payload, &env); err != nil {
-					msg.Nak()
-					continue
-				}
-
-				msg.Ack()
-			}
+		jsConsumer, err := c.js.Consumer(ctx, c.stream, c.consumer)
+		if err != nil {
+				return err
 		}
-	}
+
+		for {
+				select {
+				case <-ctx.Done():
+						return ctx.Err()
+				default:
+						batch, err := jsConsumer.Fetch(10, jetstream.FetchMaxWait(5*time.Second))
+						if err != nil {
+								continue
+						}
+
+						for msg := range batch.Messages() {
+								var env Envelope
+								if err := json.Unmarshal(msg.Data(), &env); err != nil {
+										msg.Nak()
+										continue
+								}
+
+								payload, err := env.Payload()
+								if err != nil {
+										msg.Nak()
+										continue
+								}
+
+								if err := c.handler(ctx, payload, &env); err != nil {
+										msg.Nak()
+										continue
+								}
+
+								msg.Ack()
+						}
+				}
+		}
 }
 `))
 
@@ -1143,84 +1193,84 @@ var serviceTemplate = template.Must(template.New("service").Parse(`// Code gener
 package runtime
 
 import (
-	"context"
-	"fmt"
+		"context"
+		"fmt"
 
-	"github.com/nats-io/nats.go/jetstream"
+		"github.com/nats-io/nats.go/jetstream"
 )
 
 // Service wires together consumer, evaluator, and publishers for {{.EventName}}
 type Service struct {
-	consumer   *Consumer
-	evaluator  *Evaluator
-	publishers map[string]*Publisher
-	js         jetstream.JetStream
-	stream     string
-	numShards  uint32
+		consumer   *Consumer
+		evaluator  *Evaluator
+		publishers map[string]*Publisher
+		js         jetstream.JetStream
+		stream     string
+		numShards  uint32
 )
 
 // ServiceConfig holds configuration for the service
 type ServiceConfig struct {
-	JS        jetstream.JetStream
-	Stream    string
-	Consumer  string
-	NumShards uint32
-	Handler   func(ctx context.Context, eventType string, payload any, envelope *Envelope) error
+		JS        jetstream.JetStream
+		Stream    string
+		Consumer  string
+		NumShards uint32
+		Handler   func(ctx context.Context, eventType string, payload any, envelope *Envelope) error
 }
 
 // NewService creates a new service for {{.EventName}}
 func NewService(config ServiceConfig) *Service {
-	if config.NumShards == 0 {
-		config.NumShards = 4096
-	}
+		if config.NumShards == 0 {
+				config.NumShards = 4096
+		}
 
-	s := &Service{
-		consumer:   NewConsumer(config.JS, config.Stream, config.Consumer, config.NumShards, s.handleEvent),
-		evaluator:  NewEvaluator(),
-		publishers: make(map[string]*Publisher),
-		js:         config.JS,
-		stream:     config.Stream,
-		numShards:  config.NumShards,
-	}
+		s := &Service{
+				consumer:   NewConsumer(config.JS, config.Stream, config.Consumer, config.NumShards, s.handleEvent),
+				evaluator:  NewEvaluator(),
+				publishers: make(map[string]*Publisher),
+				js:         config.JS,
+				stream:     config.Stream,
+				numShards:  config.NumShards,
+		}
 
-	// Create publishers for all output event types
+		// Create publishers for all output event types
 {{- range .OutputEvents}}
-	s.publishers["{{.}}"] = NewPublisher(config.JS, config.Stream, config.NumShards)
+		s.publishers["{{.}}"] = NewPublisher(config.JS, config.Stream, config.NumShards)
 {{- end}}
 
-	return s
+		return s
 }
 
 // Start begins processing events
 func (s *Service) Start(ctx context.Context) error {
-	return s.consumer.Start(ctx)
+		return s.consumer.Start(ctx)
 }
 
 // handleEvent processes incoming events through the evaluator and publishes effects
 func (s *Service) handleEvent(ctx context.Context, payload *{{.ContractPkg}}.{{.ContractType}}, envelope *Envelope) error {
-	effects, err := s.evaluator.Evaluate(payload)
-	if err != nil {
-		return fmt.Errorf("evaluate: %w", err)
-	}
-
-	for _, effect := range effects {
-		publisher, ok := s.publishers[effect.Type]
-		if !ok {
-			// Publisher not configured for this effect type
-			continue
+		effects, err := s.evaluator.Evaluate(payload)
+		if err != nil {
+				return fmt.Errorf("evaluate: %w", err)
 		}
 
-		partitionKey := effect.PartitionKey
-		if partitionKey == "" && envelope != nil {
-			partitionKey = envelope.PartitionKey
+		for _, effect := range effects {
+				publisher, ok := s.publishers[effect.Type]
+				if !ok {
+						// Publisher not configured for this effect type
+						continue
+				}
+
+				partitionKey := effect.PartitionKey
+				if partitionKey == "" && envelope != nil {
+						partitionKey = envelope.PartitionKey
+				}
+
+				if err := publisher.Publish(ctx, effect.Payload, envelope.TenantID, partitionKey); err != nil {
+						return fmt.Errorf("publish %s: %w", effect.Type, err)
+				}
 		}
 
-		if err := publisher.Publish(ctx, effect.Payload, envelope.TenantID, partitionKey); err != nil {
-			return fmt.Errorf("publish %s: %w", effect.Type, err)
-		}
-	}
-
-	return nil
+		return nil
 }
 `))
 
@@ -1253,6 +1303,7 @@ func toGoIdentifier(name string) string {
 	return identifier.String()
 }
 
+// CompiledRuleData represents a compiled rule for code generation templates.
 type CompiledRuleData struct {
 	ID            string
 	Priority      int
@@ -1260,6 +1311,7 @@ type CompiledRuleData struct {
 	Effects       []EffectTemplateData
 }
 
+// EffectTemplateData represents an effect template for code generation.
 type EffectTemplateData struct {
 	EventType          string
 	PartitionKeyPolicy string

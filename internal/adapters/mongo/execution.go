@@ -12,10 +12,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// ExecutionRepository persists execution records.
 type ExecutionRepository struct {
 	querier Querier
 }
 
+// NewExecutionRepository creates and returns the configured value.
 func NewExecutionRepository(q Querier) *ExecutionRepository {
 	return &ExecutionRepository{querier: q}
 }
@@ -24,6 +26,7 @@ func (r *ExecutionRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Save persists the supplied value.
 func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execution) error {
 	coll := r.collection(collectionExecutions)
 	doc := ExecutionDocFromDomain(execution)
@@ -37,6 +40,7 @@ func (r *ExecutionRepository) Save(ctx context.Context, execution *domain.Execut
 	return nil
 }
 
+// Get retrieves the requested value.
 func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*domain.Execution, error) {
 	coll := r.collection(collectionExecutions)
 	var doc ExecutionDoc
@@ -52,6 +56,7 @@ func (r *ExecutionRepository) Get(ctx context.Context, executionID string) (*dom
 	return doc.ToDomain(), nil
 }
 
+// UpdateStatus persists the supplied value.
 func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID string, status domain.ExecutionStatus, errMsg string) error {
 	coll := r.collection(collectionExecutions)
 	now := time.Now().UTC()
@@ -85,6 +90,7 @@ func (r *ExecutionRepository) UpdateStatus(ctx context.Context, executionID stri
 	return nil
 }
 
+// ExecutionDoc represents an execution record stored in MongoDB.
 type ExecutionDoc struct {
 	ExecutionID  string     `bson:"execution_id"`
 	EventID      string     `bson:"event_id"`
@@ -99,6 +105,7 @@ type ExecutionDoc struct {
 	CompletedAt  *time.Time `bson:"completed_at,omitempty"`
 }
 
+// ExecutionDocFromDomain converts a domain value to its MongoDB representation.
 func ExecutionDocFromDomain(exec *domain.Execution) *ExecutionDoc {
 	return &ExecutionDoc{
 		ExecutionID:  exec.ID,
@@ -115,6 +122,7 @@ func ExecutionDocFromDomain(exec *domain.Execution) *ExecutionDoc {
 	}
 }
 
+// ToDomain converts the MongoDB representation to a domain value.
 func (d *ExecutionDoc) ToDomain() *domain.Execution {
 	return &domain.Execution{
 		ID:           d.ExecutionID,

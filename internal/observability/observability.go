@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Config holds observability configuration.
 type Config struct {
 	ServiceName   string
 	Environment   string
@@ -18,6 +19,7 @@ type Config struct {
 	EnableTracing bool
 }
 
+// DefaultConfig returns default observability configuration.
 func DefaultConfig() Config {
 	port := 9090
 	if p := os.Getenv("METRICS_PORT"); p != "" {
@@ -35,6 +37,7 @@ func DefaultConfig() Config {
 	}
 }
 
+// Observability manages logging, metrics, and tracing.
 type Observability struct {
 	Config         Config
 	Logger         *Logger
@@ -43,6 +46,7 @@ type Observability struct {
 	TracerProvider interface{ Shutdown(context.Context) error }
 }
 
+// New creates a new Observability instance.
 func New(config Config) (*Observability, error) {
 	if config.ServiceName == "" {
 		config.ServiceName = "flowrule"
@@ -89,6 +93,7 @@ func New(config Config) (*Observability, error) {
 	return o, nil
 }
 
+// Shutdown gracefully stops the observability components.
 func (o *Observability) Shutdown(ctx context.Context) error {
 	if o.MetricsServer != nil {
 		if err := o.MetricsServer.Shutdown(ctx); err != nil {
