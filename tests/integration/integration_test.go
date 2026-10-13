@@ -443,7 +443,7 @@ func (m *mockShardLease) Renew(_ context.Context, shard uint32, owner string, fe
 }
 
 // Release provides the corresponding repository operation.
-func (m *mockShardLease) Release(_ context.Context, _, _ uint32, _ string) error {
+func (m *mockShardLease) Release(_ context.Context, _ uint32, _ string) error {
 	return nil
 }
 
