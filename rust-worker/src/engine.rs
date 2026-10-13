@@ -475,4 +475,20 @@ mod tests {
         let action: Action = serde_json::from_value(json!({"emit_event":{"type":"child","partition_key_policy":"from_data","partition_key_path":"$.missing","data":{}}})).unwrap();
         assert!(build_effect(&revision, &event, "rule", 0, &action).is_err());
     }
+    #[test]
+    fn templates_preserve_single_placeholder_type_and_expand_nested_strings() {
+        let event = EventEnvelope { id: "e".into(), event_type: "orders".into(), tenant_id: "t".into(),
+            partition_key: "p".into(), workflow_id: None, occurred_at: Utc::now(),
+            data: json!({"amount": 12, "customer": {"name": "Ada"}}), headers: Default::default() };
+        assert_eq!(expand_template("{{$.amount}}", &event, "child-1"), json!(12));
+        assert_eq!(expand_template("amount={{$.amount}} for {{$.customer.name}}", &event, "child-1"), json!("amount=12 for Ada"));
+        assert_eq!(expand_template("{{new_id}}", &event, "child-1"), json!("child-1"));
+    }
+
+    #[test]
+    fn numeric_string_comparison_matches_go_rules() {
+        assert!(compare_eq(&json!(10), Some(&json!("10"))));
+        assert!(!eval_predicate(&Predicate { all: None, any: None, not: None, path: Some("$.missing".into()), op: Some("neq".into()), value: Some(json!(1)) }, &json!({})).unwrap());
+    }
+
 }
