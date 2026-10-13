@@ -144,6 +144,7 @@ func (r *OutboxRepository) resolveLegacyTenant(ctx context.Context, effect *doma
 	effect.TenantID = execution.TenantID
 	return nil
 }
+
 // MarkDelivered persists or updates the corresponding record.
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
