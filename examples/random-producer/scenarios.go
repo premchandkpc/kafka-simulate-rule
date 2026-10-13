@@ -41,7 +41,6 @@ func scenarioForSequence(sequence int) Scenario {
 func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int, rng *rand.Rand) (domain.EventEnvelope, error) {
 	now := time.Now().UTC()
 	orderID := fmt.Sprintf("order-%s-%04d", clientID, sequence)
-	data := map[string]any{}
 	eventType := ""
 	partitionKey := ""
 
@@ -50,7 +49,7 @@ func newScenarioEvent(scenario Scenario, tenantID, clientID string, sequence int
 		// Mirrors domains/ecommerce/contracts/order.created.yaml.
 		eventType = "order.created"
 		partitionKey = clientID
-		data = map[string]any{
+		data := map[string]any{
 			"order_id":     orderID,
 			"customer_id":  clientID,
 			"total_amount": float64((rng.Intn(24000) + 1000)),
