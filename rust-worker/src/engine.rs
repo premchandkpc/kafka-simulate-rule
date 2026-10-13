@@ -182,12 +182,12 @@ pub async fn process_event(
             .context("decode compiled rule set")?,
     };
     let (matched, mut effects) = evaluate(&revision, envelope)?;
-    effects.extend(load_service_subscriber_effects(&mut tx, envelope).await?);
     let mut decision_material = revision.content_hash.clone();
     for id in &matched { decision_material.push_str(id); }
     for effect in &effects { decision_material.push_str(&effect.id); }
     decision_material.push_str(&envelope.id);
     let decision_hash = sha256_hex(decision_material.as_bytes());
+    effects.extend(load_service_subscriber_effects(&mut tx, envelope).await?);
     let execution_id = sha256_hex(format!(
         "execution|{}:{}|{}:{}|{}:{}|{}",
         envelope.tenant_id.len(), envelope.tenant_id,
@@ -278,23 +278,36 @@ fn eval_predicate(predicate: &Predicate, data: &Value) -> Result<bool> {
     let found = resolve_path(path, data);
     let op = predicate.op.as_deref().unwrap_or("");
     let expected = predicate.value.as_ref();
+    if op == "exists" { return Ok(found.is_some()); }
+    if op == "not_exists" { return Ok(found.is_none()); }
+    let Some(actual) = found else { return Ok(false); };
     Ok(match op {
-        "exists" => found.is_some(),
-        "not_exists" => found.is_none(),
-        "eq" => found == expected,
-        "neq" => found != expected,
-        "gt" => compare(found, expected, |a,b| a > b),
-        "gte" => compare(found, expected, |a,b| a >= b),
-        "lt" => compare(found, expected, |a,b| a < b),
-        "lte" => compare(found, expected, |a,b| a <= b),
-        "in" => expected.and_then(Value::as_array).is_some_and(|xs| found.is_some_and(|v| xs.iter().any(|x| x == v))),
-        "not_in" => expected.and_then(Value::as_array).is_some_and(|xs| found.is_none_or(|v| xs.iter().all(|x| x != v))),
+        "eq" => compare_eq(actual, expected),
+        "neq" => !compare_eq(actual, expected),
+        "gt" => compare(Some(actual), expected, |a,b| a > b),
+        "gte" => compare(Some(actual), expected, |a,b| a >= b),
+        "lt" => compare(Some(actual), expected, |a,b| a < b),
+        "lte" => compare(Some(actual), expected, |a,b| a <= b),
+        "in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().any(|x| compare_eq(actual, Some(x))),
+        "not_in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().all(|x| !compare_eq(actual, Some(x))),
         _ => bail!("unsupported predicate operator {op:?}"),
     })
 }
 
+fn compare_eq(actual: &Value, expected: Option<&Value>) -> bool {
+    let Some(expected) = expected else { return false; };
+    match (number_value(actual), number_value(expected)) {
+        (Some(a), Some(b)) => a == b,
+        _ => actual == expected,
+    }
+}
+
+fn number_value(value: &Value) -> Option<f64> {
+    value.as_f64().or_else(|| value.as_str().and_then(|s| s.parse::<f64>().ok()))
+}
+
 fn compare(found: Option<&Value>, expected: Option<&Value>, predicate: impl Fn(f64, f64) -> bool) -> bool {
-    match (found.and_then(Value::as_f64), expected.and_then(Value::as_f64)) {
+    match (found.and_then(number_value), expected.and_then(number_value)) {
         (Some(a), Some(b)) => predicate(a, b),
         _ => false,
     }
