@@ -1280,6 +1280,7 @@ func toGoIdentifier(name string) string {
 	return identifier.String()
 }
 
+// CompiledRuleData represents a compiled rule for code generation templates.
 type CompiledRuleData struct {
 	ID            string
 	Priority      int
@@ -1287,6 +1288,7 @@ type CompiledRuleData struct {
 	Effects       []EffectTemplateData
 }
 
+// EffectTemplateData represents an effect template for code generation.
 type EffectTemplateData struct {
 	EventType          string
 	PartitionKeyPolicy string
