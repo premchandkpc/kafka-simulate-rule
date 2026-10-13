@@ -179,7 +179,7 @@ func parseQuarantineTimeRange(fromValue, toValue string) (time.Time, time.Time, 
 	return from, to, nil
 }
 
-func quarantineListResponse(entries []domain.QuarantineEntry, filter ports.QuarantineFilter) map[string]interface{} {
+func quarantineListResponse(entries []*domain.QuarantineEntry, filter ports.QuarantineFilter) map[string]interface{} {
 	return map[string]interface{}{
 		"entries": entries, "total": len(entries), "limit": filter.Limit, "offset": filter.Offset,
 	}
