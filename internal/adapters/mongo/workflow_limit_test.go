@@ -4,9 +4,9 @@ import "testing"
 
 func TestNormalizeWorkflowListLimit(t *testing.T) {
 	tests := []struct {
-		name string
+		name  string
 		input int
-		want int
+		want  int
 	}{
 		{name: "negative defaults", input: -1, want: 100},
 		{name: "zero defaults", input: 0, want: 100},
