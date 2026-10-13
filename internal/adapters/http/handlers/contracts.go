@@ -132,11 +132,17 @@ type generateContractRequest struct {
 var errUnsupportedContractLanguage = errors.New("unsupported language")
 
 func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Request) {
-	if !requireContractAdmin(w, r) { return }
+	if !requireContractAdmin(w, r) {
+	    return
+	}
 	name, version := r.PathValue("name"), r.PathValue("version")
 	req, ok := decodeGenerateContractRequest(w, r)
-	if !ok { return }
-	if !validateGenerateContractRequest(w, req) { return }
+	if !ok {
+	    return
+	}
+	if !validateGenerateContractRequest(w, req) {
+	    return
+	}
 
 	schema, err := h.registry.Get(r.Context(), name, version)
 	if err != nil {
@@ -149,7 +155,9 @@ func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Reques
 	}
 
 	outputDir, ok := prepareGeneratedOutput(w)
-	if !ok { return }
+	if !ok {
+	    return
+	}
 	generatedFiles, err := generateContractFiles(codegen.NewGenerator(schema), req.Language, outputDir)
 	if errors.Is(err, errUnsupportedContractLanguage) {
 		responses.WriteError(w, http.StatusBadRequest, "unsupported language", responses.CodeValidationFailed)
