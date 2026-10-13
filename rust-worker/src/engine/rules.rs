@@ -100,33 +100,65 @@ pub(super) fn evaluate(revision: &RuleRevision, event: &EventEnvelope) -> Result
 }
 
 pub(super) fn eval_predicate(predicate: &Predicate, data: &Value) -> Result<bool> {
+    if let Some(result) = evaluate_composite_predicate(predicate, data)? {
+        return Ok(result);
+    }
+    evaluate_leaf_predicate(predicate, data)
+}
+
+fn evaluate_composite_predicate(predicate: &Predicate, data: &Value) -> Result<Option<bool>> {
     if let Some(children) = &predicate.all {
-        for child in children { if !eval_predicate(child, data)? { return Ok(false); } }
-        return Ok(true);
+        for child in children {
+            if !eval_predicate(child, data)? {
+                return Ok(Some(false));
+            }
+        }
+        return Ok(Some(true));
     }
     if let Some(children) = &predicate.any {
-        for child in children { if eval_predicate(child, data)? { return Ok(true); } }
-        return Ok(false);
+        for child in children {
+            if eval_predicate(child, data)? {
+                return Ok(Some(true));
+            }
+        }
+        return Ok(Some(false));
     }
-    if let Some(child) = &predicate.not { return Ok(!eval_predicate(child, data)?); }
+    if let Some(child) = &predicate.not {
+        return Ok(Some(!eval_predicate(child, data)?));
+    }
+    Ok(None)
+}
+
+fn evaluate_leaf_predicate(predicate: &Predicate, data: &Value) -> Result<bool> {
     let path = predicate.path.as_deref().ok_or_else(|| anyhow!("predicate path missing"))?;
     let found = resolve_path(path, data);
-    let op = predicate.op.as_deref().unwrap_or("");
+    let operator = predicate.op.as_deref().unwrap_or("");
     let expected = predicate.value.as_ref();
-    if op == "exists" { return Ok(found.is_some()); }
-    if op == "not_exists" { return Ok(found.is_none()); }
-    let Some(actual) = found else { return Ok(false); };
-    Ok(match op {
-        "eq" => compare_eq(actual, expected),
-        "neq" => !compare_eq(actual, expected),
-        "gt" => compare(Some(actual), expected, |a,b| a > b),
-        "gte" => compare(Some(actual), expected, |a,b| a >= b),
-        "lt" => compare(Some(actual), expected, |a,b| a < b),
-        "lte" => compare(Some(actual), expected, |a,b| a <= b),
-        "in" => expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().any(|x| compare_eq(actual, Some(x)))),
-        "not_in" => !expected.and_then(Value::as_array).is_some_and(|xs| xs.iter().any(|x| compare_eq(actual, Some(x)))),
-        _ => bail!("unsupported predicate operator {op:?}"),
-    })
+
+    match operator {
+        "exists" => Ok(found.is_some()),
+        "not_exists" => Ok(found.is_none()),
+        _ => match found {
+            Some(actual) => evaluate_comparison(operator, actual, expected),
+            None => Ok(false),
+        },
+    }
+}
+
+fn evaluate_comparison(operator: &str, actual: &Value, expected: Option<&Value>) -> Result<bool> {
+    match operator {
+        "eq" => Ok(compare_eq(actual, expected)),
+        "neq" => Ok(!compare_eq(actual, expected)),
+        "gt" => Ok(compare(Some(actual), expected, |a, b| a > b)),
+        "gte" => Ok(compare(Some(actual), expected, |a, b| a >= b)),
+        "lt" => Ok(compare(Some(actual), expected, |a, b| a < b)),
+        "lte" => Ok(compare(Some(actual), expected, |a, b| a <= b)),
+        "in" => Ok(expected.and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| compare_eq(actual, Some(value))))),
+        "not_in" => Ok(!expected.and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| compare_eq(actual, Some(value))))),
+        _ => bail!("unsupported predicate operator {operator:?}"),
+    }
 }
 
 pub(super) fn compare_eq(actual: &Value, expected: Option<&Value>) -> bool {
@@ -199,47 +231,115 @@ fn template_lookup(expression: &str, event: &EventEnvelope, child_id: &str) -> O
     resolve_path(&path, &event.data).cloned()
 }
 
-pub(super) fn build_effect(revision: &RuleRevision, event: &EventEnvelope, rule_id: &str, index: usize, action: &Action) -> Result<Effect> {
-    let effect_id = sha256_hex(format!(
+pub(super) fn build_effect(
+    revision: &RuleRevision,
+    event: &EventEnvelope,
+    rule_id: &str,
+    index: usize,
+    action: &Action,
+) -> Result<Effect> {
+    let effect_id = effect_id(revision, event, rule_id, index);
+
+    match (&action.emit, &action.emit_event, &action.command) {
+        (Some(emit), None, None) => build_emit_effect(effect_id, event, emit),
+        (None, Some(child), None) => build_child_event_effect(effect_id, event, rule_id, index, child),
+        (None, None, Some(command)) => build_command_effect(effect_id, event, command),
+        _ => bail!("action must contain exactly one supported action"),
+    }
+}
+
+fn effect_id(revision: &RuleRevision, event: &EventEnvelope, rule_id: &str, index: usize) -> String {
+    sha256_hex(format!(
         "{}|{}|{}|{}|{}|{}",
         event.tenant_id, event.id, revision.rule_id, revision.revision, rule_id, index
-    ).as_bytes());
-    if let Some(emit) = &action.emit {
-        if emit.topic.trim().is_empty() { bail!("emit topic is required"); }
-        return Ok(Effect { id: effect_id, tenant_id: event.tenant_id.clone(), destination: emit.topic.clone(),
-            name: emit.topic.clone(), payload: emit.data.clone(), effect_type: "emit" });
+    ).as_bytes())
+}
+
+fn build_emit_effect(effect_id: String, event: &EventEnvelope, emit: &EmitAction) -> Result<Effect> {
+    if emit.topic.trim().is_empty() {
+        bail!("emit topic is required");
     }
-    if let Some(child_action) = &action.emit_event {
-        let child_id = sha256_hex(format!("child|{}|{}|{}", event.id, rule_id, index).as_bytes());
-        let policy = if child_action.partition_key_policy.is_empty() { "explicit" } else { &child_action.partition_key_policy };
-        let partition_key = match policy {
-            "explicit" => child_action.partition_key.clone(),
-            "inherit" => event.partition_key.clone(),
-            "from_data" => resolve_path(&child_action.partition_key_path, &event.data)
-                .map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))
-                .unwrap_or_default(),
-            _ => bail!("unsupported partition key policy {policy:?}"),
-        };
-        if partition_key.is_empty() { bail!("emit_event resolved an empty partition key"); }
-        let payload = json!({
-            "id": child_id,
-            "type": child_action.event_type,
-            "tenant_id": event.tenant_id,
-            "partition_key": partition_key,
-            "occurred_at": Utc::now(),
-            "data": interpolate_templates(&child_action.data, event, &child_id),
-            "headers": {
-                "flowrule_parent_event_id": event.id,
-                "flowrule_child_event_id": child_id
-            }
-        });
-        return Ok(Effect { id: effect_id, tenant_id: event.tenant_id.clone(), destination: format!("events.{}", child_action.event_type),
-            name: child_action.event_type.clone(), payload, effect_type: "emit_event" });
+    Ok(Effect {
+        id: effect_id,
+        tenant_id: event.tenant_id.clone(),
+        destination: emit.topic.clone(),
+        name: emit.topic.clone(),
+        payload: emit.data.clone(),
+        effect_type: "emit",
+    })
+}
+
+fn build_child_event_effect(
+    effect_id: String,
+    event: &EventEnvelope,
+    rule_id: &str,
+    index: usize,
+    action: &EmitEventAction,
+) -> Result<Effect> {
+    let child_id = sha256_hex(format!("child|{}|{}|{}", event.id, rule_id, index).as_bytes());
+    let partition_key = resolve_child_partition_key(action, event)?;
+    let payload = build_child_event_payload(action, event, &child_id, &partition_key);
+
+    Ok(Effect {
+        id: effect_id,
+        tenant_id: event.tenant_id.clone(),
+        destination: format!("events.{}", action.event_type),
+        name: action.event_type.clone(),
+        payload,
+        effect_type: "emit_event",
+    })
+}
+
+fn resolve_child_partition_key(action: &EmitEventAction, event: &EventEnvelope) -> Result<String> {
+    let policy = if action.partition_key_policy.is_empty() {
+        "explicit"
+    } else {
+        action.partition_key_policy.as_str()
+    };
+    let key = match policy {
+        "explicit" => action.partition_key.clone(),
+        "inherit" => event.partition_key.clone(),
+        "from_data" => resolve_path(&action.partition_key_path, &event.data)
+            .map(|value| value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
+            .unwrap_or_default(),
+        _ => bail!("unsupported partition key policy {policy:?}"),
+    };
+    if key.is_empty() {
+        bail!("emit_event resolved an empty partition key");
     }
-    if let Some(command) = &action.command {
-        if command.destination.trim().is_empty() || command.name.trim().is_empty() { bail!("command destination and name are required"); }
-        return Ok(Effect { id: effect_id, tenant_id: event.tenant_id.clone(), destination: command.destination.clone(),
-            name: command.name.clone(), payload: command.data.clone(), effect_type: "command" });
+    Ok(key)
+}
+
+fn build_child_event_payload(
+    action: &EmitEventAction,
+    event: &EventEnvelope,
+    child_id: &str,
+    partition_key: &str,
+) -> Value {
+    json!({
+        "id": child_id,
+        "type": action.event_type,
+        "tenant_id": event.tenant_id,
+        "partition_key": partition_key,
+        "occurred_at": Utc::now(),
+        "data": interpolate_templates(&action.data, event, child_id),
+        "headers": {
+            "flowrule_parent_event_id": event.id,
+            "flowrule_child_event_id": child_id
+        }
+    })
+}
+
+fn build_command_effect(effect_id: String, event: &EventEnvelope, command: &CommandAction) -> Result<Effect> {
+    if command.destination.trim().is_empty() || command.name.trim().is_empty() {
+        bail!("command destination and name are required");
     }
-    bail!("action must contain exactly one supported action")
+    Ok(Effect {
+        id: effect_id,
+        tenant_id: event.tenant_id.clone(),
+        destination: command.destination.clone(),
+        name: command.name.clone(),
+        payload: command.data.clone(),
+        effect_type: "command",
+    })
 }
