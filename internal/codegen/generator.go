@@ -54,63 +54,72 @@ func sanitizeGeneratedOutputDir(outputDir string) (string, error) {
 }
 
 func createGeneratedFile(outputDir, relativePath string) (*os.File, string, error) {
-	var err error
-	outputDir, err = sanitizeGeneratedOutputDir(outputDir)
-	if err != nil {
+	paths, err := resolveGeneratedFilePaths(outputDir, relativePath)
+	if err != nil { return nil, "", err }
+	if err := ensureGeneratedOutputDirectory(paths.volumeRoot, paths.relativeOutputDir); err != nil {
 		return nil, "", err
 	}
+	file, err := createFileWithinOutputRoot(paths.absoluteOutputDir, paths.relativePath)
+	if err != nil { return nil, "", err }
+	return file, filepath.Join(paths.outputDir, paths.relativePath), nil
+}
+
+type generatedFilePaths struct {
+	outputDir string
+	absoluteOutputDir string
+	relativePath string
+	volumeRoot string
+	relativeOutputDir string
+}
+
+func resolveGeneratedFilePaths(outputDir, relativePath string) (generatedFilePaths, error) {
+	outputDir, err := sanitizeGeneratedOutputDir(outputDir)
+	if err != nil { return generatedFilePaths{}, err }
 	if !filepath.IsLocal(relativePath) {
-		return nil, "", fmt.Errorf("generated file path must be local to the output directory")
+		return generatedFilePaths{}, fmt.Errorf("generated file path must be local to the output directory")
 	}
 	relativePath = filepath.Clean(relativePath)
-
 	absoluteOutputDir, err := filepath.Abs(outputDir)
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve output dir: %w", err)
-	}
+	if err != nil { return generatedFilePaths{}, fmt.Errorf("resolve output dir: %w", err) }
 	volumeRoot := filepath.VolumeName(absoluteOutputDir) + string(filepath.Separator)
 	relativeOutputDir, err := filepath.Rel(volumeRoot, absoluteOutputDir)
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve output dir relative to volume root: %w", err)
-	}
+	if err != nil { return generatedFilePaths{}, fmt.Errorf("resolve output dir relative to volume root: %w", err) }
 	if !filepath.IsLocal(relativeOutputDir) {
-		return nil, "", fmt.Errorf("output directory must be local to its volume root")
+		return generatedFilePaths{}, fmt.Errorf("output directory must be local to its volume root")
 	}
+	return generatedFilePaths{
+		outputDir: outputDir, absoluteOutputDir: absoluteOutputDir, relativePath: relativePath,
+		volumeRoot: volumeRoot, relativeOutputDir: relativeOutputDir,
+	}, nil
+}
 
-	volume, err := os.OpenRoot(volumeRoot)
-	if err != nil {
-		return nil, "", fmt.Errorf("open volume root: %w", err)
+func ensureGeneratedOutputDirectory(volumeRoot, relativeOutputDir string) error {
+	root, err := os.OpenRoot(volumeRoot)
+	if err != nil { return fmt.Errorf("open volume root: %w", err) }
+	if err := root.MkdirAll(relativeOutputDir, 0755); err != nil {
+		return errors.Join(fmt.Errorf("create output dir: %w", err), root.Close())
 	}
-	if err := volume.MkdirAll(relativeOutputDir, 0755); err != nil {
-		return nil, "", errors.Join(fmt.Errorf("create output dir: %w", err), volume.Close())
-	}
-	if err := volume.Close(); err != nil {
-		return nil, "", fmt.Errorf("close volume root: %w", err)
-	}
+	if err := root.Close(); err != nil { return fmt.Errorf("close volume root: %w", err) }
+	return nil
+}
 
-	root, err := os.OpenRoot(absoluteOutputDir)
-	if err != nil {
-		return nil, "", fmt.Errorf("open output dir: %w", err)
-	}
-
+func createFileWithinOutputRoot(outputDir, relativePath string) (*os.File, error) {
+	root, err := os.OpenRoot(outputDir)
+	if err != nil { return nil, fmt.Errorf("open output dir: %w", err) }
 	relativeDir := filepath.Dir(relativePath)
 	if relativeDir != "." {
 		if err := root.MkdirAll(relativeDir, 0755); err != nil {
-			return nil, "", errors.Join(fmt.Errorf("create generated file directory: %w", err), root.Close())
+			return nil, errors.Join(fmt.Errorf("create generated file directory: %w", err), root.Close())
 		}
 	}
-
 	file, err := root.Create(relativePath)
 	closeErr := root.Close()
-	if err != nil {
-		return nil, "", fmt.Errorf("create generated file: %w", err)
-	}
+	if err != nil { return nil, fmt.Errorf("create generated file: %w", err) }
 	if closeErr != nil {
 		_ = file.Close()
-		return nil, "", fmt.Errorf("close output dir: %w", closeErr)
+		return nil, fmt.Errorf("close output dir: %w", closeErr)
 	}
-
-	return file, filepath.Join(outputDir, relativePath), nil
+	return file, nil
 }
 
 type RuleSet struct {
