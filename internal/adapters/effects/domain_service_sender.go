@@ -47,6 +47,7 @@ func NewDomainServiceSender(services ports.DomainServiceRepository, allowPrivate
 	}
 }
 
+// Send delivers an effect to the configured domain service endpoint.
 func (s *DomainServiceSender) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	event, err := validateAndDecodeEffect(effect)
 	if err != nil {
