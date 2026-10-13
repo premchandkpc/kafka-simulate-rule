@@ -1,4 +1,7 @@
+version: "2"
+
 linters:
+  default: standard
   enable:
     - depguard
     - errcheck
@@ -10,27 +13,36 @@ linters:
     - bodyclose
     - gocritic
     - revive
-  disable-all: false
-
-linters-settings:
-  depguard:
-    rules:
-      domain-pure:
-        files: ["**/internal/domain/**"]
-        deny:
-          - {pkg: "github.com/flowrule/flowrule/internal", desc: "domain imports stdlib only"}
-      core-no-drivers:
-        files: ["**/internal/services/**", "**/internal/ports/**", "**/internal/rules/**", "**/internal/runtime/**"]
-        deny:
-          - {pkg: "github.com/jackc/pgx", desc: "driver in core"}
-          - {pkg: "github.com/nats-io", desc: "driver in core"}
-          - {pkg: "go.mongodb.org", desc: "driver in core"}
-          - {pkg: "github.com/redis", desc: "driver in core"}
-          - {pkg: "github.com/flowrule/flowrule/internal/adapters", desc: "core must not see adapters"}
+  settings:
+    depguard:
+      rules:
+        domain-pure:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: "github.com/flowrule/flowrule/internal"
+              desc: "domain imports stdlib only"
+        core-no-drivers:
+          files:
+            - "**/internal/services/**"
+            - "**/internal/ports/**"
+            - "**/internal/rules/**"
+            - "**/internal/runtime/**"
+          deny:
+            - pkg: "github.com/jackc/pgx"
+              desc: "driver in core"
+            - pkg: "github.com/nats-io"
+              desc: "driver in core"
+            - pkg: "go.mongodb.org"
+              desc: "driver in core"
+            - pkg: "github.com/redis"
+              desc: "driver in core"
+            - pkg: "github.com/flowrule/flowrule/internal/adapters"
+              desc: "core must not see adapters"
 
 issues:
   exclude-rules:
-    - path: _test\.go
+    - path: _test\\.go
       linters:
         - gosec
     - path: cmd/
@@ -39,4 +51,3 @@ issues:
 
 run:
   timeout: 5m
-  tests: true
