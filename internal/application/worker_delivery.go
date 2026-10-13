@@ -151,7 +151,13 @@ func (w *Worker) submitOwnedDelivery(
 	if token, ok := w.shardService.GetFencingToken(vshard); ok {
 		fencingToken = token
 	}
-	if err := w.keyQueue.Submit(ctx, env, delivery, fencingToken, vshard, w.workerID); err != nil {
+	if err := w.keyQueue.Submit(ctx, ports.QueueItem{
+		Event:        env,
+		Delivery:     delivery,
+		FencingToken: fencingToken,
+		Shard:        vshard,
+		WorkerID:     w.workerID,
+	}); err != nil {
 		log.Printf("keyqueue submit failed: %v", err)
 		if nakErr := settleNak(ctx, delivery); nakErr != nil {
 			log.Printf("nak failed: %v", nakErr)

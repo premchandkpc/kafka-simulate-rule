@@ -13,6 +13,10 @@ import (
 	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
 )
 
+const workerShutdownTimeout = 5 * time.Second
+
+// Run starts the shard lease service, queue, and background loops, then polls
+// the broker until cancellation. Startup and shutdown ownership stays here.
 func (w *Worker) Run(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("worker context is required")
@@ -22,8 +26,10 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	defer w.stopShardService(ctx)
 
-	w.startKeyQueue(ctx)
-	defer w.keyQueue.Stop()
+	if err := w.startKeyQueue(ctx); err != nil {
+		return err
+	}
+	defer w.stopKeyQueue(ctx)
 
 	var background sync.WaitGroup
 	w.startBackgroundLoops(ctx, &background)
@@ -34,14 +40,14 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) stopShardService(ctx context.Context) {
-	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerShutdownTimeout)
 	defer cancel()
 	if err := w.shardService.Stop(shutdownCtx); err != nil {
 		log.Printf("stop shard service: %v", err)
 	}
 }
 
-func (w *Worker) startKeyQueue(ctx context.Context) {
+func (w *Worker) startKeyQueue(ctx context.Context) error {
 	w.keyQueue = keyqueue.NewKeyQueue(
 		w.config.MaxGlobalInFlight,
 		w.config.MaxPerKeyQueue,
@@ -54,7 +60,18 @@ func (w *Worker) startKeyQueue(ctx context.Context) {
 		w.config.HotKeyCheckInterval,
 		w.config.HotKeyCallback,
 	)
-	w.keyQueue.Start(ctx)
+	if err := w.keyQueue.Start(ctx); err != nil {
+		return fmt.Errorf("start key queue: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) stopKeyQueue(ctx context.Context) {
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerShutdownTimeout)
+	defer cancel()
+	if err := w.keyQueue.Stop(shutdownCtx); err != nil {
+		log.Printf("stop key queue: %v", err)
+	}
 }
 
 func (w *Worker) startBackgroundLoops(ctx context.Context, background *sync.WaitGroup) {
