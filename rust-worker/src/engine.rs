@@ -315,7 +315,7 @@ fn compare(found: Option<&Value>, expected: Option<&Value>, predicate: impl Fn(f
 
 fn resolve_path<'a>(path: &str, root: &'a Value) -> Option<&'a Value> {
     let trimmed = path.strip_prefix("$.").unwrap_or(path);
-    if trimmed.is_empty() { return None; }
+    if trimmed.is_empty() || trimmed == "facts" || trimmed.starts_with("facts.") { return None; }
     trimmed.split('.').try_fold(root, |value, key| {
         if let Ok(index) = key.parse::<usize>() { value.as_array()?.get(index) }
         else { value.as_object()?.get(key) }
@@ -327,7 +327,7 @@ fn interpolate_templates(value: &Value, event: &EventEnvelope, child_id: &str) -
         Value::String(text) => expand_template(text, event, child_id),
         Value::Array(items) => Value::Array(items.iter().map(|item| interpolate_templates(item, event, child_id)).collect()),
         Value::Object(object) => {
-            let mut result = serde_json::Map::with_capacity(object.len());
+            let mut result = serde_json::Map::new();
             for (key, item) in object { result.insert(key.clone(), interpolate_templates(item, event, child_id)); }
             Value::Object(result)
         }
