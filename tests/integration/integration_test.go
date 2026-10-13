@@ -443,22 +443,22 @@ func (m *mockShardLease) Renew(_ context.Context, shard uint32, owner string, fe
 }
 
 // Release provides the corresponding repository operation.
-func (m *mockShardLease) Release(_ context.Context, shard uint32, owner string) error {
+func (m *mockShardLease) Release(_ context.Context, _ uint32, owner string) error {
 	return nil
 }
 
 // GetOwner provides the corresponding repository operation.
-func (m *mockShardLease) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
+func (m *mockShardLease) GetOwner(_ context.Context, shard uint32) (*domain.ShardLease, error) {
 	return &domain.ShardLease{VirtualShard: shard, Owner: "test", FencingToken: 1}, nil
 }
 
 // ValidateFencingToken provides the corresponding repository operation.
-func (m *mockShardLease) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+func (m *mockShardLease) ValidateFencingToken(_ context.Context, shard uint32, owner string, fencingToken int64) error {
 	return nil
 }
 
 // AssertHeld provides the corresponding repository operation.
-func (m *mockShardLease) AssertHeld(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
+func (m *mockShardLease) AssertHeld(_ context.Context, shard uint32, owner string, fencingToken int64) error {
 	return nil
 }
 
