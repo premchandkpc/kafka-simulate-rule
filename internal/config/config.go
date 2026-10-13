@@ -1,3 +1,4 @@
+// Package config loads and validates application configuration.
 package config
 
 import (
@@ -8,6 +9,7 @@ import (
 	"time"
 )
 
+// AppConfig contains app config settings.
 type AppConfig struct {
 	Env             string
 	LogLevel        string
@@ -15,6 +17,7 @@ type AppConfig struct {
 	ShutdownTimeout time.Duration
 }
 
+// DatabaseConfig contains database config settings.
 type DatabaseConfig struct {
 	StorageBackend  string
 	DSN             string
@@ -23,6 +26,7 @@ type DatabaseConfig struct {
 	MongoDBDatabase string
 }
 
+// NATSConfig contains natsconfig settings.
 type NATSConfig struct {
 	URL      string
 	Stream   string
@@ -30,12 +34,14 @@ type NATSConfig struct {
 	RuleSets []string
 }
 
+// RedisConfig contains redis config settings.
 type RedisConfig struct {
 	Addr     string
 	Password string
 	DB       int
 }
 
+// WorkerConfig contains worker config settings.
 type WorkerConfig struct {
 	NumShards               uint32
 	WorkerReplicas          uint32
@@ -61,6 +67,7 @@ type WorkerConfig struct {
 	HotKeyCheckIntervalMS   int
 }
 
+// GenerationConfig contains generation config settings.
 type GenerationConfig struct {
 	ProtocPath          string
 	ProtocGenGoPath     string
@@ -68,6 +75,7 @@ type GenerationConfig struct {
 	GenerationOutputDir string
 }
 
+// AuthConfig contains auth config settings.
 type AuthConfig struct {
 	JWTSecret      string   `env:"JWT_SECRET"`
 	JWTIssuer      string   `env:"JWT_ISSUER"`
@@ -76,6 +84,7 @@ type AuthConfig struct {
 	RequiredScopes []string `env:"REQUIRED_SCOPES"`
 }
 
+// Config contains config settings.
 type Config struct {
 	App        AppConfig
 	Database   DatabaseConfig
@@ -86,6 +95,7 @@ type Config struct {
 	Auth       AuthConfig
 }
 
+// Load provides the load.
 func Load() (*Config, error) {
 	if err := validateRawEnv(); err != nil {
 		return nil, err
@@ -187,6 +197,7 @@ func loadAuthConfig() AuthConfig {
 	}
 }
 
+// Validate provides the validate.
 func (c *Config) Validate() error {
 	if err := c.validateApp(); err != nil {
 		return err
@@ -517,6 +528,7 @@ func toInt(v int) int {
 	return v
 }
 
+// WorkerID provides the worker id.
 func (c *Config) WorkerID() string {
 	if c.Worker.WorkerID != "" {
 		return c.Worker.WorkerID
@@ -525,38 +537,47 @@ func (c *Config) WorkerID() string {
 	return fmt.Sprintf("%s-%d", hostname, os.Getpid())
 }
 
+// BatchWindow provides the batch window.
 func (c *Config) BatchWindow() time.Duration {
 	return time.Duration(c.Worker.BatchWindowMS) * time.Millisecond
 }
 
+// SchedulerPollInterval provides the scheduler poll interval.
 func (c *Config) SchedulerPollInterval() time.Duration {
 	return time.Duration(c.Worker.SchedulerPollMS) * time.Millisecond
 }
 
+// LeaseTTL provides the lease ttl.
 func (c *Config) LeaseTTL() time.Duration {
 	return time.Duration(c.Worker.LeaseTTLMS) * time.Millisecond
 }
 
+// LeaseRenewalInterval provides the lease renewal interval.
 func (c *Config) LeaseRenewalInterval() time.Duration {
 	return time.Duration(c.Worker.LeaseRenewalIntervalMS) * time.Millisecond
 }
 
+// NATSAckWait provides the natsack wait.
 func (c *Config) NATSAckWait() time.Duration {
 	return time.Duration(c.Worker.NATSAckWaitMS) * time.Millisecond
 }
 
+// HotKeyCheckInterval provides the hot key check interval.
 func (c *Config) HotKeyCheckInterval() time.Duration {
 	return time.Duration(c.Worker.HotKeyCheckIntervalMS) * time.Millisecond
 }
 
+// EffectPublishInterval provides the effect publish interval.
 func (c *Config) EffectPublishInterval() time.Duration {
 	return time.Duration(c.Worker.EffectPublishIntervalMS) * time.Millisecond
 }
 
+// EventRetryDelay provides the event retry delay.
 func (c *Config) EventRetryDelay() time.Duration {
 	return time.Duration(c.Worker.RetryDelayMS) * time.Millisecond
 }
 
+// ShutdownTimeoutDuration provides the shutdown timeout duration.
 func (c *Config) ShutdownTimeoutDuration() time.Duration {
 	return c.App.ShutdownTimeout
 }
