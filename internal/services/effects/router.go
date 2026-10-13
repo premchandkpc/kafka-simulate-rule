@@ -1,3 +1,4 @@
+// Package effects provides effect routing.
 package effects
 
 import (
