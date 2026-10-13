@@ -35,6 +35,10 @@ impl Config {
         let nats_url = env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".into());
         let stream = env::var("NATS_STREAM").unwrap_or_else(|_| "flowrule".into());
         let durable = env::var("NATS_CONSUMER").unwrap_or_else(|_| "flowrule-worker".into());
+        let storage_backend = env::var("STORAGE_BACKEND").unwrap_or_else(|_| "postgres".into());
+        if !storage_backend.eq_ignore_ascii_case("postgres") {
+            bail!("Rust worker supports STORAGE_BACKEND=postgres only; MongoDB parity is not implemented");
+        }
         let database_url = env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/flowrule?sslmode=disable".into());
         let migrations_dir = env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "migrations".into());
@@ -59,6 +63,16 @@ impl Config {
             bail!("NATS_STREAM, NATS_CONSUMER and WORKER_ID cannot be empty");
         }
         if database_url.trim().is_empty() { bail!("DATABASE_URL cannot be empty"); }
+        if nats_url.trim().is_empty() { bail!("NATS_URL cannot be empty"); }
+        if !matches!(app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test")
+            && effect_destination_url.trim().is_empty() {
+            bail!("EFFECT_DESTINATION_URL is required outside development/test");
+        }
+        let mut seen_rulesets = std::collections::HashSet::new();
+        for ruleset in &rulesets {
+            if ruleset.len() > 128 { bail!("NATS_RULESETS entries must be at most 128 bytes"); }
+            if !seen_rulesets.insert(ruleset) { bail!("NATS_RULESETS contains duplicate rule set {ruleset:?}"); }
+        }
         if num_shards == 0 || worker_replicas == 0 { bail!("NUM_SHARDS and WORKER_REPLICAS must be > 0"); }
         if lease_ttl.is_zero() || lease_renew_interval.is_zero() || lease_renew_interval * 3 > lease_ttl {
             bail!("LEASE_RENEWAL_INTERVAL_MS must be positive and no greater than one third of LEASE_TTL_MS");
