@@ -72,51 +72,70 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	return events, nil
 }
 
-func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
-	if len(eventIDs) == 0 {
-		return nil, nil
-	}
-	if claimant == "" {
-		return nil, fmt.Errorf("claim scheduled events: claimant is required")
-	}
-	if leaseTTL <= 0 {
-		return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
-	}
-
-	coll := r.collection(collectionScheduledEvents)
+func (r *ScheduledEventRepository) Claim(
+	ctx context.Context,
+	eventIDs []string,
+	claimant string,
+	leaseTTL time.Duration,
+) ([]*domain.ScheduledEvent, error) {
+	if err := validateScheduledClaim(eventIDs, claimant, leaseTTL); err != nil { return nil, err }
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
-	var events []*domain.ScheduledEvent
+	collection := r.collection(collectionScheduledEvents)
+	events := make([]*domain.ScheduledEvent, 0, len(eventIDs))
 	for _, eventID := range eventIDs {
-		var doc ScheduledDoc
-		filter := bson.D{
-			{Key: "event_id", Value: eventID},
-			{Key: "$or", Value: bson.A{
-				bson.D{{Key: "status", Value: domain.ScheduledEventStatusPending}, {Key: "$or", Value: bson.A{
-					bson.D{{Key: "retry_at", Value: bson.D{{Key: "$lte", Value: now}}}},
-					bson.D{{Key: "retry_at", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "scheduled_at", Value: bson.D{{Key: "$lte", Value: now}}}},
-				}}},
-				bson.D{{Key: "status", Value: domain.ScheduledEventStatusClaimed}, {Key: "claim_expires_at", Value: bson.D{{Key: "$lte", Value: now}}}},
-			}},
-		}
-		err := coll.FindOneAndUpdate(ctx, filter,
-			bson.D{{Key: "$set", Value: bson.D{
-				{Key: "status", Value: domain.ScheduledEventStatusClaimed},
-				{Key: "claimant", Value: claimant},
-				{Key: "claimed_at", Value: now},
-				{Key: "claim_expires_at", Value: expiresAt},
-			}}},
-			options.FindOneAndUpdate().SetReturnDocument(options.After),
-		).Decode(&doc)
-		if err != nil {
-			if errors.Is(err, mongo.ErrNoDocuments) {
-				continue
-			}
-			return nil, fmt.Errorf("claim scheduled event: %w", err)
-		}
-		events = append(events, doc.ToDomain())
+		event, claimed, err := claimScheduledEvent(ctx, collection, eventID, claimant, now, expiresAt)
+		if err != nil { return nil, err }
+		if claimed { events = append(events, event) }
 	}
 	return events, nil
+}
+
+func validateScheduledClaim(eventIDs []string, claimant string, leaseTTL time.Duration) error {
+	if len(eventIDs) == 0 { return nil }
+	if claimant == "" { return fmt.Errorf("claim scheduled events: claimant is required") }
+	if leaseTTL <= 0 { return fmt.Errorf("claim scheduled events: lease TTL must be positive") }
+	return nil
+}
+
+func claimScheduledEvent(
+	ctx context.Context,
+	collection *mongo.Collection,
+	eventID, claimant string,
+	now, expiresAt time.Time,
+) (*domain.ScheduledEvent, bool, error) {
+	var doc ScheduledDoc
+	err := collection.FindOneAndUpdate(
+		ctx,
+		scheduledClaimFilter(eventID, now),
+		scheduledClaimUpdate(claimant, now, expiresAt),
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) { return nil, false, nil }
+	if err != nil { return nil, false, fmt.Errorf("claim scheduled event: %w", err) }
+	return doc.ToDomain(), true, nil
+}
+
+func scheduledClaimFilter(eventID string, now time.Time) bson.D {
+	return bson.D{
+		{Key: "event_id", Value: eventID},
+		{Key: "$or", Value: bson.A{
+			bson.D{{Key: "status", Value: domain.ScheduledEventStatusPending}, {Key: "$or", Value: bson.A{
+				bson.D{{Key: "retry_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+				bson.D{{Key: "retry_at", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "scheduled_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+			}}},
+			bson.D{{Key: "status", Value: domain.ScheduledEventStatusClaimed}, {Key: "claim_expires_at", Value: bson.D{{Key: "$lte", Value: now}}}},
+		}},
+	}
+}
+
+func scheduledClaimUpdate(claimant string, now, expiresAt time.Time) bson.D {
+	return bson.D{{Key: "$set", Value: bson.D{
+		{Key: "status", Value: domain.ScheduledEventStatusClaimed},
+		{Key: "claimant", Value: claimant},
+		{Key: "claimed_at", Value: now},
+		{Key: "claim_expires_at", Value: expiresAt},
+	}}}
 }
 
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
