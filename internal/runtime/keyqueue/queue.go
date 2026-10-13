@@ -166,24 +166,31 @@ func (kq *KeyQueue) hotKeyCheckLoop(ctx context.Context) {
 	}
 }
 
+type hotKeyNotice struct {
+	key string
+	depth int
+}
+
 func (kq *KeyQueue) checkHotKeys() {
+	queues := kq.queueSnapshot()
+	notices := kq.updateHotKeyState(queues, kq.clock())
+	kq.notifyHotKeys(notices)
+}
+
+func (kq *KeyQueue) queueSnapshot() map[string]*keyQueue {
 	kq.mu.Lock()
+	defer kq.mu.Unlock()
 	queues := make(map[string]*keyQueue, len(kq.queues))
-	for k, v := range kq.queues {
-		queues[k] = v
-	}
-	kq.mu.Unlock()
+	for key, queue := range kq.queues { queues[key] = queue }
+	return queues
+}
 
-	now := kq.clock()
-	type hotKeyNotice struct {
-		key   string
-		depth int
-	}
+func (kq *KeyQueue) updateHotKeyState(queues map[string]*keyQueue, now time.Time) []hotKeyNotice {
 	var notices []hotKeyNotice
-
 	kq.muHot.Lock()
-	for key, q := range queues {
-		depth := len(q.ch)
+	defer kq.muHot.Unlock()
+	for key, queue := range queues {
+		depth := len(queue.ch)
 		if depth >= kq.hotKeyThreshold {
 			if _, tracked := kq.hotKeys[key]; !tracked {
 				kq.hotKeys[key] = now
@@ -193,19 +200,15 @@ func (kq *KeyQueue) checkHotKeys() {
 			delete(kq.hotKeys, key)
 		}
 	}
-	// Queues may have been removed after draining. Remove their hot-key state too.
 	for key := range kq.hotKeys {
-		if _, exists := queues[key]; !exists {
-			delete(kq.hotKeys, key)
-		}
+		if _, exists := queues[key]; !exists { delete(kq.hotKeys, key) }
 	}
-	kq.muHot.Unlock()
+	return notices
+}
 
-	// Run callbacks on the owned checker goroutine instead of leaking one goroutine
-	// per hot key. Callback implementations should be quick and non-blocking.
-	for _, notice := range notices {
-		kq.hotKeyCallback(notice.key, notice.depth)
-	}
+func (kq *KeyQueue) notifyHotKeys(notices []hotKeyNotice) {
+	// Callbacks run on the owned checker goroutine; implementations should be quick.
+	for _, notice := range notices { kq.hotKeyCallback(notice.key, notice.depth) }
 }
 
 func (kq *KeyQueue) Submit(ctx context.Context, item ports.QueueItem) error {
