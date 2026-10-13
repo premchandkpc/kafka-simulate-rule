@@ -302,21 +302,25 @@ fn validate_service_ip_literal(url: &reqwest::Url, local_env: bool) -> Result<()
         bail!("tenant service endpoint must contain a host");
     };
     let Ok(ip) = host.parse::<std::net::IpAddr>() else {
-        // Hostnames are checked separately by the callback's DNS/IP policy.
+        // DNS names are not resolved here; validating all resolved IPs remains a known security gap.
         return Ok(());
     };
-    let private = match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
-        }
-        std::net::IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local() || v6.is_unicast_link_local()
-        }
-    };
+    let private = is_non_public_ip(ip);
     if private {
         bail!("tenant service endpoint resolves to a non-public IP literal");
     }
     Ok(())
+}
+
+fn is_non_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()
+        }
+        std::net::IpAddr::V6(ip) => {
+            ip.is_loopback() || ip.is_unspecified() || ip.is_unique_local() || ip.is_unicast_link_local()
+        }
+    }
 }
 
 async fn post_service_callback(
@@ -330,7 +334,25 @@ async fn post_service_callback(
     payload: &Value,
 ) -> Result<()> {
     let event_id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
-    let response = http.post(url)
+    let request = build_service_callback_request(
+        http, url, id, execution_id, tenant_id, service_id, event_type, event_id, payload,
+    );
+    let response = request.send().await.context("send tenant service event callback")?;
+    ensure_successful_callback(response.status())
+}
+
+fn build_service_callback_request(
+    http: &reqwest::Client,
+    url: reqwest::Url,
+    id: &str,
+    execution_id: &str,
+    tenant_id: &str,
+    service_id: &str,
+    event_type: &str,
+    event_id: &str,
+    payload: &Value,
+) -> reqwest::RequestBuilder {
+    http.post(url)
         .header("Content-Type", "application/json")
         .header("Idempotency-Key", format!("effect-{id}"))
         .header("X-FlowRule-Tenant-ID", tenant_id)
@@ -341,10 +363,6 @@ async fn post_service_callback(
         .header("X-Execution-ID", execution_id)
         .header("X-FlowRule-Event-Type", event_type)
         .json(payload)
-        .send()
-        .await
-        .context("send tenant service event callback")?;
-    ensure_successful_callback(response.status())
 }
 
 fn ensure_successful_callback(status: reqwest::StatusCode) -> Result<()> {
