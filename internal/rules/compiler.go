@@ -1,3 +1,4 @@
+// Package rules provides rule compilation.
 package rules
 
 import (
@@ -39,6 +40,7 @@ func DefaultLimits() Limits {
 	}
 }
 
+// Compiler is the PostgreSQL persistence adapter.
 type Compiler struct {
 	limits Limits
 }
