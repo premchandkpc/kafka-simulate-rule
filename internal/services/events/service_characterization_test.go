@@ -83,9 +83,9 @@ func TestProcessValidatesShardLeaseBeforeMutatingInbox(t *testing.T) {
 
 type duplicateInboxRepository struct {
 	ports.InboxRepository
-	entry *domain.InboxEntry
+	entry   *domain.InboxEntry
 	inserts int
-	marks int
+	marks   int
 }
 
 func (r *duplicateInboxRepository) Get(context.Context, string, string) (*domain.InboxEntry, error) {
@@ -105,7 +105,7 @@ func (r *duplicateInboxRepository) MarkCommitted(context.Context, string, string
 type existingExecutionRepository struct {
 	ports.ExecutionRepository
 	execution *domain.Execution
-	saves int
+	saves     int
 }
 
 func (r *existingExecutionRepository) Get(context.Context, string) (*domain.Execution, error) {
@@ -173,7 +173,7 @@ func TestProcessReturnsDuplicateErrorWhenInboxInsertLosesRaceWithoutExecution(t 
 
 type failingCommitTransaction struct {
 	eventTxStub
-	commitErr    error
+	commitErr     error
 	rollbackCalls int
 }
 
