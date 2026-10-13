@@ -8,7 +8,7 @@ use self::rules::{Effect, RuleRevision};
 mod lease;
 mod persistence;
 mod rules;
-pub use lease::{acquire_lease, release_lease, renew_lease};
+pub(crate) use lease::{acquire_lease, release_lease, renew_lease};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
