@@ -241,10 +241,11 @@ async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Re
              ) UPDATE outbox_effects o SET status='claimed',claimed_by=$2,claimed_at=NOW(), \
                claim_expires_at=NOW()+INTERVAL '2 minutes',updated_at=NOW() \
              FROM candidates c WHERE o.effect_id=c.effect_id \
-             RETURNING o.effect_id,o.tenant_id,o.destination,o.name,o.payload,o.effect_type,o.attempts,o.max_attempts"
+             RETURNING o.effect_id,o.execution_id,o.tenant_id,o.destination,o.name,o.payload,o.effect_type,o.attempts,o.max_attempts"
         ).bind(i64::try_from(config.fetch_batch_size)?).bind(&claim).fetch_all(&pool).await?;
         for row in rows {
             let id: String = row.try_get("effect_id")?;
+            let execution_id: String = row.try_get("execution_id")?;
             let tenant_id: String = row.try_get("tenant_id")?;
             let destination: String = row.try_get("destination")?;
             let name: String = row.try_get("name")?;
@@ -252,7 +253,7 @@ async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Re
             let effect_type: String = row.try_get("effect_type")?;
             let attempts: i32 = row.try_get("attempts")?;
             let max_attempts: i32 = row.try_get("max_attempts")?;
-            let sent = send_effect(&pool, &js, &http, &config, &id, &tenant_id, &destination, &name, &payload, &effect_type).await;
+            let sent = send_effect(&pool, &js, &http, &config, &id, &execution_id, &tenant_id, &destination, &name, &payload, &effect_type).await;
             match sent {
                 Ok(()) => {
                     let result = sqlx::query(
@@ -285,12 +286,11 @@ async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Re
 
 async fn send_effect(
     _pool: &PgPool, js: &jetstream::Context, http: &reqwest::Client, config: &Config,
-    id: &str, _tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str,
+    id: &str, execution_id: &str, tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str,
 ) -> Result<()> {
-    let idempotency_key = format!("effect-{id}");
     match effect_type {
         "emit" | "command" => {
-            send_external_effect(http, config, id, destination, name, payload, effect_type).await
+            send_external_effect(http, config, id, execution_id, tenant_id, destination, name, payload, effect_type).await
         }
         "emit_event" => {
             let event: EventEnvelope = serde_json::from_value(payload.clone()).context("decode child event")?;
@@ -304,7 +304,7 @@ async fn send_effect(
     }
 }
 
-async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str) -> Result<()> {
+async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str, execution_id: &str, tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str) -> Result<()> {
     if config.effect_destination_url.trim().is_empty() { bail!("EFFECT_DESTINATION_URL is required for external effects"); }
     let mut url = reqwest::Url::parse(&config.effect_destination_url).context("parse EFFECT_DESTINATION_URL")?;
     {
@@ -313,8 +313,7 @@ async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str,
         segments.push(destination);
         segments.push(name);
     }
-    let execution_id = "";
-    let effect = json!({ "id": id, "execution_id": execution_id, "destination": destination, "name": name, "payload": payload, "effect_type": effect_type, "created_at": Utc::now() });
+    let effect = json!({ "id": id, "execution_id": execution_id, "tenant_id": tenant_id, "destination": destination, "name": name, "payload": payload, "effect_type": effect_type, "created_at": Utc::now() });
     let response = http.post(url).header("Content-Type", "application/json")
         .header("X-Effect-ID", id).header("X-Execution-ID", execution_id)
         .header("Idempotency-Key", format!("effect-{id}"))
