@@ -190,71 +190,45 @@ func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map
 }
 
 func resolvePath(path string, data json.RawMessage, facts map[string]json.RawMessage) (interface{}, error) {
-	if path == "" {
-		return nil, domain.ErrInvalidFactPath
-	}
-
-	if !strings.HasPrefix(path, "$.") {
-		return nil, domain.ErrInvalidFactPath
-	}
-
+	if path == "" || !strings.HasPrefix(path, "$.") { return nil, domain.ErrInvalidFactPath }
 	parts := strings.Split(path[2:], ".")
-	var current interface{}
-
-	// If first part is "facts", resolve from facts map
 	if len(parts) > 0 && parts[0] == "facts" {
-		if len(parts) < 2 {
-			return nil, nil
-		}
-		factKey := parts[1]
-		factData, ok := facts[factKey]
-		if !ok {
-			return nil, nil
-		}
-		if err := json.Unmarshal(factData, &current); err != nil {
-			return nil, fmt.Errorf("unmarshal fact %s: %w", factKey, err)
-		}
-		// Process remaining parts
-		for _, part := range parts[2:] {
-			if part == "" {
-				continue
-			}
-			switch v := current.(type) {
-			case map[string]interface{}:
-				val, ok := v[part]
-				if !ok {
-					return nil, nil
-				}
-				current = val
-			default:
-				return nil, nil
-			}
-		}
-		return current, nil
+		return resolveFactPath(parts[1:], facts)
 	}
+	return resolveEventDataPath(data, parts)
+}
 
-	// Otherwise resolve from event data
-	if err := json.Unmarshal(data, &current); err != nil {
+func resolveFactPath(parts []string, facts map[string]json.RawMessage) (interface{}, error) {
+	if len(parts) < 1 { return nil, nil }
+	factKey := parts[0]
+	factData, exists := facts[factKey]
+	if !exists { return nil, nil }
+	var value interface{}
+	if err := json.Unmarshal(factData, &value); err != nil {
+		return nil, fmt.Errorf("unmarshal fact %s: %w", factKey, err)
+	}
+	return walkObjectPath(value, parts[1:]), nil
+}
+
+func resolveEventDataPath(data json.RawMessage, parts []string) (interface{}, error) {
+	var value interface{}
+	if err := json.Unmarshal(data, &value); err != nil {
 		return nil, fmt.Errorf("unmarshal data: %w", err)
 	}
+	return walkObjectPath(value, parts), nil
+}
 
+func walkObjectPath(value interface{}, parts []string) interface{} {
+	current := value
 	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		switch v := current.(type) {
-		case map[string]interface{}:
-			val, ok := v[part]
-			if !ok {
-				return nil, nil
-			}
-			current = val
-		default:
-			return nil, nil
-		}
+		if part == "" { continue }
+		object, ok := current.(map[string]interface{})
+		if !ok { return nil }
+		next, exists := object[part]
+		if !exists { return nil }
+		current = next
 	}
-
-	return current, nil
+	return current
 }
 
 func compareEq(actual interface{}, expected interface{}) bool {
