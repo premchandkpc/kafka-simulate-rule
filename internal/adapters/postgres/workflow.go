@@ -23,7 +23,10 @@ func NewWorkflowRepository(db Querier) *WorkflowRepository {
 
 // Save performs its documented repository operation.
 func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.WorkflowInstance) error {
-	_, err := r.db.Exec(ctx, `
+	if workflow == nil {
+		return fmt.Errorf("workflow is required")
+	}
+	tag, err := r.db.Exec(ctx, `
 		INSERT INTO workflow_instances (workflow_id, tenant_id, workflow_type, state, version, current_revision, context, created_at, updated_at, completed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (workflow_id) DO NOTHING
@@ -31,7 +34,27 @@ func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.Workflow
 	if err != nil {
 		return fmt.Errorf("save workflow: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		var existingTenantID, existingWorkflowType string
+		lookupErr := r.db.QueryRow(ctx, `
+			SELECT tenant_id, workflow_type
+			FROM workflow_instances
+			WHERE workflow_id = $1
+		`, workflow.WorkflowID).Scan(&existingTenantID, &existingWorkflowType)
+		if lookupErr != nil {
+			return fmt.Errorf("verify duplicate workflow: %w", lookupErr)
+		}
+		if !sameWorkflowCreateIdentity(existingTenantID, existingWorkflowType, workflow) {
+			return domain.ErrWorkflowConflict
+		}
+	}
 	return nil
+}
+
+func sameWorkflowCreateIdentity(existingTenantID, existingWorkflowType string, requested *domain.WorkflowInstance) bool {
+	return requested != nil &&
+		existingTenantID == requested.TenantID &&
+		existingWorkflowType == requested.WorkflowType
 }
 
 // Get performs its documented repository operation.
