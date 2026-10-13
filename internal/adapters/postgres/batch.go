@@ -121,6 +121,9 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 		}
 		entries = append(entries, &e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unbatched rows: %w", err)
+	}
 	return entries, nil
 }
 
