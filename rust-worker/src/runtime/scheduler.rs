@@ -62,7 +62,7 @@ pub(super) async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config:
     }
 }
 
-fn event_subject(event_type: &str, shard: u32, rulesets: &[String]) -> String {
+pub(super) fn event_subject(event_type: &str, shard: u32, rulesets: &[String]) -> String {
     if rulesets.iter().any(|r| r == event_type) {
         format!("events.ruleset.{}.shard.{shard}", engine::sha256_hex(event_type.as_bytes()))
     } else { format!("events.shard.{shard}") }
