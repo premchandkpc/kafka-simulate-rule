@@ -227,6 +227,7 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 	if err != nil { return 0, err }
 	execution, err := s.processBatchEnvelope(ctx, envelope)
 	if err != nil { return 0, err }
+	if execution == nil { return 0, nil }
 
 	run := buildCompletedBatchRun(input, execution, windowFrom, now)
 	if err := s.batches.CompleteBatch(ctx, run, input.eventIDs); err != nil {
