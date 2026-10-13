@@ -33,13 +33,13 @@ fn build_http_client() -> Result<reqwest::Client> {
 
 async fn claim_outbox_batch(pool: &PgPool, claim: &str, batch_size: usize) -> Result<Vec<sqlx::postgres::PgRow>> {
     sqlx::query(
-        "WITH candidates AS ( \\
-           SELECT effect_id FROM outbox_effects \\
-           WHERE (status='pending' AND available_at<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \\
-           ORDER BY available_at,created_at LIMIT $1 FOR UPDATE SKIP LOCKED \\
-         ) UPDATE outbox_effects o SET status='claimed',claimed_by=$2,claimed_at=NOW(), \\
-           claim_expires_at=NOW()+INTERVAL '2 minutes',updated_at=NOW() \\
-         FROM candidates c WHERE o.effect_id=c.effect_id \\
+        "WITH candidates AS ( \
+           SELECT effect_id FROM outbox_effects \
+           WHERE (status='pending' AND available_at<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \
+           ORDER BY available_at,created_at LIMIT $1 FOR UPDATE SKIP LOCKED \
+         ) UPDATE outbox_effects o SET status='claimed',claimed_by=$2,claimed_at=NOW(), \
+           claim_expires_at=NOW()+INTERVAL '2 minutes',updated_at=NOW() \
+         FROM candidates c WHERE o.effect_id=c.effect_id \
          RETURNING o.effect_id,o.execution_id,o.tenant_id,o.destination,o.name,o.payload,o.effect_type,o.attempts,o.max_attempts"
     ).bind(i64::try_from(batch_size)?).bind(claim).fetch_all(pool).await.context("claim outbox effects")
 }
@@ -76,7 +76,7 @@ async fn process_claimed_effect(
 
 async fn mark_effect_delivered(pool: &PgPool, claim: &str, effect_id: &str) -> Result<()> {
     let result = sqlx::query(
-        "UPDATE outbox_effects SET status='delivered',claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \\
+        "UPDATE outbox_effects SET status='delivered',claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
          WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
     ).bind(effect_id).bind(claim).execute(pool).await.context("mark outbox effect delivered")?;
     if result.rows_affected() != 1 {
@@ -98,7 +98,7 @@ async fn record_effect_failure(pool: &PgPool, claim: &str, effect: &ClaimedEffec
 
 async fn quarantine_effect(pool: &PgPool, claim: &str, effect_id: &str, attempt: i32, error: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE outbox_effects SET status='quarantined',attempts=$3,last_error=$4,claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \\
+        "UPDATE outbox_effects SET status='quarantined',attempts=$3,last_error=$4,claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
          WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
     ).bind(effect_id).bind(claim).bind(attempt).bind(error).execute(pool).await
         .context("quarantine exhausted outbox effect")?;
@@ -108,8 +108,8 @@ async fn quarantine_effect(pool: &PgPool, claim: &str, effect_id: &str, attempt:
 async fn schedule_effect_retry(pool: &PgPool, claim: &str, effect_id: &str, attempt: i32, error: &str) -> Result<()> {
     let delay = (1_i64 << (attempt - 1).clamp(0, 5)).min(60);
     sqlx::query(
-        "UPDATE outbox_effects SET status='pending',attempts=$3,last_error=$4,available_at=NOW()+($5 * INTERVAL '1 second'), \\
-         claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \\
+        "UPDATE outbox_effects SET status='pending',attempts=$3,last_error=$4,available_at=NOW()+($5 * INTERVAL '1 second'), \
+         claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
          WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
     ).bind(effect_id).bind(claim).bind(attempt).bind(error).bind(delay).execute(pool).await
         .context("schedule outbox effect retry")?;
