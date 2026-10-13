@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL persistence adapters.
 package postgres
 
 import (
@@ -12,11 +13,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// DB defines the db operation.
 type DB struct {
 	pool       *pgxpool.Pool
 	migrations string
 }
 
+// New performs the new operation.
 func New(ctx context.Context, dsn string, migrationsDir string) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -40,14 +43,17 @@ func New(ctx context.Context, dsn string, migrationsDir string) (*DB, error) {
 	return &DB{pool: pool, migrations: migrationsDir}, nil
 }
 
+// Close performs the close operation.
 func (d *DB) Close() {
 	d.pool.Close()
 }
 
+// Pool performs the pool operation.
 func (d *DB) Pool() *pgxpool.Pool {
 	return d.pool
 }
 
+// RunMigrations performs the run migrations operation.
 func (d *DB) RunMigrations(ctx context.Context) error {
 	entries, err := os.ReadDir(d.migrations)
 	if err != nil {
