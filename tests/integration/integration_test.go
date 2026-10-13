@@ -190,7 +190,7 @@ func newMockOutbox() *mockOutbox {
 }
 
 // Insert persists the supplied value.
-func (m *mockOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
+func (m *mockOutbox) Insert(_ context.Context, effects []domain.OutboxEffect) error {
 	for _, ef := range effects {
 		m.effects[ef.ID] = &ef
 	}
@@ -198,7 +198,7 @@ func (m *mockOutbox) Insert(ctx context.Context, effects []domain.OutboxEffect) 
 }
 
 // ClaimPending provides the corresponding repository operation.
-func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
+func (m *mockOutbox) ClaimPending(_ context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	var claimed []domain.OutboxEffect
 	for _, ef := range m.effects {
 		if ef.Status == domain.OutboxStatusPending && !ef.AvailableAt.After(time.Now().UTC()) {
@@ -212,7 +212,7 @@ func (m *mockOutbox) ClaimPending(ctx context.Context, batchSize int, owner stri
 }
 
 // MarkDelivered provides the corresponding repository operation.
-func (m *mockOutbox) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
+func (m *mockOutbox) MarkDelivered(_ context.Context, effectIDs []string, claimant string) error {
 	for _, effectID := range effectIDs {
 		if ef, ok := m.effects[effectID]; ok {
 			ef.Status = domain.OutboxStatusDelivered
