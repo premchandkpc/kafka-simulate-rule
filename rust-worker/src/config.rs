@@ -58,10 +58,6 @@ impl Config {
         }
         if database_url.trim().is_empty() { bail!("DATABASE_URL cannot be empty"); }
         if nats_url.trim().is_empty() { bail!("NATS_URL cannot be empty"); }
-        if !matches!(app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test")
-            && effect_destination_url.trim().is_empty() {
-            bail!("EFFECT_DESTINATION_URL is required outside development/test");
-        }
         let mut seen_rulesets = std::collections::HashSet::new();
         for ruleset in &rulesets {
             if ruleset.len() > 128 { bail!("NATS_RULESETS entries must be at most 128 bytes"); }
