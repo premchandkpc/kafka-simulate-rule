@@ -1,9 +1,9 @@
-use crate::{config::Config, engine::EventEnvelope, runtime::{quarantine, scheduler::event_subject, uuid_token, validate_subject}};
+use crate::{config::Config, engine::{EventEnvelope, sha256_hex}, runtime::{scheduler::event_subject, uuid_token, validate_subject}};
 use anyhow::{anyhow, bail, Context, Result};
 use async_nats::jetstream;
 use chrono::Utc;
 use serde_json::{json, Value};
-use sqlx::{PgPool, Row};
+use sqlx::{Acquire, PgPool, Row};
 use std::time::Duration;
 use tokio::time::{interval, MissedTickBehavior};
 use tracing::{info, warn};
@@ -119,32 +119,74 @@ async fn mark_effect_delivered(pool: &PgPool, claim: &str, effect_id: &str) -> R
 async fn record_effect_failure(pool: &PgPool, claim: &str, effect: &ClaimedEffect, error: &str) -> Result<()> {
     let next_attempt = effect.attempts + 1;
     if next_attempt >= effect.max_attempts {
-        quarantine::persist_quarantine(pool, "effect", &effect.id, Some(&effect.tenant_id),
-            effect.payload.to_string().as_bytes(), error).await?;
-        quarantine_effect(pool, claim, &effect.id, next_attempt, error).await
+        quarantine_effect_atomically(pool, claim, effect, next_attempt, error).await
     } else {
         schedule_effect_retry(pool, claim, &effect.id, next_attempt, error).await
     }
 }
 
-async fn quarantine_effect(pool: &PgPool, claim: &str, effect_id: &str, attempt: i32, error: &str) -> Result<()> {
+// Persisting the quarantine record and changing the outbox status must share a
+// transaction. Otherwise a stale publisher can leave a quarantine record behind
+// even after it has lost its claim to another worker.
+async fn quarantine_effect_atomically(
+    pool: &PgPool,
+    claim: &str,
+    effect: &ClaimedEffect,
+    attempt: i32,
+    error: &str,
+) -> Result<()> {
+    let mut tx = pool.begin().await.context("begin exhausted effect quarantine")?;
+    let raw = effect.payload.to_string();
+    let quarantine_id = sha256_hex(
+        format!("effect|{}|{}", effect.id, sha256_hex(raw.as_bytes())).as_bytes(),
+    );
+
     sqlx::query(
+        "INSERT INTO quarantine (quarantine_id,source_type,source_id,error_class,payload_ref,event_id,tenant_id,error_message,created_at,updated_at) \
+         VALUES ($1,'effect',$2,'permanent','nats:flowrule',NULL,$3,$4,NOW(),NOW()) \
+         ON CONFLICT (quarantine_id) DO NOTHING"
+    )
+    .bind(quarantine_id)
+    .bind(&effect.id)
+    .bind(&effect.tenant_id)
+    .bind(error)
+    .execute(&mut *tx)
+    .await
+    .context("persist exhausted effect quarantine")?;
+
+    let result = sqlx::query(
         "UPDATE outbox_effects SET status='quarantined',attempts=$3,last_error=$4,claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
          WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
-    ).bind(effect_id).bind(claim).bind(attempt).bind(error).execute(pool).await
-        .context("quarantine exhausted outbox effect")?;
+    )
+    .bind(&effect.id)
+    .bind(claim)
+    .bind(attempt)
+    .bind(error)
+    .execute(&mut *tx)
+    .await
+    .context("quarantine exhausted outbox effect")?;
+
+    ensure_claim_update(result.rows_affected(), "quarantining", &effect.id)?;
+    tx.commit().await.context("commit exhausted effect quarantine")?;
+    Ok(())
+}
+
+fn ensure_claim_update(rows_affected: u64, action: &str, effect_id: &str) -> Result<()> {
+    if rows_affected != 1 {
+        bail!("outbox claim lost while {action} effect {effect_id}");
+    }
     Ok(())
 }
 
 async fn schedule_effect_retry(pool: &PgPool, claim: &str, effect_id: &str, attempt: i32, error: &str) -> Result<()> {
     let delay = (1_i64 << (attempt - 1).clamp(0, 5)).min(60);
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE outbox_effects SET status='pending',attempts=$3,last_error=$4,available_at=NOW()+($5 * INTERVAL '1 second'), \
          claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
          WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
     ).bind(effect_id).bind(claim).bind(attempt).bind(error).bind(delay).execute(pool).await
         .context("schedule outbox effect retry")?;
-    Ok(())
+    ensure_claim_update(result.rows_affected(), "scheduling retry for", effect_id)
 }
 
 async fn send_effect(
@@ -391,4 +433,17 @@ fn ensure_successful_callback(status: reqwest::StatusCode) -> Result<()> {
         bail!("tenant service callback returned {status}");
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod outbox_claim_tests {
+    use super::*;
+
+    #[test]
+    fn claim_settlement_requires_exactly_one_updated_row() {
+        assert!(ensure_claim_update(1, "scheduling retry for", "effect-1").is_ok());
+        assert!(ensure_claim_update(0, "scheduling retry for", "effect-1").is_err());
+        assert!(ensure_claim_update(2, "quarantining", "effect-1").is_err());
+    }
 }
