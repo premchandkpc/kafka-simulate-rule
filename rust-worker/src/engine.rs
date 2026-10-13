@@ -3,7 +3,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use rules::{Effect, RuleRevision};
+use self::rules::{Effect, RuleRevision};
 
 mod lease;
 mod rules;
