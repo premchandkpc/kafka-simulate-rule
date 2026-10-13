@@ -59,7 +59,7 @@ jobs:
 
       - name: Run Postgres and NATS end-to-end tests with statement coverage
         run: |
-          go test -tags=e2e -count=1 -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage-e2e.out ./tests/e2e/...
+          go test -race -tags=e2e -count=1 -covermode=atomic -coverpkg=./internal/... -coverprofile=coverage-e2e.out ./tests/e2e/...
 
       - name: Publish Go coverage summaries
         if: always()
