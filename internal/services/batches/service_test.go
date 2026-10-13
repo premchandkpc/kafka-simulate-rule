@@ -1,3 +1,4 @@
+// Package batches provides batch service tests.
 package batches
 
 import (
@@ -74,7 +75,7 @@ func (m *memBatches) MarkBatched(_ context.Context, tenantID, eventID, batchID s
 	return nil
 }
 
-func (m *memBatches) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
+func (m *memBatches) CompleteBatch(_ context.Context, run *domain.BatchRun, eventIDs []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if run == nil || len(eventIDs) == 0 || len(eventIDs) != run.MemberCount {
@@ -100,14 +101,14 @@ func (m *memBatches) CompleteBatch(ctx context.Context, run *domain.BatchRun, ev
 	return nil
 }
 
-func (m *memBatches) SaveRun(ctx context.Context, run *domain.BatchRun) error {
+func (m *memBatches) SaveRun(_ context.Context, run *domain.BatchRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.runs[run.BatchID] = run
 	return nil
 }
 
-func (m *memBatches) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRun(_ context.Context, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.runs[batchID], nil
