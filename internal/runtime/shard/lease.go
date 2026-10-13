@@ -211,7 +211,7 @@ func (m *LeaseManager) renewOwned(ctx context.Context) {
 	leases := m.ownedLeaseTokens()
 	if renewer, ok := m.repo.(batchLeaseRenewer); ok {
 		if !m.renewOwnedBatch(ctx, renewer, leases) {
-		    return
+			return
 		}
 	} else {
 		m.renewOwnedIndividually(ctx, leases)
@@ -225,7 +225,7 @@ func (m *LeaseManager) ownedLeaseTokens() map[uint32]int64 {
 	leases := make(map[uint32]int64, len(m.ownedShards))
 	for shardID, lease := range m.ownedShards {
 		if lease != nil {
-		    leases[shardID] = lease.FencingToken
+			leases[shardID] = lease.FencingToken
 		}
 	}
 	return leases
@@ -256,7 +256,7 @@ func (m *LeaseManager) applyBatchRenewals(
 	for shardID, expectedToken := range expectedLeases {
 		current, stillOwned := m.ownedShards[shardID]
 		if !stillOwned || current == nil || current.FencingToken != expectedToken {
-		    continue
+			continue
 		}
 		lease, found := renewed[shardID]
 		if !found {

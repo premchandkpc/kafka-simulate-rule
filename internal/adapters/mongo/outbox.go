@@ -54,7 +54,7 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	collection := r.collection(collectionOutboxEffects)
 	now := time.Now().UTC()
@@ -63,10 +63,10 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owne
 	for i := 0; i < batchSize; i++ {
 		effect, claimed, err := r.claimNextEffect(ctx, collection, filter, update, options)
 		if err != nil {
-		    return nil, err
+			return nil, err
 		}
 		if !claimed {
-		    break
+			break
 		}
 		if effect.TenantID == "" {
 			if err := r.resolveLegacyTenant(ctx, effect); err != nil {
@@ -106,10 +106,10 @@ func (r *OutboxRepository) claimNextEffect(
 	var doc OutboxDoc
 	err := collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-	    return nil, false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-	    return nil, false, fmt.Errorf("claim pending: %w", err)
+		return nil, false, fmt.Errorf("claim pending: %w", err)
 	}
 	effect := doc.ToDomain()
 	return effect, true, nil

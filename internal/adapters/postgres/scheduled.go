@@ -52,20 +52,20 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 
 func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
 	if len(eventIDs) == 0 {
-	    return nil, nil
+		return nil, nil
 	}
 	if strings.TrimSpace(claimant) == "" {
-	    return nil, fmt.Errorf("claim scheduled events: claimant is required")
+		return nil, fmt.Errorf("claim scheduled events: claimant is required")
 	}
 	if leaseTTL <= 0 {
-	    return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
+		return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
 	}
 
 	now := time.Now().UTC()
 	query, args := buildScheduledClaimQuery(eventIDs, claimant, now, now.Add(leaseTTL))
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
-	    return nil, fmt.Errorf("claim scheduled events: %w", err)
+		return nil, fmt.Errorf("claim scheduled events: %w", err)
 	}
 	defer rows.Close()
 	return scanScheduledEvents(rows)
@@ -92,7 +92,7 @@ func buildScheduledClaimQuery(eventIDs []string, claimant string, now, expiresAt
 func scheduledEventPlaceholders(count int) []string {
 	placeholders := make([]string, count)
 	for i := range placeholders {
-	    placeholders[i] = fmt.Sprintf("$%d", i+4)
+		placeholders[i] = fmt.Sprintf("$%d", i+4)
 	}
 	return placeholders
 }
@@ -101,7 +101,7 @@ func scheduledClaimArguments(eventIDs []string, claimant string, now, expiresAt 
 	args := make([]any, len(eventIDs)+5)
 	args[0], args[1], args[2] = claimant, expiresAt, now
 	for i, eventID := range eventIDs {
-	    args[i+3] = eventID
+		args[i+3] = eventID
 	}
 	args[len(eventIDs)+3] = domain.ScheduledEventStatusPending
 	args[len(eventIDs)+4] = domain.ScheduledEventStatusClaimed

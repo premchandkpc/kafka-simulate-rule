@@ -117,27 +117,27 @@ func (c *Compiler) parseRuleSet(source json.RawMessage) (*rawRuleSet, error) {
 // validateRuleSet validates the rule set structure and rules.
 func (c *Compiler) validateRuleSet(rs *rawRuleSet) ([]rawRule, error) {
 	if err := validateRuleSetMetadata(rs); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	rawRules, err := parseRawRules(rs.Rules)
 	if err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := c.validateRuleSetBudgets(rawRules); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	return rawRules, nil
 }
 
 func validateRuleSetMetadata(rs *rawRuleSet) error {
 	if rs.RuleSet == "" {
-	    return domain.ErrRuleIDRequired
+		return domain.ErrRuleIDRequired
 	}
 	if rs.Revision <= 0 {
-	    return domain.ErrRevisionRequired
+		return domain.ErrRevisionRequired
 	}
 	if rs.Mode != "first_match" && rs.Mode != "all_matches" {
-	    return domain.ErrInvalidMatchMode
+		return domain.ErrInvalidMatchMode
 	}
 	return nil
 }
@@ -177,7 +177,7 @@ func (c *Compiler) compileRules(rawRules []rawRule) ([]domain.CompiledRule, erro
 	for _, rule := range rawRules {
 		compiledRule, err := c.compileRule(rule, seenIDs, seenPriorities)
 		if err != nil {
-		    return nil, err
+			return nil, err
 		}
 		compiled = append(compiled, compiledRule)
 	}
@@ -211,17 +211,17 @@ func validateRuleIdentity(
 	seenPriorities map[int]bool,
 ) error {
 	if rule.ID == "" {
-	    return domain.ErrRuleIDRequired
+		return domain.ErrRuleIDRequired
 	}
 	if len(rule.ID) > limits.MaxRuleIDLen {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	if seenIDs[rule.ID] {
-	    return domain.ErrDuplicateRuleID
+		return domain.ErrDuplicateRuleID
 	}
 	seenIDs[rule.ID] = true
 	if seenPriorities[rule.Priority] {
-	    return domain.ErrAmbiguousPriority
+		return domain.ErrAmbiguousPriority
 	}
 	seenPriorities[rule.Priority] = true
 	return nil
@@ -229,25 +229,25 @@ func validateRuleIdentity(
 
 func (c *Compiler) validateRuleActions(rule rawRule) error {
 	if err := c.validatePredicate(rule.When, 0); err != nil {
-	    return err
+		return err
 	}
 	if countPredicates(rule.When) > c.limits.MaxPredicates {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	if len(rule.Then) == 0 || len(rule.Then) > c.limits.MaxActionsPerSet {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	for _, action := range rule.Then {
 		if err := c.validateAction(action); err != nil {
-		    return err
+			return err
 		}
 	}
 	if len(rule.Otherwise) > c.limits.MaxActionsPerSet {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	for _, action := range rule.Otherwise {
 		if err := c.validateAction(action); err != nil {
-		    return err
+			return err
 		}
 	}
 	return nil
@@ -255,21 +255,21 @@ func (c *Compiler) validateRuleActions(rule rawRule) error {
 
 func (c *Compiler) validatePredicate(p domain.Predicate, depth int) error {
 	if depth > c.limits.MaxNestingDepth {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	hasLeaf := p.Path != ""
 	hasComposite := p.All != nil || p.Any != nil || p.Not != nil
 	if hasLeaf == hasComposite {
-	    return domain.ErrInvalidPredicate
+		return domain.ErrInvalidPredicate
 	}
 	if hasLeaf {
 		if !domain.ValidOp(p.Op) {
-		    return domain.ErrInvalidOperator
+			return domain.ErrInvalidOperator
 		}
 		return nil
 	}
 	if err := validateCompositePredicateShape(p); err != nil {
-	    return err
+		return err
 	}
 	return c.validateCompositeChildren(p, depth)
 }
@@ -277,22 +277,22 @@ func (c *Compiler) validatePredicate(p domain.Predicate, depth int) error {
 func validateCompositePredicateShape(p domain.Predicate) error {
 	compositeCount := 0
 	if p.All != nil {
-	    compositeCount++
-	    if len(p.All) == 0 {
-	        return domain.ErrInvalidPredicate
-	    }
+		compositeCount++
+		if len(p.All) == 0 {
+			return domain.ErrInvalidPredicate
+		}
 	}
 	if p.Any != nil {
-	    compositeCount++
-	    if len(p.Any) == 0 {
-	        return domain.ErrInvalidPredicate
-	    }
+		compositeCount++
+		if len(p.Any) == 0 {
+			return domain.ErrInvalidPredicate
+		}
 	}
 	if p.Not != nil {
-	    compositeCount++
+		compositeCount++
 	}
 	if compositeCount != 1 {
-	    return domain.ErrInvalidPredicate
+		return domain.ErrInvalidPredicate
 	}
 	return nil
 }
@@ -301,22 +301,22 @@ func (c *Compiler) validateCompositeChildren(p domain.Predicate, depth int) erro
 	for _, children := range [][]*domain.Predicate{p.All, p.Any} {
 		for _, child := range children {
 			if child == nil {
-			    return domain.ErrInvalidPredicate
+				return domain.ErrInvalidPredicate
 			}
 			if err := c.validatePredicate(*child, depth+1); err != nil {
-			    return err
+				return err
 			}
 		}
 	}
 	if p.Not != nil {
-	    return c.validatePredicate(*p.Not, depth+1)
+		return c.validatePredicate(*p.Not, depth+1)
 	}
 	return nil
 }
 
 func (c *Compiler) validateAction(action domain.Action) error {
 	if err := validateActionShape(action); err != nil {
-	    return err
+		return err
 	}
 	switch {
 	case action.Emit != nil:
@@ -333,26 +333,26 @@ func (c *Compiler) validateAction(action domain.Action) error {
 func validateActionShape(action domain.Action) error {
 	count := 0
 	if action.Emit != nil {
-	    count++
+		count++
 	}
 	if action.EmitEvent != nil {
-	    count++
+		count++
 	}
 	if action.Command != nil {
-	    count++
+		count++
 	}
 	if count != 1 {
-	    return domain.ErrInvalidAction
+		return domain.ErrInvalidAction
 	}
 	return nil
 }
 
 func (c *Compiler) validateEmitAction(action *domain.EmitAction) error {
 	if action.Topic == "" {
-	    return domain.ErrInvalidAction
+		return domain.ErrInvalidAction
 	}
 	if payloadSize(action.Data) > c.limits.MaxPayloadBytes {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	return nil
 }
@@ -360,19 +360,19 @@ func (c *Compiler) validateEmitAction(action *domain.EmitAction) error {
 func (c *Compiler) validateEmitEventAction(action *domain.EmitEventAction) error {
 	policy := action.PartitionKeyPolicy
 	if policy == "" {
-	    policy = domain.PartitionKeyPolicyExplicit
+		policy = domain.PartitionKeyPolicyExplicit
 	}
 	if !validPartitionKeyPolicy(policy) {
-	    return domain.ErrInvalidAction
+		return domain.ErrInvalidAction
 	}
 	if err := validatePartitionKeyPolicy(action, policy); err != nil {
-	    return err
+		return err
 	}
 	if action.Type == "" || strings.ContainsAny(action.Type, "*>") || !json.Valid(action.Data) {
 		return domain.ErrInvalidAction
 	}
 	if len(action.Data) > c.limits.MaxPayloadBytes {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	return nil
 }
@@ -387,7 +387,7 @@ func validatePartitionKeyPolicy(action *domain.EmitEventAction, policy string) e
 	switch policy {
 	case domain.PartitionKeyPolicyExplicit:
 		if action.PartitionKey == "" {
-		    return domain.ErrInvalidAction
+			return domain.ErrInvalidAction
 		}
 	case domain.PartitionKeyPolicyInherit:
 		// The key is inherited from the parent event.
@@ -401,10 +401,10 @@ func validatePartitionKeyPolicy(action *domain.EmitEventAction, policy string) e
 
 func (c *Compiler) validateCommandAction(action *domain.CommandAction) error {
 	if action.Destination == "" || action.Name == "" {
-	    return domain.ErrInvalidAction
+		return domain.ErrInvalidAction
 	}
 	if payloadSize(action.Data) > c.limits.MaxPayloadBytes {
-	    return domain.ErrRuleExceedsLimits
+		return domain.ErrRuleExceedsLimits
 	}
 	return nil
 }

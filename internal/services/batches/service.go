@@ -66,18 +66,18 @@ func (s *Service) ownsPartition(tenantID, partitionKey string) bool {
 }
 
 type batchGroupKey struct {
-	tenantID string
+	tenantID     string
 	partitionKey string
-	ruleSet string
+	ruleSet      string
 }
 
 func (s *Service) Tick(ctx context.Context) (int, error) {
 	if s.cfg.Mode == domain.BatchModeNone {
-	    return 0, nil
+		return 0, nil
 	}
 	entries, err := s.loadUnbatchedEntries(ctx)
 	if err != nil {
-	    return 0, err
+		return 0, err
 	}
 	groups, order := groupInboxEntries(entries)
 	return s.processReadyGroups(ctx, groups, order)
@@ -86,11 +86,11 @@ func (s *Service) Tick(ctx context.Context) (int, error) {
 func (s *Service) loadUnbatchedEntries(ctx context.Context) ([]*domain.InboxEntry, error) {
 	limit := s.cfg.MaxBatch * 10
 	if limit <= 0 {
-	    limit = 400
+		limit = 400
 	}
 	entries, err := s.batches.ListUnbatched(ctx, limit)
 	if err != nil {
-	    return nil, fmt.Errorf("list unbatched: %w", err)
+		return nil, fmt.Errorf("list unbatched: %w", err)
 	}
 	return entries, nil
 }
@@ -100,11 +100,11 @@ func groupInboxEntries(entries []*domain.InboxEntry) (map[batchGroupKey][]*domai
 	order := make([]batchGroupKey, 0)
 	for _, entry := range entries {
 		if entry.TenantID == "" || entry.PartitionKey == "" || entry.RuleSet == "" {
-		    continue
+			continue
 		}
 		key := batchGroupKey{tenantID: entry.TenantID, partitionKey: entry.PartitionKey, ruleSet: entry.RuleSet}
 		if _, exists := groups[key]; !exists {
-		    order = append(order, key)
+			order = append(order, key)
 		}
 		groups[key] = append(groups[key], entry)
 	}
@@ -123,14 +123,14 @@ func (s *Service) processReadyGroups(
 			return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
 		})
 		if !s.ready(members) {
-		    continue
+			continue
 		}
 		if !s.ownsPartition(members[0].TenantID, members[0].PartitionKey) {
-		    continue
+			continue
 		}
 		count, err := s.processGroup(ctx, members)
 		if err != nil {
-		    return formed, err
+			return formed, err
 		}
 		formed += count
 	}
@@ -148,7 +148,7 @@ func (s *Service) CreateBatch(
 	}
 	members, err := s.loadManualBatchMembers(ctx, tenantID, partitionKey, ruleSet, eventIDs)
 	if err != nil {
-	    return nil, err
+		return nil, err
 	}
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
@@ -156,7 +156,7 @@ func (s *Service) CreateBatch(
 	// Batch IDs are order-independent, so use the same sorted membership order
 	// when selecting and processing the batch. This also keeps tie ordering stable.
 	if _, err := s.processGroup(ctx, members); err != nil {
-	    return nil, err
+		return nil, err
 	}
 
 	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
@@ -168,10 +168,10 @@ func (s *Service) validateManualBatchRequest(
 	eventIDs []string,
 ) error {
 	if s.events == nil {
-	    return domain.ErrBatchProcessingUnavailable
+		return domain.ErrBatchProcessingUnavailable
 	}
 	if len(eventIDs) == 0 {
-	    return fmt.Errorf("no event IDs provided")
+		return fmt.Errorf("no event IDs provided")
 	}
 	if tenantID == "" || partitionKey == "" || ruleSet == "" {
 		return fmt.Errorf("tenant, partition key, and rule set are required")
@@ -186,10 +186,10 @@ func validateUniqueEventIDs(eventIDs []string) error {
 	seen := make(map[string]struct{}, len(eventIDs))
 	for _, id := range eventIDs {
 		if id == "" {
-		    return fmt.Errorf("event IDs must not be empty")
+			return fmt.Errorf("event IDs must not be empty")
 		}
 		if _, exists := seen[id]; exists {
-		    return fmt.Errorf("duplicate event ID %q", id)
+			return fmt.Errorf("duplicate event ID %q", id)
 		}
 		seen[id] = struct{}{}
 	}
@@ -203,21 +203,21 @@ func (s *Service) loadManualBatchMembers(
 ) ([]*domain.InboxEntry, error) {
 	members, err := s.batches.ListUnbatchedByIDs(ctx, tenantID, partitionKey, ruleSet, eventIDs)
 	if err != nil {
-	    return nil, fmt.Errorf("list requested unbatched events: %w", err)
+		return nil, fmt.Errorf("list requested unbatched events: %w", err)
 	}
 	if err := validateRequestedBatchMembers(eventIDs, members); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	return members, nil
 }
 
 func validateRequestedBatchMembers(eventIDs []string, members []*domain.InboxEntry) error {
 	if len(members) == len(eventIDs) {
-	    return nil
+		return nil
 	}
 	found := make(map[string]struct{}, len(members))
 	for _, member := range members {
-	    found[member.EventID] = struct{}{}
+		found[member.EventID] = struct{}{}
 	}
 	for _, id := range eventIDs {
 		if _, ok := found[id]; !ok {
@@ -250,17 +250,17 @@ func (s *Service) ready(members []*domain.InboxEntry) bool {
 
 func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry) (int, error) {
 	if s.events == nil {
-	    return 0, domain.ErrBatchProcessingUnavailable
+		return 0, domain.ErrBatchProcessingUnavailable
 	}
 	if len(members) == 0 {
-	    return 0, nil
+		return 0, nil
 	}
 
 	members = s.limitBatchMembers(members)
 	input := buildBatchInput(members)
 	existing, err := s.batches.GetRun(ctx, input.batchID)
 	if err != nil {
-	    return 0, fmt.Errorf("check existing batch: %w", err)
+		return 0, fmt.Errorf("check existing batch: %w", err)
 	}
 	if existing != nil && existing.Status == domain.BatchRunStatusCompleted {
 		return s.recoverCompletedBatch(ctx, existing, input.eventIDs)
@@ -269,14 +269,14 @@ func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry
 	now := s.clock.Now()
 	envelope, windowFrom, err := s.buildBatchEnvelope(input, now)
 	if err != nil {
-	    return 0, err
+		return 0, err
 	}
 	execution, err := s.processBatchEnvelope(ctx, envelope)
 	if err != nil {
-	    return 0, err
+		return 0, err
 	}
 	if execution == nil {
-	    return 0, nil
+		return 0, nil
 	}
 
 	run := buildCompletedBatchRun(input, execution, windowFrom, now)
@@ -294,22 +294,22 @@ func (s *Service) limitBatchMembers(members []*domain.InboxEntry) []*domain.Inbo
 }
 
 type batchInput struct {
-	batchID string
-	tenantID string
+	batchID      string
+	tenantID     string
 	partitionKey string
-	ruleSet string
-	eventIDs []string
-	batchEvents []domain.BatchMember
-	members []*domain.InboxEntry
+	ruleSet      string
+	eventIDs     []string
+	batchEvents  []domain.BatchMember
+	members      []*domain.InboxEntry
 }
 
 func buildBatchInput(members []*domain.InboxEntry) batchInput {
 	first := members[0]
 	input := batchInput{
 		tenantID: first.TenantID, partitionKey: first.PartitionKey, ruleSet: first.RuleSet,
-		eventIDs: make([]string, 0, len(members)),
+		eventIDs:    make([]string, 0, len(members)),
 		batchEvents: make([]domain.BatchMember, 0, len(members)),
-		members: members,
+		members:     members,
 	}
 	for _, member := range members {
 		input.eventIDs = append(input.eventIDs, member.EventID)
@@ -342,7 +342,7 @@ func (s *Service) buildBatchEnvelope(input batchInput, now time.Time) (*domain.E
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-	    return nil, time.Time{}, fmt.Errorf("marshal batch data: %w", err)
+		return nil, time.Time{}, fmt.Errorf("marshal batch data: %w", err)
 	}
 	envelope := &domain.EventEnvelope{
 		ID: input.batchID, Type: domain.BatchRuleSet(input.ruleSet), TenantID: input.tenantID,
@@ -357,11 +357,11 @@ func (s *Service) processBatchEnvelope(ctx context.Context, envelope *domain.Eve
 	}
 	shard := envelope.VirtualShard(s.numShards)
 	if !s.leaseProvider.IsOwner(shard) {
-	    return nil, domain.ErrFencingTokenMismatch
+		return nil, domain.ErrFencingTokenMismatch
 	}
 	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
 	if !ok || fencingToken <= 0 {
-	    return nil, domain.ErrFencingTokenMismatch
+		return nil, domain.ErrFencingTokenMismatch
 	}
 	execution, err := s.events.Process(ctx, envelope, fencingToken, shard, s.workerID)
 	if err != nil {

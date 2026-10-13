@@ -44,23 +44,23 @@ func NewService(repository ports.DomainServiceRepository, clock ports.Clock, all
 
 func (s *Service) SaveDomain(ctx context.Context, tenantID string, item *domain.TenantDomain) (*domain.TenantDomain, error) {
 	if err := normalizeAndValidateDomain(item, tenantID); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.ensureDomainNameAvailable(ctx, item); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.initializeDomainIdentity(ctx, tenantID, item); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.persistDomain(ctx, item); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	return item, nil
 }
 
 func normalizeAndValidateDomain(item *domain.TenantDomain, tenantID string) error {
 	if item == nil {
-	    return fmt.Errorf("%w: domain is required", ErrInvalidInput)
+		return fmt.Errorf("%w: domain is required", ErrInvalidInput)
 	}
 	item.TenantID = tenantID
 	item.Name = strings.TrimSpace(item.Name)
@@ -80,7 +80,7 @@ func normalizeAndValidateDomain(item *domain.TenantDomain, tenantID string) erro
 func (s *Service) ensureDomainNameAvailable(ctx context.Context, item *domain.TenantDomain) error {
 	existingDomains, err := s.repository.ListDomains(ctx, item.TenantID)
 	if err != nil {
-	    return fmt.Errorf("check tenant domain names: %w", err)
+		return fmt.Errorf("check tenant domain names: %w", err)
 	}
 	for _, existing := range existingDomains {
 		if existing.ID != item.ID && existing.Name == item.Name {
@@ -97,10 +97,10 @@ func (s *Service) initializeDomainIdentity(ctx context.Context, tenantID string,
 	}
 	existing, err := s.repository.GetDomain(ctx, tenantID, item.ID)
 	if err != nil {
-	    return fmt.Errorf("get tenant domain before update: %w", err)
+		return fmt.Errorf("get tenant domain before update: %w", err)
 	}
 	if existing == nil {
-	    return ErrNotFound
+		return ErrNotFound
 	}
 	item.CreatedAt = existing.CreatedAt
 	return nil
@@ -109,7 +109,7 @@ func (s *Service) initializeDomainIdentity(ctx context.Context, tenantID string,
 func (s *Service) persistDomain(ctx context.Context, item *domain.TenantDomain) error {
 	now := s.clock.Now()
 	if item.CreatedAt.IsZero() {
-	    item.CreatedAt = now
+		item.CreatedAt = now
 	}
 	item.UpdatedAt = now
 	if err := s.repository.SaveDomain(ctx, item); err != nil {
@@ -152,26 +152,26 @@ func (s *Service) DeleteDomain(ctx context.Context, tenantID, domainID string) e
 
 func (s *Service) SaveService(ctx context.Context, tenantID string, item *domain.DomainService) (*domain.DomainService, error) {
 	if err := normalizeAndValidateService(item, tenantID, s.allowHTTP); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.validateServiceDomains(ctx, tenantID, item.DomainIDs); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.ensureServiceNameAvailable(ctx, item); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.initializeServiceIdentity(ctx, tenantID, item); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if err := s.persistService(ctx, item); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	return item, nil
 }
 
 func normalizeAndValidateService(item *domain.DomainService, tenantID string, allowHTTP bool) error {
 	if item == nil {
-	    return fmt.Errorf("%w: service is required", ErrInvalidInput)
+		return fmt.Errorf("%w: service is required", ErrInvalidInput)
 	}
 	item.TenantID = tenantID
 	item.Name = strings.TrimSpace(item.Name)
@@ -201,7 +201,7 @@ func (s *Service) validateServiceDomains(ctx context.Context, tenantID string, d
 func (s *Service) ensureServiceNameAvailable(ctx context.Context, item *domain.DomainService) error {
 	existingServices, err := s.repository.ListServices(ctx, item.TenantID)
 	if err != nil {
-	    return fmt.Errorf("check tenant service names: %w", err)
+		return fmt.Errorf("check tenant service names: %w", err)
 	}
 	for _, existing := range existingServices {
 		if existing.ID != item.ID && existing.Name == item.Name {
@@ -219,10 +219,10 @@ func (s *Service) initializeServiceIdentity(ctx context.Context, tenantID string
 	}
 	existing, err := s.repository.GetService(ctx, tenantID, item.ID)
 	if err != nil {
-	    return fmt.Errorf("get tenant service before update: %w", err)
+		return fmt.Errorf("get tenant service before update: %w", err)
 	}
 	if existing == nil {
-	    return ErrNotFound
+		return ErrNotFound
 	}
 	item.CreatedAt = existing.CreatedAt
 	// Ordinary updates must not silently reactivate a disabled service.
@@ -233,7 +233,7 @@ func (s *Service) initializeServiceIdentity(ctx context.Context, tenantID string
 func (s *Service) persistService(ctx context.Context, item *domain.DomainService) error {
 	now := s.clock.Now()
 	if item.CreatedAt.IsZero() {
-	    item.CreatedAt = now
+		item.CreatedAt = now
 	}
 	item.UpdatedAt = now
 	if err := s.repository.SaveService(ctx, item); err != nil {

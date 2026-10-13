@@ -63,15 +63,15 @@ func connect(cfg Config) (*natslib.Conn, error) {
 func normalizeConfig(cfg Config) (Config, error) {
 	cfg = applyConfigDefaults(cfg)
 	if err := validateConsumerConfig(cfg); err != nil {
-	    return Config{}, err
+		return Config{}, err
 	}
 	subjects, err := normalizeSubjects(cfg.Subjects)
 	if err != nil {
-	    return Config{}, err
+		return Config{}, err
 	}
 	ruleSets, err := normalizeRuleSets(cfg.RuleSets)
 	if err != nil {
-	    return Config{}, err
+		return Config{}, err
 	}
 	cfg.Subjects, cfg.RuleSets = subjects, ruleSets
 	return cfg, nil
@@ -79,22 +79,22 @@ func normalizeConfig(cfg Config) (Config, error) {
 
 func applyConfigDefaults(cfg Config) Config {
 	if cfg.NumShards == 0 {
-	    cfg.NumShards = 4096
+		cfg.NumShards = 4096
 	}
 	if len(cfg.Subjects) == 0 {
-	    cfg.Subjects = []string{"events"}
+		cfg.Subjects = []string{"events"}
 	}
 	if cfg.Stream == "" {
-	    cfg.Stream = "flowrule"
+		cfg.Stream = "flowrule"
 	}
 	if cfg.Consumer == "" {
-	    cfg.Consumer = "flowrule-worker"
+		cfg.Consumer = "flowrule-worker"
 	}
 	if cfg.AckWait <= 0 {
-	    cfg.AckWait = 30 * time.Second
+		cfg.AckWait = 30 * time.Second
 	}
 	if cfg.MaxDeliver == 0 {
-	    cfg.MaxDeliver = -1
+		cfg.MaxDeliver = -1
 	}
 	return cfg
 }
@@ -112,10 +112,10 @@ func normalizeSubjects(values []string) ([]string, error) {
 	for _, subject := range values {
 		subject = strings.TrimSpace(subject)
 		if subject == "" {
-		    return nil, fmt.Errorf("NATS subject must not be empty")
+			return nil, fmt.Errorf("NATS subject must not be empty")
 		}
 		if _, exists := seen[subject]; exists {
-		    continue
+			continue
 		}
 		seen[subject] = struct{}{}
 		subjects = append(subjects, subject)
@@ -129,13 +129,13 @@ func normalizeRuleSets(values []string) ([]string, error) {
 	for _, ruleSet := range values {
 		ruleSet = strings.TrimSpace(ruleSet)
 		if ruleSet == "" {
-		    return nil, fmt.Errorf("NATS ruleset must not be empty")
+			return nil, fmt.Errorf("NATS ruleset must not be empty")
 		}
 		if len(ruleSet) > 128 {
-		    return nil, fmt.Errorf("NATS ruleset exceeds 128 bytes")
+			return nil, fmt.Errorf("NATS ruleset exceeds 128 bytes")
 		}
 		if _, exists := seen[ruleSet]; exists {
-		    return nil, fmt.Errorf("duplicate NATS ruleset %q", ruleSet)
+			return nil, fmt.Errorf("duplicate NATS ruleset %q", ruleSet)
 		}
 		seen[ruleSet] = struct{}{}
 		ruleSets = append(ruleSets, ruleSet)
@@ -302,15 +302,15 @@ func (c *Consumer) RemoveShardConsumer(ctx context.Context, shard uint32) error 
 
 func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error) {
 	if err := validateFetchRequest(ctx, maxMessages); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	if len(shards) == 0 {
-	    return nil, nil
+		return nil, nil
 	}
 
 	selected, durables := c.selectFetchConsumers(maxMessages, shards)
 	if len(selected) == 0 {
-	    return nil, nil
+		return nil, nil
 	}
 	results := c.fetchSelectedConsumers(ctx, maxMessages, selected, durables)
 	return collectFetchResults(results, maxMessages)
@@ -318,10 +318,10 @@ func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []ui
 
 func validateFetchRequest(ctx context.Context, maxMessages int) error {
 	if maxMessages <= 0 {
-	    return fmt.Errorf("fetch shards: maxMessages must be > 0")
+		return fmt.Errorf("fetch shards: maxMessages must be > 0")
 	}
 	if ctx == nil {
-	    return fmt.Errorf("fetch shards: context is nil")
+		return fmt.Errorf("fetch shards: context is nil")
 	}
 	return ctx.Err()
 }
@@ -332,14 +332,14 @@ func (c *Consumer) selectFetchConsumers(
 ) ([]consumerKey, map[consumerKey]string) {
 	wanted := make(map[uint32]struct{}, len(shards))
 	for _, shard := range shards {
-	    wanted[shard] = struct{}{}
+		wanted[shard] = struct{}{}
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	keys := matchingConsumerKeys(c.consumers, wanted)
 	if len(keys) == 0 {
-	    return nil, nil
+		return nil, nil
 	}
 
 	selectedCount := min(len(keys), maxMessages)
@@ -359,15 +359,15 @@ func matchingConsumerKeys(consumers map[consumerKey]string, wanted map[uint32]st
 	keys := make([]consumerKey, 0, len(consumers))
 	for key := range consumers {
 		if _, ok := wanted[key.shard]; ok {
-		    keys = append(keys, key)
+			keys = append(keys, key)
 		}
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].shard != keys[j].shard {
-		    return keys[i].shard < keys[j].shard
+			return keys[i].shard < keys[j].shard
 		}
 		if keys[i].baseSubject != keys[j].baseSubject {
-		    return keys[i].baseSubject < keys[j].baseSubject
+			return keys[i].baseSubject < keys[j].baseSubject
 		}
 		return keys[i].ruleSet < keys[j].ruleSet
 	})
@@ -376,7 +376,7 @@ func matchingConsumerKeys(consumers map[consumerKey]string, wanted map[uint32]st
 
 type shardFetchResult struct {
 	deliveries []ports.Delivery
-	err error
+	err        error
 }
 
 func (c *Consumer) fetchSelectedConsumers(
@@ -391,7 +391,7 @@ func (c *Consumer) fetchSelectedConsumers(
 	for i, key := range selected {
 		budget := baseBudget
 		if i < remainder {
-		    budget++
+			budget++
 		}
 		wg.Add(1)
 		go func(key consumerKey, durable string, budget int) {
@@ -403,7 +403,7 @@ func (c *Consumer) fetchSelectedConsumers(
 	close(results)
 	collected := make([]shardFetchResult, 0, len(selected))
 	for result := range results {
-	    collected = append(collected, result)
+		collected = append(collected, result)
 	}
 	return collected
 }
@@ -411,12 +411,12 @@ func (c *Consumer) fetchSelectedConsumers(
 func (c *Consumer) fetchFromConsumer(ctx context.Context, durable string, budget int) shardFetchResult {
 	consumer, err := c.js.Consumer(ctx, c.stream, durable)
 	if err != nil {
-	    return shardFetchResult{err: fmt.Errorf("get consumer %q: %w", durable, err)}
+		return shardFetchResult{err: fmt.Errorf("get consumer %q: %w", durable, err)}
 	}
 	batch, err := consumer.Fetch(budget, jetstream.FetchMaxWait(250*time.Millisecond))
 	if err != nil {
 		if errors.Is(err, natslib.ErrTimeout) {
-		    return shardFetchResult{}
+			return shardFetchResult{}
 		}
 		return shardFetchResult{err: fmt.Errorf("fetch consumer %q: %w", durable, err)}
 	}
@@ -440,7 +440,7 @@ func collectFetchResults(results []shardFetchResult, maxMessages int) ([]ports.D
 	for _, result := range results {
 		deliveries = append(deliveries, result.deliveries...)
 		if result.err != nil {
-		    fetchErrs = append(fetchErrs, result.err)
+			fetchErrs = append(fetchErrs, result.err)
 		}
 	}
 	if len(deliveries) > maxMessages {

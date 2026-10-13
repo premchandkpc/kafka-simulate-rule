@@ -102,13 +102,13 @@ func (e *Evaluator) processRuleResult(rule domain.CompiledRule, ok bool, matched
 
 func (e *Evaluator) evalPredicate(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
 	if p.All != nil {
-	    return e.evalAll(p.All, data, facts)
+		return e.evalAll(p.All, data, facts)
 	}
 	if p.Any != nil {
-	    return e.evalAny(p.Any, data, facts)
+		return e.evalAny(p.Any, data, facts)
 	}
 	if p.Not != nil {
-	    return e.evalNot(p.Not, data, facts)
+		return e.evalNot(p.Not, data, facts)
 	}
 	return e.evalLeaf(p, data, facts)
 }
@@ -116,14 +116,14 @@ func (e *Evaluator) evalPredicate(p domain.Predicate, data json.RawMessage, fact
 func (e *Evaluator) evalAll(predicates []*domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
 	for _, predicate := range predicates {
 		if predicate == nil {
-		    return false, domain.ErrInvalidPredicate
+			return false, domain.ErrInvalidPredicate
 		}
 		matched, err := e.evalPredicate(*predicate, data, facts)
 		if err != nil {
-		    return false, err
+			return false, err
 		}
 		if !matched {
-		    return false, nil
+			return false, nil
 		}
 	}
 	return true, nil
@@ -132,14 +132,14 @@ func (e *Evaluator) evalAll(predicates []*domain.Predicate, data json.RawMessage
 func (e *Evaluator) evalAny(predicates []*domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
 	for _, predicate := range predicates {
 		if predicate == nil {
-		    continue
+			continue
 		}
 		matched, err := e.evalPredicate(*predicate, data, facts)
 		if err != nil {
-		    return false, err
+			return false, err
 		}
 		if matched {
-		    return true, nil
+			return true, nil
 		}
 	}
 	return false, nil
@@ -147,11 +147,11 @@ func (e *Evaluator) evalAny(predicates []*domain.Predicate, data json.RawMessage
 
 func (e *Evaluator) evalNot(predicate *domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
 	if predicate == nil {
-	    return false, domain.ErrInvalidPredicate
+		return false, domain.ErrInvalidPredicate
 	}
 	matched, err := e.evalPredicate(*predicate, data, facts)
 	if err != nil {
-	    return false, err
+		return false, err
 	}
 	return !matched, nil
 }
@@ -162,13 +162,13 @@ func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map
 		return false, fmt.Errorf("%w: resolve predicate path %q: %w", domain.ErrEvaluationError, p.Path, err)
 	}
 	if p.Op == domain.OpExists {
-	    return value != nil, nil
+		return value != nil, nil
 	}
 	if p.Op == domain.OpNotExists {
-	    return value == nil, nil
+		return value == nil, nil
 	}
 	if value == nil {
-	    return false, nil
+		return false, nil
 	}
 	return evaluateLeafValue(p.Op, value, p.Value)
 }
@@ -211,7 +211,7 @@ func compareNumericLeaf(op domain.Operator, actual, expected interface{}) (bool,
 
 func resolvePath(path string, data json.RawMessage, facts map[string]json.RawMessage) (interface{}, error) {
 	if path == "" || !strings.HasPrefix(path, "$.") {
-	    return nil, domain.ErrInvalidFactPath
+		return nil, domain.ErrInvalidFactPath
 	}
 	parts := strings.Split(path[2:], ".")
 	if len(parts) > 0 && parts[0] == "facts" {
@@ -222,12 +222,12 @@ func resolvePath(path string, data json.RawMessage, facts map[string]json.RawMes
 
 func resolveFactPath(parts []string, facts map[string]json.RawMessage) (interface{}, error) {
 	if len(parts) < 1 {
-	    return nil, nil
+		return nil, nil
 	}
 	factKey := parts[0]
 	factData, exists := facts[factKey]
 	if !exists {
-	    return nil, nil
+		return nil, nil
 	}
 	var value interface{}
 	if err := json.Unmarshal(factData, &value); err != nil {
@@ -248,15 +248,15 @@ func walkObjectPath(value interface{}, parts []string) interface{} {
 	current := value
 	for _, part := range parts {
 		if part == "" {
-		    continue
+			continue
 		}
 		object, ok := current.(map[string]interface{})
 		if !ok {
-		    return nil
+			return nil
 		}
 		next, exists := object[part]
 		if !exists {
-		    return nil
+			return nil
 		}
 		current = next
 	}
@@ -430,7 +430,7 @@ func (c templateContext) expand(s string) interface{} {
 
 func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {
 	effect := domain.Effect{
-		ID: domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex),
+		ID:          domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex),
 		ExecutionID: "",
 	}
 	switch {
@@ -440,7 +440,7 @@ func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.Eve
 		var err error
 		effect, err = e.buildEmitEventEffect(effect, event, ruleID, actionIndex, action.EmitEvent)
 		if err != nil {
-		    return domain.Effect{}, err
+			return domain.Effect{}, err
 		}
 	case action.Command != nil:
 		effect = buildCommandEffect(effect, action.Command)
@@ -475,17 +475,17 @@ func (e *Evaluator) buildEmitEventEffect(
 	childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
 	partitionKey, err := resolveEmitEventPartitionKey(action, event)
 	if err != nil {
-	    return domain.Effect{}, err
+		return domain.Effect{}, err
 	}
 
 	childData, err := interpolateTemplates(action.Data, event, childID, e.clock)
 	if err != nil {
-	    return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
+		return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
 	}
 	child := buildChildEventEnvelope(event, action, childID, partitionKey, childData, e.clock.Now())
 	encoded, err := json.Marshal(child)
 	if err != nil {
-	    return domain.Effect{}, fmt.Errorf("marshal child event: %w", err)
+		return domain.Effect{}, fmt.Errorf("marshal child event: %w", err)
 	}
 
 	effect.EffectType = domain.EffectTypeEmitEvent
@@ -499,7 +499,7 @@ func resolveEmitEventPartitionKey(action *domain.EmitEventAction, event *domain.
 	partitionKey := action.PartitionKey
 	policy := action.PartitionKeyPolicy
 	if policy == "" {
-	    policy = domain.PartitionKeyPolicyExplicit
+		policy = domain.PartitionKeyPolicyExplicit
 	}
 	switch policy {
 	case domain.PartitionKeyPolicyInherit:
@@ -532,7 +532,7 @@ func buildChildEventEnvelope(
 		PartitionKey: partitionKey, OccurredAt: occurredAt, Data: data,
 		Headers: map[string]string{
 			"flowrule_parent_event_id": parent.ID,
-			"flowrule_child_event_id": childID,
+			"flowrule_child_event_id":  childID,
 		},
 	}
 }

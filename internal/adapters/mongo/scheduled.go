@@ -77,12 +77,12 @@ func (r *ScheduledEventRepository) Claim(
 	eventIDs []string,
 	claimant string,
 	leaseTTL time.Duration,
- ) ([]*domain.ScheduledEvent, error) {
+) ([]*domain.ScheduledEvent, error) {
 	if len(eventIDs) == 0 {
-	    return nil, nil
+		return nil, nil
 	}
 	if err := validateScheduledClaim(eventIDs, claimant, leaseTTL); err != nil {
-	    return nil, err
+		return nil, err
 	}
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
@@ -91,10 +91,10 @@ func (r *ScheduledEventRepository) Claim(
 	for _, eventID := range eventIDs {
 		event, claimed, err := claimScheduledEvent(ctx, collection, eventID, claimant, now, expiresAt)
 		if err != nil {
-		    return nil, err
+			return nil, err
 		}
 		if claimed {
-		    events = append(events, event)
+			events = append(events, event)
 		}
 	}
 	return events, nil
@@ -102,13 +102,13 @@ func (r *ScheduledEventRepository) Claim(
 
 func validateScheduledClaim(eventIDs []string, claimant string, leaseTTL time.Duration) error {
 	if len(eventIDs) == 0 {
-	    return nil
+		return nil
 	}
 	if claimant == "" {
-	    return fmt.Errorf("claim scheduled events: claimant is required")
+		return fmt.Errorf("claim scheduled events: claimant is required")
 	}
 	if leaseTTL <= 0 {
-	    return fmt.Errorf("claim scheduled events: lease TTL must be positive")
+		return fmt.Errorf("claim scheduled events: lease TTL must be positive")
 	}
 	return nil
 }
@@ -127,10 +127,10 @@ func claimScheduledEvent(
 		options.FindOneAndUpdate().SetReturnDocument(options.After),
 	).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-	    return nil, false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-	    return nil, false, fmt.Errorf("claim scheduled event: %w", err)
+		return nil, false, fmt.Errorf("claim scheduled event: %w", err)
 	}
 	return doc.ToDomain(), true, nil
 }
