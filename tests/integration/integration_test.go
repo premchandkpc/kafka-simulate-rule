@@ -364,9 +364,9 @@ type mockTx struct {
 
 func (m *mockTx) Commit(_ context.Context) error   { return nil }
 func (m *mockTx) Rollback(_ context.Context) error { return nil }
-func (m *mockTx) Context() context.Context           { return m.ctx }
-func (m *mockTx) FencingToken() int64                { return 0 }
-func (m *mockTx) SetFencingToken(_ int64)        {}
+func (m *mockTx) Context() context.Context         { return m.ctx }
+func (m *mockTx) FencingToken() int64              { return 0 }
+func (m *mockTx) SetFencingToken(_ int64)          {}
 
 type mockTxManager struct {
 	tx *mockTx
