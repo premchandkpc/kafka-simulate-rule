@@ -61,62 +61,59 @@ func connect(cfg Config) (*natslib.Conn, error) {
 }
 
 func normalizeConfig(cfg Config) (Config, error) {
-	if cfg.NumShards == 0 {
-		cfg.NumShards = 4096
-	}
-	if len(cfg.Subjects) == 0 {
-		cfg.Subjects = []string{"events"}
-	}
-	if cfg.Stream == "" {
-		cfg.Stream = "flowrule"
-	}
-	if cfg.Consumer == "" {
-		cfg.Consumer = "flowrule-worker"
-	}
-	if cfg.AckWait <= 0 {
-		cfg.AckWait = 30 * time.Second
-	}
-	if cfg.MaxDeliver == 0 {
-		cfg.MaxDeliver = -1
-	}
-	if cfg.MaxDeliver != -1 {
-		return Config{}, fmt.Errorf("NATS MaxDeliver must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
-	}
+	cfg = applyConfigDefaults(cfg)
+	if err := validateConsumerConfig(cfg); err != nil { return Config{}, err }
+	subjects, err := normalizeSubjects(cfg.Subjects)
+	if err != nil { return Config{}, err }
+	ruleSets, err := normalizeRuleSets(cfg.RuleSets)
+	if err != nil { return Config{}, err }
+	cfg.Subjects, cfg.RuleSets = subjects, ruleSets
+	return cfg, nil
+}
 
-	subjects := make([]string, 0, len(cfg.Subjects))
-	seenSubjects := make(map[string]struct{}, len(cfg.Subjects))
-	for _, subject := range cfg.Subjects {
+func applyConfigDefaults(cfg Config) Config {
+	if cfg.NumShards == 0 { cfg.NumShards = 4096 }
+	if len(cfg.Subjects) == 0 { cfg.Subjects = []string{"events"} }
+	if cfg.Stream == "" { cfg.Stream = "flowrule" }
+	if cfg.Consumer == "" { cfg.Consumer = "flowrule-worker" }
+	if cfg.AckWait <= 0 { cfg.AckWait = 30 * time.Second }
+	if cfg.MaxDeliver == 0 { cfg.MaxDeliver = -1 }
+	return cfg
+}
+
+func validateConsumerConfig(cfg Config) error {
+	if cfg.MaxDeliver != -1 {
+		return fmt.Errorf("NATS MaxDeliver must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
+	}
+	return nil
+}
+
+func normalizeSubjects(values []string) ([]string, error) {
+	subjects := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, subject := range values {
 		subject = strings.TrimSpace(subject)
-		if subject == "" {
-			return Config{}, fmt.Errorf("NATS subject must not be empty")
-		}
-		if _, exists := seenSubjects[subject]; exists {
-			continue
-		}
-		seenSubjects[subject] = struct{}{}
+		if subject == "" { return nil, fmt.Errorf("NATS subject must not be empty") }
+		if _, exists := seen[subject]; exists { continue }
+		seen[subject] = struct{}{}
 		subjects = append(subjects, subject)
 	}
-	cfg.Subjects = subjects
+	return subjects, nil
+}
 
-	ruleSets := make([]string, 0, len(cfg.RuleSets))
-	seenRuleSets := make(map[string]struct{}, len(cfg.RuleSets))
-	for _, ruleSet := range cfg.RuleSets {
+func normalizeRuleSets(values []string) ([]string, error) {
+	ruleSets := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, ruleSet := range values {
 		ruleSet = strings.TrimSpace(ruleSet)
-		if ruleSet == "" {
-			return Config{}, fmt.Errorf("NATS ruleset must not be empty")
-		}
-		if len(ruleSet) > 128 {
-			return Config{}, fmt.Errorf("NATS ruleset exceeds 128 bytes")
-		}
-		if _, exists := seenRuleSets[ruleSet]; exists {
-			return Config{}, fmt.Errorf("duplicate NATS ruleset %q", ruleSet)
-		}
-		seenRuleSets[ruleSet] = struct{}{}
+		if ruleSet == "" { return nil, fmt.Errorf("NATS ruleset must not be empty") }
+		if len(ruleSet) > 128 { return nil, fmt.Errorf("NATS ruleset exceeds 128 bytes") }
+		if _, exists := seen[ruleSet]; exists { return nil, fmt.Errorf("duplicate NATS ruleset %q", ruleSet) }
+		seen[ruleSet] = struct{}{}
 		ruleSets = append(ruleSets, ruleSet)
 	}
 	sort.Strings(ruleSets)
-	cfg.RuleSets = ruleSets
-	return cfg, nil
+	return ruleSets, nil
 }
 
 func streamSubjects(cfg Config) []string {
