@@ -19,6 +19,7 @@ type Service struct {
 	newRepos   ports.EventTxRepositoryFactory
 }
 
+// NewService constructs the event-processing service.
 func NewService(
 	compiler ports.RuleCompiler,
 	evaluator ports.RuleEvaluator,
