@@ -17,8 +17,19 @@ async fn process_outbox_batch(
 ) -> Result<()> {
     let claim = format!("{}-{}", config.worker_id, uuid_token());
     let rows = claim_outbox_batch(pool, &claim, config.fetch_batch_size).await?;
+    process_claimed_rows(pool, js, http, config, &claim, rows).await
+}
+
+async fn process_claimed_rows(
+    pool: &PgPool,
+    js: &jetstream::Context,
+    http: &reqwest::Client,
+    config: &Config,
+    claim: &str,
+    rows: Vec<sqlx::postgres::PgRow>,
+) -> Result<()> {
     for row in rows {
-        process_claimed_effect(pool, js, http, config, &claim, row).await?;
+        process_claimed_effect(pool, js, http, config, claim, row).await?;
     }
     Ok(())
 }
