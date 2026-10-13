@@ -94,7 +94,7 @@ func (m *mockActivation) SetWithVersion(_ context.Context, activation *domain.Ru
 }
 
 // List returns matching records.
-func (m *mockActivation) List(_ context.Context, _ string) ([]*domain.RuleActivation, error) {
+func (m *mockActivation) List(_ context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
 	var result []*domain.RuleActivation
 	for _, act := range m.activations {
 		if act.TenantScope == tenantScope {
@@ -139,10 +139,12 @@ func (m *mockRuleRepo) Get(_ context.Context, tenantScope, ruleSet string, _ int
 }
 
 // List returns matching records.
-func (m *mockRuleRepo) List(_ context.Context, _ string) ([]*domain.RuleRevision, error) {
+func (m *mockRuleRepo) List(_ context.Context, tenantScope string) ([]*domain.RuleRevision, error) {
 	var result []*domain.RuleRevision
 	for _, rev := range m.revisions {
-		result = append(result, rev)
+		if rev.TenantScope == tenantScope {
+			result = append(result, rev)
+		}
 	}
 	return result, nil
 }
