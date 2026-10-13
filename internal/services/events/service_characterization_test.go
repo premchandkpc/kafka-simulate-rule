@@ -73,14 +73,12 @@ func TestProcessValidatesShardLeaseBeforeMutatingInbox(t *testing.T) {
 	if !errors.Is(err, leaseErr) {
 		t.Fatalf("Process() error = %v, want wrapped lease error", err)
 	}
-	if !tx.committed {
-		// The transaction must not commit after lease validation fails.
-		if inbox.inserted {
-			t.Fatal("inbox was mutated before shard lease validation succeeded")
-		}
-		return
+	if tx.committed {
+		t.Fatal("transaction committed after shard lease validation failed")
 	}
-	t.Fatal("transaction committed after shard lease validation failed")
+	if inbox.inserted {
+		t.Fatal("inbox was mutated before shard lease validation succeeded")
+	}
 }
 
 type duplicateInboxRepository struct {
