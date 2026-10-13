@@ -13,9 +13,11 @@ import (
 var _ ports.RuleCompiler = (*Compiler)(nil)
 
 const (
+	// CompilerVersion is the version of the rule compiler.
 	CompilerVersion = "1.0.0"
 )
 
+// Limits configures compiler validation limits.
 type Limits struct {
 	MaxRulesPerSet   int
 	MaxPredicates    int
@@ -25,6 +27,7 @@ type Limits struct {
 	MaxRuleIDLen     int
 }
 
+// DefaultLimits returns the default compiler limits.
 func DefaultLimits() Limits {
 	return Limits{
 		MaxRulesPerSet:   100,

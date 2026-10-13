@@ -196,6 +196,7 @@ func (l *Lock) Lost() <-chan struct{} {
 	return l.lost
 }
 
+// Release releases the lock and verifies ownership.
 func (l *Lock) Release(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("release redis lock: context is required")
@@ -224,6 +225,7 @@ func (l *Lock) Release(ctx context.Context) error {
 	return nil
 }
 
+// Extend extends the lock TTL if the lock is still held.
 func (l *Lock) Extend(ctx context.Context, ttl time.Duration) error {
 	if ctx == nil {
 		return fmt.Errorf("extend redis lock: context is required")

@@ -16,10 +16,12 @@ type RateLimiter struct {
 	client *redis.Client
 }
 
+// NewRateLimiter creates a new RateLimiter from a Redis client.
 func NewRateLimiter(client *Client) *RateLimiter {
 	return &RateLimiter{client: client.client}
 }
 
+// Allow checks if a request is allowed under the rate limit.
 func (r *RateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
 	if key == "" {
 		return false, fmt.Errorf("rate limit: key is required")
@@ -54,6 +56,7 @@ func (r *RateLimiter) Allow(ctx context.Context, key string, limit int, window t
 	return count <= int64(limit), nil
 }
 
+// Reset removes the rate limit counter for a key.
 func (r *RateLimiter) Reset(ctx context.Context, key string) error {
 	if key == "" {
 		return fmt.Errorf("rate limit reset: key is required")
@@ -64,6 +67,7 @@ func (r *RateLimiter) Reset(ctx context.Context, key string) error {
 	return nil
 }
 
+// Limit returns the current count for a key.
 func (r *RateLimiter) Limit(ctx context.Context, key string) (int, error) {
 	key = "ratelimit:" + key
 	count, err := r.client.ZCard(ctx, key).Result()
@@ -73,6 +77,7 @@ func (r *RateLimiter) Limit(ctx context.Context, key string) (int, error) {
 	return int(count), nil
 }
 
+// Remaining returns the remaining requests allowed for a key.
 func (r *RateLimiter) Remaining(ctx context.Context, key string) (int, error) {
 	key = "ratelimit:" + key
 	count, err := r.client.ZCard(ctx, key).Result()
