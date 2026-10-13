@@ -78,7 +78,7 @@ jobs:
               fi
               echo
             done
-            echo "Coverage is collected over `./internal/...`. Integration and E2E numbers measure internal code exercised by their tagged test suites; they are separate from unit coverage."
+            echo 'Coverage is collected over ./internal/.... Integration and E2E numbers measure internal code exercised by their tagged test suites; they are separate from unit coverage.'
             echo "No coverage threshold is enforced."
           } >> "${GITHUB_STEP_SUMMARY}"
 
