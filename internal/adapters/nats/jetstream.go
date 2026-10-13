@@ -276,111 +276,120 @@ func (c *Consumer) RemoveShardConsumer(ctx context.Context, shard uint32) error 
 }
 
 func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error) {
-	if maxMessages <= 0 {
-		return nil, fmt.Errorf("fetch shards: maxMessages must be > 0")
-	}
-	if ctx == nil {
-		return nil, fmt.Errorf("fetch shards: context is nil")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if len(shards) == 0 {
-		return nil, nil
-	}
+	if err := validateFetchRequest(ctx, maxMessages); err != nil { return nil, err }
+	if len(shards) == 0 { return nil, nil }
+
+	selected, durables := c.selectFetchConsumers(maxMessages, shards)
+	if len(selected) == 0 { return nil, nil }
+	results := c.fetchSelectedConsumers(ctx, maxMessages, selected, durables)
+	return collectFetchResults(results, maxMessages)
+}
+
+func validateFetchRequest(ctx context.Context, maxMessages int) error {
+	if maxMessages <= 0 { return fmt.Errorf("fetch shards: maxMessages must be > 0") }
+	if ctx == nil { return fmt.Errorf("fetch shards: context is nil") }
+	return ctx.Err()
+}
+
+func (c *Consumer) selectFetchConsumers(
+	maxMessages int,
+	shards []uint32,
+) ([]consumerKey, map[consumerKey]string) {
 	wanted := make(map[uint32]struct{}, len(shards))
-	for _, shard := range shards {
-		wanted[shard] = struct{}{}
-	}
+	for _, shard := range shards { wanted[shard] = struct{}{} }
 
 	c.mu.Lock()
-	keys := make([]consumerKey, 0, len(c.consumers))
-	for key := range c.consumers {
-		if _, ok := wanted[key.shard]; ok {
-			keys = append(keys, key)
-		}
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].shard != keys[j].shard {
-			return keys[i].shard < keys[j].shard
-		}
-		if keys[i].baseSubject != keys[j].baseSubject {
-			return keys[i].baseSubject < keys[j].baseSubject
-		}
-		return keys[i].ruleSet < keys[j].ruleSet
-	})
-	if len(keys) == 0 {
-		c.mu.Unlock()
-		return nil, nil
-	}
-	selectedCount := len(keys)
-	if selectedCount > maxMessages {
-		selectedCount = maxMessages
-	}
+	defer c.mu.Unlock()
+	keys := matchingConsumerKeys(c.consumers, wanted)
+	if len(keys) == 0 { return nil, nil }
+
+	selectedCount := min(len(keys), maxMessages)
 	start := int(c.fetchCursor % uint64(len(keys))) //nolint:gosec // bounded by len(keys)
 	selected := make([]consumerKey, selectedCount)
 	durables := make(map[consumerKey]string, selectedCount)
 	for i := 0; i < selectedCount; i++ {
-		selected[i] = keys[(start+i)%len(keys)]
-		durables[selected[i]] = c.consumers[selected[i]]
+		key := keys[(start+i)%len(keys)]
+		selected[i] = key
+		durables[key] = c.consumers[key]
 	}
 	c.fetchCursor = uint64((start + selectedCount) % len(keys)) //nolint:gosec // bounded by len(keys)
-	c.mu.Unlock()
+	return selected, durables
+}
 
-	type fetchResult struct {
-		deliveries []ports.Delivery
-		err        error
+func matchingConsumerKeys(consumers map[consumerKey]string, wanted map[uint32]struct{}) []consumerKey {
+	keys := make([]consumerKey, 0, len(consumers))
+	for key := range consumers {
+		if _, ok := wanted[key.shard]; ok { keys = append(keys, key) }
 	}
-	results := make(chan fetchResult, selectedCount)
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].shard != keys[j].shard { return keys[i].shard < keys[j].shard }
+		if keys[i].baseSubject != keys[j].baseSubject { return keys[i].baseSubject < keys[j].baseSubject }
+		return keys[i].ruleSet < keys[j].ruleSet
+	})
+	return keys
+}
+
+type shardFetchResult struct {
+	deliveries []ports.Delivery
+	err error
+}
+
+func (c *Consumer) fetchSelectedConsumers(
+	ctx context.Context,
+	maxMessages int,
+	selected []consumerKey,
+	durables map[consumerKey]string,
+) []shardFetchResult {
+	results := make(chan shardFetchResult, len(selected))
 	var wg sync.WaitGroup
-	baseBudget, remainder := maxMessages/selectedCount, maxMessages%selectedCount
+	baseBudget, remainder := maxMessages/len(selected), maxMessages%len(selected)
 	for i, key := range selected {
 		budget := baseBudget
-		if i < remainder {
-			budget++
-		}
+		if i < remainder { budget++ }
 		wg.Add(1)
-		go func(_ consumerKey, durable string, budget int) {
+		go func(key consumerKey, durable string, budget int) {
 			defer wg.Done()
-			consumer, err := c.js.Consumer(ctx, c.stream, durable)
-			if err != nil {
-				results <- fetchResult{err: fmt.Errorf("get consumer %q: %w", durable, err)}
-				return
-			}
-			batch, err := consumer.Fetch(budget, jetstream.FetchMaxWait(250*time.Millisecond))
-			if err != nil {
-				if errors.Is(err, natslib.ErrTimeout) {
-					results <- fetchResult{}
-					return
-				}
-				results <- fetchResult{err: fmt.Errorf("fetch consumer %q: %w", durable, err)}
-				return
-			}
-			deliveries := make([]ports.Delivery, 0, budget)
-			for msg := range batch.Messages() {
-				deliveries = append(deliveries, &jetstreamDelivery{msg: msg})
-			}
-			if batchErr := batch.Error(); batchErr != nil &&
-				!errors.Is(batchErr, natslib.ErrTimeout) &&
-				!errors.Is(batchErr, jetstream.ErrNoMessages) {
-				results <- fetchResult{deliveries: deliveries, err: fmt.Errorf("receive from consumer %q: %w", durable, batchErr)}
-				return
-			}
-			results <- fetchResult{deliveries: deliveries}
+			results <- c.fetchFromConsumer(ctx, durable, budget)
 		}(key, durables[key], budget)
 	}
 	wg.Wait()
 	close(results)
+	collected := make([]shardFetchResult, 0, len(selected))
+	for result := range results { collected = append(collected, result) }
+	return collected
+}
+
+func (c *Consumer) fetchFromConsumer(ctx context.Context, durable string, budget int) shardFetchResult {
+	consumer, err := c.js.Consumer(ctx, c.stream, durable)
+	if err != nil { return shardFetchResult{err: fmt.Errorf("get consumer %q: %w", durable, err)} }
+	batch, err := consumer.Fetch(budget, jetstream.FetchMaxWait(250*time.Millisecond))
+	if err != nil {
+		if errors.Is(err, natslib.ErrTimeout) { return shardFetchResult{} }
+		return shardFetchResult{err: fmt.Errorf("fetch consumer %q: %w", durable, err)}
+	}
+	deliveries := make([]ports.Delivery, 0, budget)
+	for msg := range batch.Messages() {
+		deliveries = append(deliveries, &jetstreamDelivery{msg: msg})
+	}
+	if batchErr := batch.Error(); isUnexpectedFetchError(batchErr) {
+		return shardFetchResult{deliveries: deliveries, err: fmt.Errorf("receive from consumer %q: %w", durable, batchErr)}
+	}
+	return shardFetchResult{deliveries: deliveries}
+}
+
+func isUnexpectedFetchError(err error) bool {
+	return err != nil && !errors.Is(err, natslib.ErrTimeout) && !errors.Is(err, jetstream.ErrNoMessages)
+}
+
+func collectFetchResults(results []shardFetchResult, maxMessages int) ([]ports.Delivery, error) {
 	deliveries := make([]ports.Delivery, 0, maxMessages)
 	var fetchErrs []error
-	for result := range results {
+	for _, result := range results {
 		deliveries = append(deliveries, result.deliveries...)
-		if result.err != nil {
-			fetchErrs = append(fetchErrs, result.err)
-		}
+		if result.err != nil { fetchErrs = append(fetchErrs, result.err) }
 	}
 	if len(deliveries) > maxMessages {
-		return deliveries, errors.Join(append(fetchErrs, fmt.Errorf("fetch invariant violated: got %d deliveries for limit %d", len(deliveries), maxMessages))...)
+		fetchErrs = append(fetchErrs, fmt.Errorf("fetch invariant violated: got %d deliveries for limit %d", len(deliveries), maxMessages))
 	}
 	return deliveries, errors.Join(fetchErrs...)
 }
