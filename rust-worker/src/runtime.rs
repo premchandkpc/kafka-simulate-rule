@@ -29,6 +29,13 @@ pub async fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
+fn bail_no_leases(config: &Config) -> Result<()> {
+    bail!(
+        "worker {} could not acquire any shard leases; verify replica count and lease availability",
+        config.worker_id
+    )
+}
+
 async fn connect_services(config: &Config) -> Result<(PgPool, jetstream::Context)> {
     let pool = PgPoolOptions::new().max_connections(20).connect(&config.database_url)
         .await.context("connect PostgreSQL")?;
