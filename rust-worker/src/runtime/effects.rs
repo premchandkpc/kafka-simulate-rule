@@ -1,5 +1,5 @@
 //! Outbox claiming, destination routing, and effect delivery.
-use crate::{config::Config, engine, runtime::{validate_subject, uuid_token}};
+use crate::{config::Config, engine::{self, EventEnvelope}, runtime::{validate_subject, uuid_token, scheduler::event_subject}};
 use anyhow::{anyhow, bail, Context, Result};
 use async_nats::jetstream;
 use chrono::Utc;
@@ -73,7 +73,13 @@ async fn send_effect(
     id: &str, execution_id: &str, tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str,
 ) -> Result<()> {
     match effect_type {
-        "emit" | "command" => {
+        "emit" => {
+            validate_subject(destination)?;
+            js.publish(destination.to_owned(), serde_json::to_vec(payload)?.into())
+                .await.context("publish effect to JetStream")?;
+            Ok(())
+        }
+        "command" => {
             send_external_effect(http, config, id, execution_id, tenant_id, destination, name, payload, effect_type).await
         }
         "emit_event" => {
