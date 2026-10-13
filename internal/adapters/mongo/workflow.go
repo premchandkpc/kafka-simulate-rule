@@ -115,7 +115,7 @@ func (r *WorkflowRepository) GetByTenantAndState(ctx context.Context, tenantID, 
 	if err != nil {
 		return nil, fmt.Errorf("get workflows by tenant and state: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var workflows []*domain.WorkflowInstance
 	for cursor.Next(ctx) {
@@ -145,7 +145,7 @@ func (r *WorkflowRepository) GetByCorrelation(ctx context.Context, tenantID, cor
 	if err != nil {
 		return nil, fmt.Errorf("get workflows by correlation: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var workflows []*domain.WorkflowInstance
 	for cursor.Next(ctx) {
@@ -276,7 +276,7 @@ func (r *WorkflowDefinitionRepository) List(ctx context.Context) ([]*domain.Work
 	if err != nil {
 		return nil, fmt.Errorf("list workflow definitions: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var defs []*domain.WorkflowDefinition
 	for cursor.Next(ctx) {
