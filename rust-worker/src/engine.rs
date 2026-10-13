@@ -3,6 +3,11 @@
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use rules::{Effect, RuleRevision};
+
+mod lease;
+mod rules;
+pub use lease::{acquire_lease, release_lease, renew_lease};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction, Row};
@@ -43,85 +48,6 @@ pub fn fnv1a32(bytes: &[u8]) -> u32 {
     let mut hash = 2_166_136_261_u32;
     for byte in bytes { hash ^= u32::from(*byte); hash = hash.wrapping_mul(16_777_619); }
     hash
-}
-
-#[derive(Debug, Deserialize)]
-struct RuleRevision {
-    tenant_scope: String,
-    rule_id: String,
-    revision: i64,
-    content_hash: String,
-    match_mode: String,
-    compiled: Vec<Rule>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Rule {
-    id: String,
-    #[serde(default)]
-    name: String,
-    priority: i64,
-    #[serde(rename = "when")]
-    predicate: Predicate,
-    #[serde(default)]
-    then: Vec<Action>,
-    #[serde(default)]
-    otherwise: Vec<Action>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Predicate {
-    #[serde(default)]
-    all: Option<Vec<Predicate>>,
-    #[serde(default)]
-    any: Option<Vec<Predicate>>,
-    #[serde(default)]
-    not: Option<Box<Predicate>>,
-    #[serde(default)]
-    path: Option<String>,
-    #[serde(default)]
-    op: Option<String>,
-    #[serde(default)]
-    value: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Action {
-    #[serde(default)]
-    emit: Option<EmitAction>,
-    #[serde(default)]
-    emit_event: Option<EmitEventAction>,
-    #[serde(default)]
-    command: Option<CommandAction>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EmitAction { topic: String, data: Value }
-
-#[derive(Debug, Deserialize)]
-struct EmitEventAction {
-    #[serde(rename = "type")]
-    event_type: String,
-    #[serde(default)]
-    partition_key: String,
-    #[serde(default)]
-    partition_key_policy: String,
-    #[serde(default)]
-    partition_key_path: String,
-    data: Value,
-}
-
-#[derive(Debug, Deserialize)]
-struct CommandAction { destination: String, name: String, data: Value }
-
-#[derive(Debug)]
-struct Effect {
-    id: String,
-    tenant_id: String,
-    destination: String,
-    name: String,
-    payload: Value,
-    effect_type: &'static str,
 }
 
 pub enum ProcessOutcome {
@@ -449,6 +375,7 @@ pub async fn release_lease(pool: &PgPool, shard: u32, owner: &str) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::rules::*;
 
     #[test]
     fn shard_hash_matches_fnv1a_contract() {
