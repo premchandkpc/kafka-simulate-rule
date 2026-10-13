@@ -77,7 +77,8 @@ func (r *ScheduledEventRepository) Claim(
 	eventIDs []string,
 	claimant string,
 	leaseTTL time.Duration,
-) ([]*domain.ScheduledEvent, error) {
+ ) ([]*domain.ScheduledEvent, error) {
+	if len(eventIDs) == 0 { return nil, nil }
 	if err := validateScheduledClaim(eventIDs, claimant, leaseTTL); err != nil { return nil, err }
 	now := time.Now().UTC()
 	expiresAt := now.Add(leaseTTL)
