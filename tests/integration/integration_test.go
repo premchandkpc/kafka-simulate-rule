@@ -198,7 +198,7 @@ func (m *mockOutbox) Insert(_ context.Context, effects []domain.OutboxEffect) er
 }
 
 // ClaimPending provides the corresponding repository operation.
-func (m *mockOutbox) ClaimPending(_ context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
+func (m *mockOutbox) ClaimPending(_ context.Context, batchSize int, _ string, _ time.Duration) ([]domain.OutboxEffect, error) {
 	var claimed []domain.OutboxEffect
 	for _, ef := range m.effects {
 		if ef.Status == domain.OutboxStatusPending && !ef.AvailableAt.After(time.Now().UTC()) {
@@ -212,7 +212,7 @@ func (m *mockOutbox) ClaimPending(_ context.Context, batchSize int, owner string
 }
 
 // MarkDelivered provides the corresponding repository operation.
-func (m *mockOutbox) MarkDelivered(_ context.Context, effectIDs []string, claimant string) error {
+func (m *mockOutbox) MarkDelivered(_ context.Context, effectIDs []string, _ string) error {
 	for _, effectID := range effectIDs {
 		if ef, ok := m.effects[effectID]; ok {
 			ef.Status = domain.OutboxStatusDelivered
@@ -222,7 +222,7 @@ func (m *mockOutbox) MarkDelivered(_ context.Context, effectIDs []string, claima
 }
 
 // ScheduleRetry provides the corresponding repository operation.
-func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
+func (m *mockOutbox) ScheduleRetry(_ context.Context, effectID, _ string, delay time.Duration, attempts int, errMsg string) error {
 	if ef, ok := m.effects[effectID]; ok {
 		ef.Attempts = attempts
 		ef.LastError = errMsg
@@ -232,7 +232,7 @@ func (m *mockOutbox) ScheduleRetry(ctx context.Context, effectID, claimant strin
 }
 
 // Quarantine provides the corresponding repository operation.
-func (m *mockOutbox) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
+func (m *mockOutbox) Quarantine(_ context.Context, effectID, _ string, errMsg string) error {
 	if ef, ok := m.effects[effectID]; ok {
 		ef.Status = domain.OutboxStatusQuarantined
 		ef.LastError = errMsg
