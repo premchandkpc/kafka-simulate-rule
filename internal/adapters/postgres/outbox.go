@@ -37,9 +37,13 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 }
 
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
-	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil { return nil, err }
+	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
+	    return nil, err
+	}
 	rows, err := r.db.Query(ctx, claimPendingOutboxSQL, batchSize, owner, claimTTL)
-	if err != nil { return nil, fmt.Errorf("claim pending: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("claim pending: %w", err)
+	}
 	defer rows.Close()
 	return scanOutboxEffects(rows)
 }
@@ -70,10 +74,14 @@ func scanOutboxEffects(rows pgx.Rows) ([]domain.OutboxEffect, error) {
 	var effects []domain.OutboxEffect
 	for rows.Next() {
 		effect, err := scanOutboxEffect(rows)
-		if err != nil { return nil, err }
+		if err != nil {
+		    return nil, err
+		}
 		effects = append(effects, effect)
 	}
-	if err := rows.Err(); err != nil { return nil, fmt.Errorf("iterate outbox rows: %w", err) }
+	if err := rows.Err(); err != nil {
+	    return nil, fmt.Errorf("iterate outbox rows: %w", err)
+	}
 	return effects, nil
 }
 
