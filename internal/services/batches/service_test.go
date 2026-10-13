@@ -114,7 +114,7 @@ func (m *memBatches) GetRun(_ context.Context, batchID string) (*domain.BatchRun
 	return m.runs[batchID], nil
 }
 
-func (m *memBatches) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
+func (m *memBatches) GetRunForTenant(_ context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	run := m.runs[batchID]
@@ -124,7 +124,7 @@ func (m *memBatches) GetRunForTenant(ctx context.Context, tenantID, batchID stri
 	return run, nil
 }
 
-func (m *memBatches) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
+func (m *memBatches) ListRuns(_ context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []*domain.BatchRun
