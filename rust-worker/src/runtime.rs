@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_nats::jetstream;
 use chrono::Utc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 use tokio::{task::JoinSet, time::{interval, MissedTickBehavior}};
 use tracing::{error, info, warn};
 
@@ -36,7 +36,7 @@ async fn connect_services(config: &Config) -> Result<(PgPool, jetstream::Context
 
     let client = async_nats::connect(config.nats_url.clone()).await.context("connect NATS")?;
     let js = jetstream::new(client);
-    js.get_stream(&config.stream).await
+    let _stream = js.get_stream(&config.stream).await
         .with_context(|| format!("get JetStream stream {}", config.stream))?;
     Ok((pool, js))
 }
