@@ -1,3 +1,4 @@
+// Package redis provides Redis-backed cache adapters.
 package redis
 
 import (
