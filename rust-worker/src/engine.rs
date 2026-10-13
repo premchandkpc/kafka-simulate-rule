@@ -1,7 +1,7 @@
 //! Shared-domain Rust implementation for FlowRule business-event processing.
 //! This module intentionally uses the existing PostgreSQL schema and event contract.
 use anyhow::{bail, Context, Result};
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use self::rules::{Effect, RuleRevision};
 
