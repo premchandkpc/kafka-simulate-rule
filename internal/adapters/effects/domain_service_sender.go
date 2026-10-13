@@ -146,7 +146,7 @@ func dialDomainService(ctx context.Context, network, address string, allowPrivat
 	if err != nil { return nil, err }
 	ips, err := resolveDomainServiceIPs(ctx, host, allowPrivate)
 	if err != nil { return nil, err }
-	return dialResolvedDomainServiceIPs(ctx, network, host, port, ips)
+	return dialResolvedDomainServiceIPs(ctx, network, port, ips)
 }
 
 func parseDomainServiceAddress(address string) (string, string, error) {
@@ -179,7 +179,7 @@ func resolveDomainServiceIPs(ctx context.Context, host string, allowPrivate bool
 
 func dialResolvedDomainServiceIPs(
 	ctx context.Context,
-	network, host, port string,
+	network, port string,
 	ips []net.IP,
 ) (net.Conn, error) {
 	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
