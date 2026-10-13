@@ -65,66 +65,57 @@ func (s *Service) ownsPartition(tenantID, partitionKey string) bool {
 	return s.leaseProvider.IsOwner(envelope.VirtualShard(s.numShards))
 }
 
+type batchGroupKey struct {
+	tenantID string
+	partitionKey string
+	ruleSet string
+}
+
 func (s *Service) Tick(ctx context.Context) (int, error) {
-	if s.cfg.Mode == domain.BatchModeNone {
-		return 0, nil
-	}
+	if s.cfg.Mode == domain.BatchModeNone { return 0, nil }
+	entries, err := s.loadUnbatchedEntries(ctx)
+	if err != nil { return 0, err }
+	groups, order := groupInboxEntries(entries)
+	return s.processReadyGroups(ctx, groups, order)
+}
 
+func (s *Service) loadUnbatchedEntries(ctx context.Context) ([]*domain.InboxEntry, error) {
 	limit := s.cfg.MaxBatch * 10
-	if limit <= 0 {
-		limit = 400
-	}
-
+	if limit <= 0 { limit = 400 }
 	entries, err := s.batches.ListUnbatched(ctx, limit)
-	if err != nil {
-		return 0, fmt.Errorf("list unbatched: %w", err)
-	}
+	if err != nil { return nil, fmt.Errorf("list unbatched: %w", err) }
+	return entries, nil
+}
 
-	if len(entries) == 0 {
-		return 0, nil
+func groupInboxEntries(entries []*domain.InboxEntry) (map[batchGroupKey][]*domain.InboxEntry, []batchGroupKey) {
+	groups := make(map[batchGroupKey][]*domain.InboxEntry)
+	order := make([]batchGroupKey, 0)
+	for _, entry := range entries {
+		if entry.TenantID == "" || entry.PartitionKey == "" || entry.RuleSet == "" { continue }
+		key := batchGroupKey{tenantID: entry.TenantID, partitionKey: entry.PartitionKey, ruleSet: entry.RuleSet}
+		if _, exists := groups[key]; !exists { order = append(order, key) }
+		groups[key] = append(groups[key], entry)
 	}
+	return groups, order
+}
 
-	type groupKey struct {
-		tenantID     string
-		partitionKey string
-		ruleSet      string
-	}
-	groups := make(map[groupKey][]*domain.InboxEntry)
-	order := make([]groupKey, 0)
-	for _, e := range entries {
-		if e.TenantID == "" || e.PartitionKey == "" || e.RuleSet == "" {
-			continue
-		}
-		key := groupKey{tenantID: e.TenantID, partitionKey: e.PartitionKey, ruleSet: e.RuleSet}
-		if _, ok := groups[key]; !ok {
-			order = append(order, key)
-		}
-		groups[key] = append(groups[key], e)
-	}
-
+func (s *Service) processReadyGroups(
+	ctx context.Context,
+	groups map[batchGroupKey][]*domain.InboxEntry,
+	order []batchGroupKey,
+) (int, error) {
 	formed := 0
 	for _, key := range order {
 		members := groups[key]
 		sort.SliceStable(members, func(i, j int) bool {
 			return members[i].FirstSeenAt.Before(members[j].FirstSeenAt)
 		})
-
-		if !s.ready(members) {
-			continue
-		}
-		// A worker only processes batches for shards whose lease it currently
-		// owns. Other workers will handle those partitions on their own ticks.
-		if !s.ownsPartition(members[0].TenantID, members[0].PartitionKey) {
-			continue
-		}
-
-		n, err := s.processGroup(ctx, members)
-		if err != nil {
-			return formed, err
-		}
-		formed += n
+		if !s.ready(members) { continue }
+		if !s.ownsPartition(members[0].TenantID, members[0].PartitionKey) { continue }
+		count, err := s.processGroup(ctx, members)
+		if err != nil { return formed, err }
+		formed += count
 	}
-
 	return formed, nil
 }
 
