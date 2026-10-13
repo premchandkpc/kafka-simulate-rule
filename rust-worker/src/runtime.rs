@@ -2,7 +2,7 @@
 use crate::{engine::{self, EventEnvelope, ProcessOutcome}, Config};
 use anyhow::{anyhow, Context, Result};
 use async_nats::jetstream::{self, consumer::pull};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
@@ -25,9 +25,6 @@ pub async fn run(config: Config) -> Result<()> {
     }
     info!(owned_shards = leases.len(), "Rust worker acquired shard leases");
 
-    let shutdown = tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-    });
     let mut tasks = JoinSet::new();
     for (shard, token) in leases.iter() {
         let subjects = subjects_for_shard(*shard, &config);
@@ -72,7 +69,6 @@ pub async fn run(config: Config) -> Result<()> {
     }
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
-    shutdown.abort();
     for shard in leases.keys() {
         if let Err(err) = engine::release_lease(&pool, *shard, &config.worker_id).await {
             warn!(shard, error=%err, "failed to release shard lease");
@@ -264,16 +260,14 @@ async fn send_effect(
     match effect_type {
         "emit" => {
             validate_subject(destination)?;
-            js.publish(destination.to_owned(), serde_json::to_vec(payload)?.into()).await?
-                .await.context("wait for JetStream publish acknowledgement")?;
+            js.publish(destination.to_owned(), serde_json::to_vec(payload)?.into()).await.context("publish effect to JetStream")?;
             Ok(())
         }
         "emit_event" => {
             let event: EventEnvelope = serde_json::from_value(payload.clone()).context("decode child event")?;
             let shard = event.virtual_shard(config.num_shards)?;
             let subject = event_subject(&event.event_type, shard, &config.rulesets);
-            js.publish(subject, serde_json::to_vec(&event)?.into()).await?
-                .await.context("wait for child-event publish acknowledgement")?;
+            js.publish(subject, serde_json::to_vec(&event)?.into()).await.context("publish child event to JetStream")?;
             Ok(())
         }
         "command" | "service_event" => {
@@ -322,8 +316,7 @@ async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config: Config) ->
             let send_result = async {
                 let shard = event.virtual_shard(config.num_shards)?;
                 let subject = event_subject(&event.event_type, shard, &config.rulesets);
-                js.publish(subject, serde_json::to_vec(&event)?.into()).await?
-                    .await.context("wait for scheduled-event publish acknowledgement")?;
+                js.publish(subject, serde_json::to_vec(&event)?.into()).await.context("publish scheduled event to JetStream")?;
                 Ok::<(), anyhow::Error>(())
             }.await;
             match send_result {
@@ -354,7 +347,7 @@ fn event_subject(event_type: &str, shard: u32, rulesets: &[String]) -> String {
 }
 
 fn validate_subject(subject: &str) -> Result<()> {
-    if subject.trim().is_empty() || subject.split('.').any(|part| part.is_empty() || part.contains(['*','>'])) {
+    if subject.trim().is_empty() || subject.split('.').any(|part| part.is_empty() || (part.contains('*') || part.contains('>'))) {
         bail!("invalid concrete NATS subject");
     }
     Ok(())
