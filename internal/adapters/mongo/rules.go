@@ -102,7 +102,7 @@ func (r *Repository) List(ctx context.Context, tenantScope string) ([]*domain.Ru
 	if err != nil {
 		return nil, fmt.Errorf("list revisions: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var revisions []*domain.RuleRevision
 	for cursor.Next(ctx) {
@@ -294,7 +294,7 @@ func (r *ActivationRepository) List(ctx context.Context, tenantScope string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("list activations: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var activations []*domain.RuleActivation
 	for cursor.Next(ctx) {

@@ -66,8 +66,8 @@ type testQuarantineRepository struct {
 }
 
 func (r *testQuarantineRepository) Save(_ context.Context, entry *domain.QuarantineEntry) error {
-	copy := *entry
-	r.saved = append(r.saved, &copy)
+	entryCopy := *entry
+	r.saved = append(r.saved, &entryCopy)
 	return r.saveErr
 }
 func (r *testQuarantineRepository) Get(context.Context, string, string) (*domain.QuarantineEntry, error) {

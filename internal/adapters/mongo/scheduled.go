@@ -56,7 +56,7 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 	if err != nil {
 		return nil, fmt.Errorf("get due scheduled events: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []*domain.ScheduledEvent
 	for cursor.Next(ctx) {
@@ -264,7 +264,7 @@ func (r *ScheduledEventRepository) List(ctx context.Context, tenantID string, li
 	if err != nil {
 		return nil, fmt.Errorf("list scheduled events: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []*domain.ScheduledEvent
 	for cursor.Next(ctx) {

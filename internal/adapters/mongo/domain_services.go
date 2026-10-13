@@ -56,7 +56,7 @@ func (r *DomainServiceRepository) ListDomains(ctx context.Context, tenantID stri
 	if err != nil {
 		return nil, fmt.Errorf("list tenant domains: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	items := make([]*domain.TenantDomain, 0)
 	for cursor.Next(ctx) {
 		var doc tenantDomainDoc
@@ -121,7 +121,7 @@ func (r *DomainServiceRepository) ListServices(ctx context.Context, tenantID str
 	if err != nil {
 		return nil, fmt.Errorf("list tenant services: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	items := make([]*domain.DomainService, 0)
 	for cursor.Next(ctx) {
 		var doc domainServiceDoc
@@ -176,7 +176,7 @@ func (r *DomainServiceRepository) ListSubscribersForEvent(ctx context.Context, t
 	if err != nil {
 		return nil, fmt.Errorf("list event subscribers: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 	items := make([]*domain.DomainService, 0)
 	for cursor.Next(ctx) {
 		var doc domainServiceDoc

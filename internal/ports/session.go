@@ -14,6 +14,7 @@ type SessionStore interface {
 	DeleteExpired(ctx context.Context) (int64, error)
 }
 
+// Session represents a user session.
 type Session struct {
 	ID        string
 	UserID    string

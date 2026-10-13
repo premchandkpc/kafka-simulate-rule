@@ -13,6 +13,7 @@ type DistributedLock interface {
 	Lock(ctx context.Context, key string, ttl time.Duration) (LockGuard, error)
 }
 
+// LockGuard represents a held lock with release and extend capabilities.
 type LockGuard interface {
 	Key() string
 	Token() string

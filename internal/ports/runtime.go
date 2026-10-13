@@ -21,6 +21,7 @@ type KeyQueue interface {
 	Stats() QueueStats
 }
 
+// QueueItem represents a work item in the key queue.
 type QueueItem struct {
 	Event        *domain.EventEnvelope
 	Delivery     Delivery
@@ -31,6 +32,7 @@ type QueueItem struct {
 	SubmittedAt  time.Time
 }
 
+// QueueStats represents queue statistics.
 type QueueStats struct {
 	ActiveKeys     int
 	TotalQueued    int64
@@ -40,6 +42,7 @@ type QueueStats struct {
 	MaxGlobalDepth int
 }
 
+// HotKeyInfo represents a hot key in the queue.
 type HotKeyInfo struct {
 	PartitionKey string
 	Depth        int

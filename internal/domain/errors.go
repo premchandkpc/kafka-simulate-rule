@@ -17,6 +17,7 @@ var (
 	// ErrInvalidEventEnvelope indicates that an event envelope is invalid.
 	ErrInvalidEventEnvelope = errors.New("invalid event envelope")
 
+	// ErrRuleIDRequired indicates that a rule ID is required.
 	ErrRuleIDRequired        = errors.New("rule id is required")
 	ErrRevisionRequired      = errors.New("revision is required")
 	ErrRuleSourceRequired    = errors.New("rule source is required")
@@ -91,6 +92,7 @@ var (
 type ErrorClass string
 
 const (
+	// ErrorClassValidation indicates a validation error.
 	ErrorClassValidation    ErrorClass = "validation"
 	ErrorClassRule          ErrorClass = "rule"
 	ErrorClassEvaluation    ErrorClass = "evaluation"

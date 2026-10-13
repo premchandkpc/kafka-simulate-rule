@@ -311,7 +311,7 @@ func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID strin
 	if err != nil {
 		return nil, fmt.Errorf("get outbox by execution: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var effects []domain.OutboxEffect
 	for cursor.Next(ctx) {
@@ -349,7 +349,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 	if err != nil {
 		return nil, fmt.Errorf("get pending outbox: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var effects []domain.OutboxEffect
 	for cursor.Next(ctx) {

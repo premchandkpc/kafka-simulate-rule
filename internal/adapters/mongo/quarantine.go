@@ -41,7 +41,7 @@ func (r *QuarantineRepository) BackfillEffectTenantIDs(ctx context.Context) erro
 	if err != nil {
 		return fmt.Errorf("find legacy effect quarantine entries: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	for cursor.Next(ctx) {
 		var entry QuarantineDoc
@@ -176,7 +176,7 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	if err != nil {
 		return nil, fmt.Errorf("list quarantine: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var entries []*domain.QuarantineEntry
 	for cursor.Next(ctx) {

@@ -100,7 +100,7 @@ func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, l
 	if err != nil {
 		return nil, fmt.Errorf("get unprocessed events: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var events []*domain.EventEnvelope
 	for cursor.Next(ctx) {

@@ -26,7 +26,7 @@ func (r *ContractRegistry) key(name, version string) string {
 	return name + ":" + version
 }
 
-// ContractRegistry.Get retrieves, stores, or lists contract schemas.
+// Get retrieves a contract schema by name and version.
 func (r *ContractRegistry) Get(_ context.Context, name string, version string) (*domain.ContractSchema, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -37,7 +37,7 @@ func (r *ContractRegistry) Get(_ context.Context, name string, version string) (
 	return schema, nil
 }
 
-// ContractRegistry.Register retrieves, stores, or lists contract schemas.
+// Register stores a contract schema.
 func (r *ContractRegistry) Register(_ context.Context, schema *domain.ContractSchema) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -45,7 +45,7 @@ func (r *ContractRegistry) Register(_ context.Context, schema *domain.ContractSc
 	return nil
 }
 
-// ContractRegistry.List retrieves, stores, or lists contract schemas.
+// List returns all contract schemas matching the given name.
 func (r *ContractRegistry) List(_ context.Context, name string) ([]domain.ContractSchema, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

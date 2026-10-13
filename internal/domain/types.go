@@ -69,6 +69,7 @@ type MatchMode string
 const (
 	// MatchModeFirstMatch identifies the match mode first match value.
 	MatchModeFirstMatch MatchMode = "first_match"
+	// MatchModeAllMatches identifies the match mode all matches value.
 	MatchModeAllMatches MatchMode = "all_matches"
 )
 
@@ -171,14 +172,23 @@ type Operator string
 const (
 	// OpEq identifies the op eq value.
 	OpEq        Operator = "eq"
+	// OpNeq identifies the op neq value.
 	OpNeq       Operator = "neq"
+	// OpGt identifies the op gt value.
 	OpGt        Operator = "gt"
+	// OpGte identifies the op gte value.
 	OpGte       Operator = "gte"
+	// OpLt identifies the op lt value.
 	OpLt        Operator = "lt"
+	// OpLte identifies the op lte value.
 	OpLte       Operator = "lte"
+	// OpIn identifies the op in value.
 	OpIn        Operator = "in"
+	// OpNotIn identifies the op not_in value.
 	OpNotIn     Operator = "not_in"
+	// OpExists identifies the op exists value.
 	OpExists    Operator = "exists"
+	// OpNotExists identifies the op not_exists value.
 	OpNotExists Operator = "not_exists"
 )
 
@@ -211,7 +221,9 @@ type PartitionKeyPolicy string
 const (
 	// PartitionKeyPolicyExplicit identifies the partition key policy explicit value.
 	PartitionKeyPolicyExplicit PartitionKeyPolicy = "explicit"  // Use literal PartitionKey value
+	// PartitionKeyPolicyInherit inherits the partition key from the parent event.
 	PartitionKeyPolicyInherit  PartitionKeyPolicy = "inherit"   // Inherit from parent event
+	// PartitionKeyPolicyFromData derives the partition key from JSON path in parent data.
 	PartitionKeyPolicyFromData PartitionKeyPolicy = "from_data" // Derive from JSON path in parent data
 )
 
@@ -251,8 +263,11 @@ type EffectType string
 const (
 	// EffectTypeEmit identifies the effect type emit value.
 	EffectTypeEmit         EffectType = "emit"
+	// EffectTypeEmitEvent identifies the effect type emit_event value.
 	EffectTypeEmitEvent    EffectType = "emit_event"
+	// EffectTypeCommand identifies the effect type command value.
 	EffectTypeCommand      EffectType = "command"
+	// EffectTypeServiceEvent identifies the effect type service_event value.
 	EffectTypeServiceEvent EffectType = "service_event"
 )
 
@@ -295,8 +310,11 @@ type ExecutionStatus string
 const (
 	// ExecutionStatusPending identifies the execution status pending value.
 	ExecutionStatusPending     ExecutionStatus = "pending"
+	// ExecutionStatusCompleted identifies the execution status completed value.
 	ExecutionStatusCompleted   ExecutionStatus = "completed"
+	// ExecutionStatusFailed identifies the execution status failed value.
 	ExecutionStatusFailed      ExecutionStatus = "failed"
+	// ExecutionStatusQuarantined identifies the execution status quarantined value.
 	ExecutionStatusQuarantined ExecutionStatus = "quarantined"
 )
 
@@ -359,9 +377,13 @@ type OutboxStatus string
 const (
 	// OutboxStatusPending identifies the outbox status pending value.
 	OutboxStatusPending     OutboxStatus = "pending"
+	// OutboxStatusClaimed identifies the outbox status claimed value.
 	OutboxStatusClaimed     OutboxStatus = "claimed"
+	// OutboxStatusDelivered identifies the outbox status delivered value.
 	OutboxStatusDelivered   OutboxStatus = "delivered"
+	// OutboxStatusFailed identifies the outbox status failed value.
 	OutboxStatusFailed      OutboxStatus = "failed"
+	// OutboxStatusQuarantined identifies the outbox status quarantined value.
 	OutboxStatusQuarantined OutboxStatus = "quarantined"
 )
 
@@ -429,6 +451,7 @@ type InboxStatus string
 const (
 	// InboxStatusProcessing identifies the inbox status processing value.
 	InboxStatusProcessing InboxStatus = "processing"
+	// InboxStatusCommitted identifies the inbox status committed value.
 	InboxStatusCommitted  InboxStatus = "committed"
 )
 
@@ -559,9 +582,13 @@ type WorkflowInstance struct {
 const (
 	// WorkflowStatusPending identifies the workflow status pending value.
 	WorkflowStatusPending   = "pending"
+	// WorkflowStatusRunning identifies the workflow status running value.
 	WorkflowStatusRunning   = "running"
+	// WorkflowStatusCompleted identifies the workflow status completed value.
 	WorkflowStatusCompleted = "completed"
+	// WorkflowStatusFailed identifies the workflow status failed value.
 	WorkflowStatusFailed    = "failed"
+	// WorkflowStatusPaused identifies the workflow status paused value.
 	WorkflowStatusPaused    = "paused"
 )
 
@@ -606,7 +633,9 @@ type WorkflowStateType string
 const (
 	// WorkflowStateTypeStart identifies the workflow state type start value.
 	WorkflowStateTypeStart        WorkflowStateType = "start"
+	// WorkflowStateTypeEnd identifies the workflow state type end value.
 	WorkflowStateTypeEnd          WorkflowStateType = "end"
+	// WorkflowStateTypeIntermediate identifies the workflow state type intermediate value.
 	WorkflowStateTypeIntermediate WorkflowStateType = "intermediate"
 )
 

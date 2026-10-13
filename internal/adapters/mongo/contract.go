@@ -68,7 +68,7 @@ func (r *ContractRegistry) List(ctx context.Context, name string) ([]*domain.Con
 	if err != nil {
 		return nil, fmt.Errorf("list contracts: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var schemas []*domain.ContractSchema
 	for cursor.Next(ctx) {
