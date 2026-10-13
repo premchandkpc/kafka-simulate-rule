@@ -40,16 +40,36 @@ func (r *WorkflowRepository) collection(name string) *mongo.Collection {
 
 // Save persists or updates the corresponding record.
 func (r *WorkflowRepository) Save(ctx context.Context, workflow *domain.WorkflowInstance) error {
+	if workflow == nil {
+		return fmt.Errorf("workflow is required")
+	}
 	coll := r.collection(collectionWorkflowInstances)
 	doc := WorkflowDocFromDomain(workflow)
 	_, err := coll.InsertOne(ctx, doc)
-	if err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return nil
-		}
+	if err == nil {
+		return nil
+	}
+	if !mongo.IsDuplicateKeyError(err) {
 		return fmt.Errorf("save workflow: %w", err)
 	}
+
+	// A duplicate is idempotent only when the existing workflow has the same
+	// immutable identity. In particular, a workflow ID owned by another tenant
+	// must not be reported as a successful create.
+	existing, lookupErr := r.Get(ctx, workflow.TenantID, workflow.WorkflowID)
+	if lookupErr != nil {
+		return fmt.Errorf("verify duplicate workflow: %w", lookupErr)
+	}
+	if existing == nil || !sameWorkflowCreateIdentity(existing.TenantID, existing.WorkflowType, workflow) {
+		return domain.ErrWorkflowConflict
+	}
 	return nil
+}
+
+func sameWorkflowCreateIdentity(existingTenantID, existingWorkflowType string, requested *domain.WorkflowInstance) bool {
+	return requested != nil &&
+		existingTenantID == requested.TenantID &&
+		existingWorkflowType == requested.WorkflowType
 }
 
 // Get retrieves records matching the supplied criteria.
