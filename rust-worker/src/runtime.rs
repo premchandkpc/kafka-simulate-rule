@@ -163,7 +163,7 @@ async fn consume_shard_subject(
                     Ok(value) => value,
                     Err(err) => {
                         persist_quarantine(&pool, "event", "unknown", None, &message.payload, &err.to_string()).await?;
-                        message.ack().await.context("ack quarantined invalid JSON event")?;
+                        message.ack().await.map_err(|err| anyhow!("ack quarantined invalid JSON event: {err}"))?;
                         continue;
                     }
                 };
@@ -171,28 +171,28 @@ async fn consume_shard_subject(
                 if computed_shard != shard {
                     let err = format!("message routed to shard {shard} but envelope hashes to {computed_shard}");
                     persist_quarantine(&pool, "event", &envelope.id, Some(&envelope.tenant_id), &message.payload, &err).await?;
-                    message.ack().await.context("ack quarantined misrouted event")?;
+                    message.ack().await.map_err(|err| anyhow!("ack quarantined misrouted event: {err}"))?;
                     continue;
                 }
                 match engine::process_event(&pool, &envelope, &config.worker_id, fencing_token, config.num_shards).await {
                     Ok(ProcessOutcome::Processed { execution_id, decision_hash, matched_rules }) => {
                         info!(shard, event_id=%envelope.id, execution_id=%execution_id, decision_hash=%decision_hash,
                             matched_rules=?matched_rules, "event committed");
-                        message.ack().await.context("ack committed event")?;
+                        message.ack().await.map_err(|err| anyhow!("ack committed event: {err}"))?;
                     }
                     Ok(ProcessOutcome::Duplicate { execution_id }) => {
                         info!(shard, event_id=%envelope.id, execution_id=%execution_id, "duplicate event confirmed");
-                        message.ack().await.context("ack confirmed duplicate")?;
+                        message.ack().await.map_err(|err| anyhow!("ack confirmed duplicate: {err}"))?;
                     }
                     Err(err) if is_permanent_event_error(&err) => {
                         persist_quarantine(&pool, "event", &envelope.id, Some(&envelope.tenant_id), &message.payload, &err.to_string()).await
                             .context("persist permanent event failure to quarantine")?;
-                        message.ack().await.context("ack quarantined permanent event")?;
+                        message.ack().await.map_err(|err| anyhow!("ack quarantined permanent event: {err}"))?;
                     }
                     Err(err) => {
                         warn!(shard, event_id=%envelope.id, error=%err, "event processing failed; scheduling retry");
                         message.ack_with(jetstream::AckKind::Nak(Some(config.retry_delay)))
-                            .await.context("nak failed event for retry")?;
+                            .await.map_err(|err| anyhow!("nak failed event for retry: {err}"))?;
                     }
                 }
             }
