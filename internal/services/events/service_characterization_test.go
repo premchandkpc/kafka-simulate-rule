@@ -150,3 +150,25 @@ func TestProcessReturnsExistingExecutionForRedelivery(t *testing.T) {
 		t.Fatal("duplicate read path unexpectedly committed a transaction")
 	}
 }
+
+func TestProcessReturnsDuplicateErrorWhenInboxInsertLosesRaceWithoutExecution(t *testing.T) {
+	ctx := context.Background()
+	inbox := &duplicateInboxRepository{}
+	tx := &eventTxStub{ctx: ctx}
+	repos := ports.EventTxRepos{Inbox: inbox, ShardLeases: shardLeaseStub{}}
+	service := NewService(
+		nil, nil, nil, domain.SystemClock{}, transactionManagerStub{tx: tx},
+		func(ports.Transaction) (ports.EventTxRepos, error) { return repos, nil },
+	)
+
+	_, err := service.Process(ctx, testEnvelope(), 1, 0, "worker-a")
+	if !errors.Is(err, domain.ErrInboxDuplicate) {
+		t.Fatalf("Process() error = %v, want ErrInboxDuplicate", err)
+	}
+	if inbox.inserts != 1 {
+		t.Fatalf("inbox Insert() calls = %d, want 1", inbox.inserts)
+	}
+	if tx.committed {
+		t.Fatal("transaction committed after an unresolved inbox deduplication conflict")
+	}
+}
