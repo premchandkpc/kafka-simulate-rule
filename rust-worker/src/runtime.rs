@@ -309,7 +309,13 @@ async fn send_effect(
 }
 
 async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str, execution_id: &str, tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str) -> Result<()> {
-    if config.effect_destination_url.trim().is_empty() { bail!("EFFECT_DESTINATION_URL is required for external effects"); }
+    if config.effect_destination_url.trim().is_empty() {
+        if matches!(config.app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test") {
+            info!(effect_id = id, destination, name, "development fake destination accepted effect");
+            return Ok(());
+        }
+        bail!("EFFECT_DESTINATION_URL is required for external effects");
+    }
     let mut url = reqwest::Url::parse(&config.effect_destination_url).context("parse EFFECT_DESTINATION_URL")?;
     {
         let mut segments = url.path_segments_mut().map_err(|_| anyhow!("EFFECT_DESTINATION_URL cannot be a base URL"))?;
