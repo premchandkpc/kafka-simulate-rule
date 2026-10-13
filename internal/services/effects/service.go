@@ -19,6 +19,7 @@ type Service struct {
 	claimant     string
 }
 
+// NewService creates a new effects Service for publishing, retrying, and quarantining effects.
 func NewService(
 	outbox ports.OutboxRepository,
 	effectSender ports.EffectSender,

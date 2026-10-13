@@ -19,12 +19,14 @@ import (
 
 const maxDomainServicePayloadBytes = 1 << 20
 
+// DomainServiceSender delivers effects to external HTTP endpoints.
 type DomainServiceSender struct {
 	services     ports.DomainServiceRepository
 	client       *http.Client
 	allowPrivate bool
 }
 
+// NewDomainServiceSender creates a new DomainServiceSender.
 func NewDomainServiceSender(services ports.DomainServiceRepository, allowPrivate bool) *DomainServiceSender {
 	transport := &http.Transport{
 		Proxy: nil,

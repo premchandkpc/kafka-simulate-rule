@@ -43,29 +43,12 @@ type Compiler struct {
 	limits Limits
 }
 
+// NewCompiler creates a new Compiler with the given limits.
 func NewCompiler(limits Limits) *Compiler {
 	return &Compiler{limits: limits}
 }
 
-type rawRuleSet struct {
-	RuleSet       string              `json:"rule_set"`
-	Revision      int64               `json:"revision"`
-	Mode          string              `json:"mode"`
-	Rules         json.RawMessage     `json:"rules"`
-	InputContract *domain.ContractRef `json:"input_contract,omitempty"`
-}
-
-type rawRule struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name,omitempty"`
-	Description string           `json:"description,omitempty"`
-	Tags        []string         `json:"tags,omitempty"`
-	Priority    int              `json:"priority"`
-	When        domain.Predicate `json:"when"`
-	Then        []domain.Action  `json:"then"`
-	Otherwise   []domain.Action  `json:"otherwise,omitempty"`
-}
-
+// Compile parses and validates a rule set source, returning a compiled RuleRevision.
 func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error) {
 	rawSet, err := c.parseRuleSet(source)
 	if err != nil {
@@ -102,6 +85,27 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 		CreatedAt:       domain.SystemClock{}.Now(),
 	}
 	return revision, nil
+}
+
+// rawRuleSet represents the raw JSON structure of a rule set.
+type rawRuleSet struct {
+	RuleSet       string              `json:"rule_set"`
+	Revision      int64               `json:"revision"`
+	Mode          string              `json:"mode"`
+	Rules         json.RawMessage     `json:"rules"`
+	InputContract *domain.ContractRef `json:"input_contract,omitempty"`
+}
+
+// rawRule represents a single raw rule from the JSON input.
+type rawRule struct {
+	ID          string           `json:"id"`
+	Name        string           `json:"name,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Tags        []string         `json:"tags,omitempty"`
+	Priority    int              `json:"priority"`
+	When        domain.Predicate `json:"when"`
+	Then        []domain.Action  `json:"then"`
+	Otherwise   []domain.Action  `json:"otherwise,omitempty"`
 }
 
 // parseRuleSet parses the raw JSON rule set into structured data.

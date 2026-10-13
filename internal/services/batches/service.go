@@ -1,3 +1,6 @@
+// Package batches provides batch processing for events.
+// It groups events by tenant, partition key, and rule set, and processes them when
+// batch criteria (size or time window) are met.
 package batches
 
 import (
@@ -12,6 +15,9 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// Service processes batched events based on configured batch mode.
+// It groups events by tenant, partition key, and rule set, and processes them
+// when batch criteria (accumulation size or time window) are satisfied.
 type Service struct {
 	batches       ports.BatchRepository
 	events        ports.EventProcessor
@@ -22,6 +28,7 @@ type Service struct {
 	numShards     uint32
 }
 
+// NewService creates a new batch Service with the given dependencies.
 func NewService(
 	batches ports.BatchRepository,
 	events ports.EventProcessor,
@@ -37,9 +44,9 @@ func NewService(
 	}
 }
 
-// NewServiceWithLeaseProvider wires worker-owned shard fencing into batch
-// execution. Batch-generated events must obey the same lease invariant as
-// ordinary events; a synthetic token or fencing bypass is never permitted.
+// NewServiceWithLeaseProvider creates a batch Service with lease provider
+// for fencing token validation. Batch events must obey the same lease invariant
+// as ordinary events; a synthetic token or fencing bypass is never permitted.
 func NewServiceWithLeaseProvider(
 	batches ports.BatchRepository,
 	events ports.EventProcessor,
@@ -72,6 +79,8 @@ type batchGroupKey struct {
 	ruleSet      string
 }
 
+// Tick processes due batches based on the configured batch mode.
+// Returns the number of batches formed and an error if any.
 func (s *Service) Tick(ctx context.Context) (int, error) {
 	if s.cfg.Mode == domain.BatchModeNone {
 		return 0, nil

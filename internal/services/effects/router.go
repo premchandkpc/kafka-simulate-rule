@@ -9,8 +9,7 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
-// Router sends internal child events to the broker and delegates all other
-// effects to the configured external destination.
+// Router sends effects to the broker (for child events) or to external destinations.
 type Router struct {
 	publisher   ports.EventPublisher
 	external    ports.EffectSender
@@ -40,6 +39,9 @@ func NewRouterWithConfig(publisher ports.EventPublisher, external ports.EffectSe
 	return router
 }
 
+// Send routes an effect to the appropriate destination based on its type.
+// Child events go to the broker publisher, service events to the service sender,
+// and all other effects to the external sender.
 func (r *Router) Send(ctx context.Context, effect *domain.Effect, idempotencyKey string) error {
 	if effect == nil {
 		return fmt.Errorf("send effect: effect is nil")

@@ -1,3 +1,6 @@
+// Package domainservices manages tenant domains and services.
+// It provides CRUD operations for domains and services, and validates
+// endpoint URLs and event type configurations.
 package domainservices
 
 import (
@@ -13,11 +16,14 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
-var (
-	ErrInvalidInput = errors.New("invalid domain service input")
-	ErrNotFound     = errors.New("domain or service not found")
-	ErrConflict     = errors.New("domain or service name already exists")
-)
+// ErrInvalidInput indicates invalid input for domain or service operations.
+var ErrInvalidInput = errors.New("invalid domain service input")
+
+// ErrNotFound indicates a domain or service was not found.
+var ErrNotFound = errors.New("domain or service not found")
+
+// ErrConflict indicates a domain or service name already exists.
+var ErrConflict = errors.New("domain or service name already exists")
 
 var (
 	namePattern      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -29,12 +35,15 @@ const (
 	maxDomainsPerService   = 25
 )
 
+// Service manages tenant domains and services.
+// It handles CRUD operations, validation, and event type subscription queries.
 type Service struct {
 	repository ports.DomainServiceRepository
 	clock      ports.Clock
 	allowHTTP  bool
 }
 
+// NewService creates a new domain Service with the given repository and clock.
 func NewService(repository ports.DomainServiceRepository, clock ports.Clock, allowHTTP bool) *Service {
 	if clock == nil {
 		clock = domain.SystemClock{}
@@ -42,6 +51,7 @@ func NewService(repository ports.DomainServiceRepository, clock ports.Clock, all
 	return &Service{repository: repository, clock: clock, allowHTTP: allowHTTP}
 }
 
+// SaveDomain creates or updates a tenant domain.
 func (s *Service) SaveDomain(ctx context.Context, tenantID string, item *domain.TenantDomain) (*domain.TenantDomain, error) {
 	if err := normalizeAndValidateDomain(item, tenantID); err != nil {
 		return nil, err
@@ -121,6 +131,7 @@ func (s *Service) persistDomain(ctx context.Context, item *domain.TenantDomain) 
 	return nil
 }
 
+// GetDomain retrieves a tenant domain by ID.
 func (s *Service) GetDomain(ctx context.Context, tenantID, domainID string) (*domain.TenantDomain, error) {
 	item, err := s.repository.GetDomain(ctx, tenantID, domainID)
 	if err != nil {
@@ -132,6 +143,7 @@ func (s *Service) GetDomain(ctx context.Context, tenantID, domainID string) (*do
 	return item, nil
 }
 
+// ListDomains returns all domains for a tenant.
 func (s *Service) ListDomains(ctx context.Context, tenantID string) ([]*domain.TenantDomain, error) {
 	items, err := s.repository.ListDomains(ctx, tenantID)
 	if err != nil {
@@ -140,6 +152,7 @@ func (s *Service) ListDomains(ctx context.Context, tenantID string) ([]*domain.T
 	return items, nil
 }
 
+// DeleteDomain removes a tenant domain.
 func (s *Service) DeleteDomain(ctx context.Context, tenantID, domainID string) error {
 	if _, err := s.GetDomain(ctx, tenantID, domainID); err != nil {
 		return err
@@ -150,6 +163,7 @@ func (s *Service) DeleteDomain(ctx context.Context, tenantID, domainID string) e
 	return nil
 }
 
+// SaveService creates or updates a domain service.
 func (s *Service) SaveService(ctx context.Context, tenantID string, item *domain.DomainService) (*domain.DomainService, error) {
 	if err := normalizeAndValidateService(item, tenantID, s.allowHTTP); err != nil {
 		return nil, err
@@ -245,6 +259,7 @@ func (s *Service) persistService(ctx context.Context, item *domain.DomainService
 	return nil
 }
 
+// GetService retrieves a domain service by ID.
 func (s *Service) GetService(ctx context.Context, tenantID, serviceID string) (*domain.DomainService, error) {
 	item, err := s.repository.GetService(ctx, tenantID, serviceID)
 	if err != nil {
@@ -256,6 +271,7 @@ func (s *Service) GetService(ctx context.Context, tenantID, serviceID string) (*
 	return item, nil
 }
 
+// ListServices returns all services for a tenant.
 func (s *Service) ListServices(ctx context.Context, tenantID string) ([]*domain.DomainService, error) {
 	items, err := s.repository.ListServices(ctx, tenantID)
 	if err != nil {
@@ -264,6 +280,7 @@ func (s *Service) ListServices(ctx context.Context, tenantID string) ([]*domain.
 	return items, nil
 }
 
+// DeleteService removes a domain service.
 func (s *Service) DeleteService(ctx context.Context, tenantID, serviceID string) error {
 	if _, err := s.GetService(ctx, tenantID, serviceID); err != nil {
 		return err
@@ -274,6 +291,7 @@ func (s *Service) DeleteService(ctx context.Context, tenantID, serviceID string)
 	return nil
 }
 
+// SubscribersForEvent returns services subscribed to a specific event type.
 func (s *Service) SubscribersForEvent(ctx context.Context, tenantID, eventType string) ([]*domain.DomainService, error) {
 	items, err := s.repository.ListSubscribersForEvent(ctx, tenantID, eventType)
 	if err != nil {

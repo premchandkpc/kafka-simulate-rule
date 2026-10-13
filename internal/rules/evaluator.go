@@ -14,14 +14,17 @@ import (
 
 var _ ports.RuleEvaluator = (*Evaluator)(nil)
 
+// Evaluator evaluates compiled rules against events.
 type Evaluator struct {
 	clock ports.Clock
 }
 
+// NewEvaluator creates a new Evaluator with the given clock.
 func NewEvaluator(clock ports.Clock) *Evaluator {
 	return &Evaluator{clock: clock}
 }
 
+// Evaluate runs the rule evaluation against an event and returns a Decision.
 func (e *Evaluator) Evaluate(revision *domain.RuleRevision, event *domain.EventEnvelope, facts map[string]json.RawMessage) (*domain.Decision, error) {
 	matched, effects, explanations, err := e.evaluateRules(revision, event, facts)
 	if err != nil {

@@ -1,3 +1,5 @@
+// Package keyqueue provides a per-partition-key ordered queue with bounded concurrency.
+// It preserves ordering for events sharing a partition key while limiting global in-flight work.
 package keyqueue
 
 import (
@@ -11,6 +13,8 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// KeyQueue is a per-partition-key ordered queue with bounded concurrency.
+// It preserves ordering for events sharing a partition key while limiting global in-flight work.
 type KeyQueue struct {
 	mu             sync.Mutex
 	queues         map[string]*keyQueue
@@ -57,6 +61,7 @@ type queuedItem struct {
 	workerID     string
 }
 
+// NewKeyQueue creates a new KeyQueue with the given configuration.
 func NewKeyQueue(
 	maxGlobalInFlight int,
 	maxPerKeyQueue int,
@@ -217,6 +222,7 @@ func (kq *KeyQueue) notifyHotKeys(notices []hotKeyNotice) {
 	}
 }
 
+// Submit enqueues an item for processing, respecting per-key ordering and global concurrency limits.
 func (kq *KeyQueue) Submit(ctx context.Context, item ports.QueueItem) error {
 	if err := validateQueueSubmission(ctx, item); err != nil {
 		return err
@@ -417,6 +423,7 @@ func (kq *KeyQueue) finishEvent(partitionKey string) {
 	kq.mu.Unlock()
 }
 
+// Stats returns current queue statistics including depth, active keys, and hot keys.
 func (kq *KeyQueue) Stats() ports.QueueStats {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()
@@ -444,6 +451,7 @@ func (kq *KeyQueue) Stats() ports.QueueStats {
 	return stats
 }
 
+// QueueDepth returns the number of queued items for a specific partition key.
 func (kq *KeyQueue) QueueDepth(partitionKey string) int {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()
@@ -453,6 +461,7 @@ func (kq *KeyQueue) QueueDepth(partitionKey string) int {
 	return 0
 }
 
+// ActiveKeys returns the number of partition keys currently having queued items.
 func (kq *KeyQueue) ActiveKeys() int {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()

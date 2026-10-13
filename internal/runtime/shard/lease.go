@@ -1,3 +1,5 @@
+// Package shard provides shard lease management with fencing tokens.
+// It handles lease acquisition, renewal, and rebalancing across a fixed set of worker replicas.
 package shard
 
 import (
@@ -13,6 +15,9 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// LeaseManager acquires and renews shard leases with fencing tokens.
+// It uses a fixed-replica allocation policy where each worker targets
+// ceil(numShards/replicaCount) leases.
 type LeaseManager struct {
 	repo          ports.ShardLeaseRepository
 	clock         ports.Clock
@@ -32,6 +37,7 @@ type LeaseManager struct {
 	stopped     bool
 }
 
+// NewLeaseManager creates a new LeaseManager with default replica count (3).
 func NewLeaseManager(
 	repo ports.ShardLeaseRepository,
 	clock ports.Clock,
@@ -95,6 +101,7 @@ func NewLeaseManagerWithReplicaCountAndRenewInterval(
 	}
 }
 
+// Start acquires initial shard leases and begins the renewal loop.
 func (m *LeaseManager) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("start lease manager: context is nil")
@@ -368,6 +375,7 @@ func (m *LeaseManager) rebalanceIfNeeded(ctx context.Context) {
 	}
 }
 
+// OwnedShards returns the list of shard IDs currently owned by this lease manager.
 func (m *LeaseManager) OwnedShards() []uint32 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -378,6 +386,7 @@ func (m *LeaseManager) OwnedShards() []uint32 {
 	return shards
 }
 
+// IsOwner returns true if this lease manager owns the given shard.
 func (m *LeaseManager) IsOwner(shard uint32) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -385,6 +394,7 @@ func (m *LeaseManager) IsOwner(shard uint32) bool {
 	return ok
 }
 
+// GetFencingToken returns the fencing token for a shard if owned.
 func (m *LeaseManager) GetFencingToken(shard uint32) (int64, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -395,6 +405,7 @@ func (m *LeaseManager) GetFencingToken(shard uint32) (int64, bool) {
 	return lease.FencingToken, true
 }
 
+// VirtualShardForEvent computes the virtual shard for an event envelope.
 func (m *LeaseManager) VirtualShardForEvent(env *domain.EventEnvelope) uint32 {
 	return env.VirtualShard(m.numShards)
 }

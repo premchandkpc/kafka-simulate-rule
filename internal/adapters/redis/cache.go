@@ -10,14 +10,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Cache implements a Redis-backed cache.
 type Cache struct {
 	client *redis.Client
 }
 
+// NewCache creates a new Cache from a Redis client.
 func NewCache(client *Client) *Cache {
 	return &Cache{client: client.client}
 }
 
+// Get retrieves a value from the cache.
 func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 	val, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
@@ -29,6 +32,7 @@ func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 	return val, nil
 }
 
+// Set stores a value in the cache with the given TTL.
 func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	err := c.client.Set(ctx, key, value, ttl).Err()
 	if err != nil {
