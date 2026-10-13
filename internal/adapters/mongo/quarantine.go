@@ -148,12 +148,15 @@ func (r *QuarantineRepository) List(ctx context.Context, filter ports.Quarantine
 	filter.Limit, filter.Offset = normalizeQuarantinePagination(filter.Limit, filter.Offset)
 	coll := r.collection(collectionQuarantine)
 
-	f := bson.D{{Key: "tenant_id", Value: filter.TenantID}}
+	// Keep the query shape fixed and treat every caller-supplied filter as a
+	// literal equality operand. In particular, values must never become MongoDB
+	// query operators or nested query documents.
+	f := bson.D{{Key: "tenant_id", Value: mongoEquality(filter.TenantID)}}
 	if filter.SourceType != "" {
-		f = append(f, bson.E{Key: "source_type", Value: filter.SourceType})
+		f = append(f, bson.E{Key: "source_type", Value: mongoEquality(filter.SourceType)})
 	}
 	if filter.ErrorClass != "" {
-		f = append(f, bson.E{Key: "error_class", Value: filter.ErrorClass})
+		f = append(f, bson.E{Key: "error_class", Value: mongoEquality(filter.ErrorClass)})
 	}
 	if !filter.From.IsZero() || !filter.To.IsZero() {
 		dateRange := bson.D{}
@@ -255,6 +258,13 @@ func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 		Error:      d.ErrorMessage,
 		CreatedAt:  d.CreatedAt,
 	}
+}
+
+
+// mongoEquality wraps an untrusted value in a fixed equality expression so it
+// is always interpreted as data, never as caller-controlled query syntax.
+func mongoEquality(value any) bson.D {
+	return bson.D{{Key: "$eq", Value: value}}
 }
 
 func normalizeQuarantinePagination(limit, offset int) (int, int) {
