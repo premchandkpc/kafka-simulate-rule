@@ -1,7 +1,7 @@
 //! Shared-domain Rust implementation for FlowRule business-event processing.
 //! This module intentionally uses the existing PostgreSQL schema and event contract.
-use anyhow::{anyhow, bail, Context, Result};
-use chrono::{DateTime, Utc};
+use anyhow::{bail, Context, Result};
+use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use self::rules::{Effect, RuleRevision};
 
@@ -9,7 +9,7 @@ mod lease;
 mod persistence;
 mod rules;
 pub use lease::{acquire_lease, release_lease, renew_lease};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
@@ -128,6 +128,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use serde_json::json;
     use super::rules::{Action, Predicate, build_effect, compare_eq, eval_predicate, expand_template};
 
     #[test]
