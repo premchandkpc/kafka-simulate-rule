@@ -14,7 +14,9 @@ import (
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
+	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 	"github.com/flowrule/flowrule/internal/services/batches"
@@ -204,6 +206,20 @@ func StartStack(t *testing.T) *TestEnv {
 		cfg.LeaseRenewalInterval(),
 	)
 
+	keyQueue := keyqueue.NewKeyQueue(
+		workerConfig.MaxGlobalInFlight,
+		workerConfig.MaxPerKeyQueue,
+		workerConfig.KeyQueueWorkers,
+		func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+			_, err := eventsSvc.Process(ctx, env, fencingToken, vshard, workerID)
+			return err
+		},
+		clock.Now,
+		workerConfig.HotKeyThreshold,
+		workerConfig.HotKeyCheckInterval,
+		workerConfig.HotKeyCallback,
+	)
+
 	worker, err := application.NewWorker(
 		consumer,
 		eventsSvc,
@@ -212,6 +228,7 @@ func StartStack(t *testing.T) *TestEnv {
 		cfg.SchedulerPollInterval(),
 		clock,
 		leaseManager,
+		keyQueue,
 		workerID,
 		cfg.Worker.NumShards,
 		workerConfig,

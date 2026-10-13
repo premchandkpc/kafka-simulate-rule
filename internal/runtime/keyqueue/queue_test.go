@@ -34,16 +34,16 @@ func TestKeyQueue_PerKeySerialization(t *testing.T) {
 	kq := NewKeyQueue(10, 10, 1, processor, time.Now, 1000, 10*time.Second, nil)
 	ctx := context.Background()
 	kq.Start(ctx)
-	defer kq.Stop()
+	defer func() { _ = kq.Stop(ctx) }()
 
 	// Submit 5 events for key A, 5 for key B
 	for i := 0; i < 5; i++ {
 		envA := &domain.EventEnvelope{ID: "evt-A-" + string(rune('0'+i)), PartitionKey: "key-A"}
 		envB := &domain.EventEnvelope{ID: "evt-B-" + string(rune('0'+i)), PartitionKey: "key-B"}
-		if err := kq.Submit(ctx, envA, &mockDelivery{}, 0, 0, ""); err != nil {
+		if err := kq.Submit(ctx, ports.QueueItem{Event: envA, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""}); err != nil {
 			t.Fatalf("submit envA: %v", err)
 		}
-		if err := kq.Submit(ctx, envB, &mockDelivery{}, 0, 0, ""); err != nil {
+		if err := kq.Submit(ctx, ports.QueueItem{Event: envB, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""}); err != nil {
 			t.Fatalf("submit envB: %v", err)
 		}
 	}
@@ -113,7 +113,7 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 	kq := NewKeyQueue(10, 10, 3, processor, time.Now, 1000, 10*time.Second, nil) // 3 workers
 	ctx := context.Background()
 	kq.Start(ctx)
-	defer kq.Stop()
+	defer func() { _ = kq.Stop(ctx) }()
 
 	// Submit events for 5 different keys concurrently
 	numKeys := 5
@@ -125,7 +125,7 @@ func TestKeyQueue_ConcurrentKeysParallel(t *testing.T) {
 		key := "key-" + string(rune('0'+k))
 		for i := 0; i < eventsPerKey; i++ {
 			env := &domain.EventEnvelope{ID: key + "-evt-" + string(rune('0'+i)), PartitionKey: key}
-			if err := kq.Submit(ctx, env, &mockDelivery{}, 0, 0, ""); err != nil {
+			if err := kq.Submit(ctx, ports.QueueItem{Event: env, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""}); err != nil {
 				t.Fatalf("submit: %v", err)
 			}
 			wg.Done()
@@ -161,13 +161,13 @@ func TestKeyQueue_Backpressure(t *testing.T) {
 	kq := NewKeyQueue(3, 2, 1, processor, time.Now, 1000, 10*time.Second, nil) // Max 3 in-flight, 2 per key
 	ctx := context.Background()
 	kq.Start(ctx)
-	defer kq.Stop()
+	defer func() { _ = kq.Stop(ctx) }()
 
 	// Try to submit more than max in-flight
 	submitCount := 0
 	for i := 0; i < 10; i++ {
 		env := &domain.EventEnvelope{ID: "evt-" + string(rune('0'+i)), PartitionKey: "key-1"}
-		err := kq.Submit(ctx, env, &mockDelivery{}, 0, 0, "")
+		err := kq.Submit(ctx, ports.QueueItem{Event: env, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""})
 		if err != nil {
 			t.Fatalf("submit %d failed: %v", i, err)
 		}
@@ -199,7 +199,7 @@ func TestKeyQueue_ContextCancellation(t *testing.T) {
 
 	// Submit first event - fills the semaphore
 	env := &domain.EventEnvelope{ID: "evt-1", PartitionKey: "key-1"}
-	err := kq.Submit(ctx, env, &mockDelivery{}, 0, 0, "")
+	err := kq.Submit(ctx, ports.QueueItem{Event: env, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""})
 	if err != nil {
 		t.Fatalf("submit failed: %v", err)
 	}
@@ -209,12 +209,12 @@ func TestKeyQueue_ContextCancellation(t *testing.T) {
 
 	// Try to submit second event - should block on semaphore then return context error
 	env2 := &domain.EventEnvelope{ID: "evt-2", PartitionKey: "key-1"}
-	err = kq.Submit(ctx, env2, &mockDelivery{}, 0, 0, "")
+	err = kq.Submit(ctx, ports.QueueItem{Event: env2, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""})
 	if err == nil {
 		t.Errorf("expected error after context cancel, got nil")
 	}
 
-	kq.Stop()
+	_ = kq.Stop(ctx)
 }
 
 func TestKeyQueue_HotKeyDetection(t *testing.T) {
@@ -237,12 +237,12 @@ func TestKeyQueue_HotKeyDetection(t *testing.T) {
 	kq := NewKeyQueue(10, 10, 1, processor, time.Now, 3, 50*time.Millisecond, callback)
 	ctx := context.Background()
 	kq.Start(ctx)
-	defer kq.Stop()
+	defer func() { _ = kq.Stop(ctx) }()
 
 	// Submit 5 events for the same key - should trigger hot-key detection
 	for i := 0; i < 5; i++ {
 		env := &domain.EventEnvelope{ID: "evt-" + string(rune('0'+i)), PartitionKey: "hot-key"}
-		if err := kq.Submit(ctx, env, &mockDelivery{}, 0, 0, ""); err != nil {
+		if err := kq.Submit(ctx, ports.QueueItem{Event: env, Delivery: &mockDelivery{}, FencingToken: 0, Shard: 0, WorkerID: ""}); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 	}
@@ -305,7 +305,7 @@ func TestKeyQueue_SameKeyNeverProcessesConcurrently(t *testing.T) {
 	kq.Start(ctx)
 	defer func() {
 		cancel()
-		kq.Stop()
+		_ = kq.Stop(ctx)
 	}()
 
 	for i := 0; i < eventCount; i++ {
@@ -313,7 +313,7 @@ func TestKeyQueue_SameKeyNeverProcessesConcurrently(t *testing.T) {
 			ID:           "same-key-" + string(rune('A'+i)),
 			PartitionKey: "same-key",
 		}
-		if err := kq.Submit(ctx, env, &mockDelivery{}, 1, 0, "worker"); err != nil {
+		if err := kq.Submit(ctx, ports.QueueItem{Event: env, Delivery: &mockDelivery{}, FencingToken: 1, Shard: 0, WorkerID: "worker"}); err != nil {
 			t.Fatalf("Submit(%d): %v", i, err)
 		}
 	}

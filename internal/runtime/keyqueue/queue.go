@@ -36,6 +36,9 @@ type KeyQueue struct {
 	hotKeys             map[string]time.Time // key -> first detected time
 	stopHotKeyCheck     chan struct{}
 	wgHot               sync.WaitGroup
+
+	// Stats
+	maxGlobalInFlight int
 }
 
 type keyQueue struct {
@@ -96,18 +99,19 @@ func NewKeyQueue(
 		hotKeyCallback:      hotKeyCallback,
 		hotKeys:             make(map[string]time.Time),
 		stopHotKeyCheck:     make(chan struct{}),
+		maxGlobalInFlight:   maxGlobalInFlight,
 	}
 }
 
 // Start launches the queue workers once. A stopped KeyQueue cannot be restarted.
-func (kq *KeyQueue) Start(ctx context.Context) {
+func (kq *KeyQueue) Start(ctx context.Context) error {
 	if ctx == nil {
-		return
+		return errors.New("keyqueue start: context is required")
 	}
 	kq.lifecycleMu.Lock()
 	if kq.started || kq.stopped {
 		kq.lifecycleMu.Unlock()
-		return
+		return nil
 	}
 	kq.started = true
 	for i := 0; i < kq.workerCount; i++ {
@@ -119,11 +123,15 @@ func (kq *KeyQueue) Start(ctx context.Context) {
 		go kq.hotKeyCheckLoop(ctx)
 	}
 	kq.lifecycleMu.Unlock()
+	return nil
 }
 
 // Stop asks all queue goroutines to stop and waits for them. It is safe to call
 // Stop more than once.
-func (kq *KeyQueue) Stop() {
+func (kq *KeyQueue) Stop(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("keyqueue stop: context is required")
+	}
 	kq.stopOnce.Do(func() {
 		kq.lifecycleMu.Lock()
 		kq.stopped = true
@@ -138,6 +146,7 @@ func (kq *KeyQueue) Stop() {
 	})
 	kq.wg.Wait()
 	kq.wgHot.Wait()
+	return nil
 }
 
 func (kq *KeyQueue) hotKeyCheckLoop(ctx context.Context) {
@@ -199,11 +208,11 @@ func (kq *KeyQueue) checkHotKeys() {
 	}
 }
 
-func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+func (kq *KeyQueue) Submit(ctx context.Context, item ports.QueueItem) error {
 	if ctx == nil {
 		return errors.New("submit event: context is nil")
 	}
-	if env == nil {
+	if item.Event == nil {
 		return errors.New("submit event: envelope is nil")
 	}
 
@@ -226,13 +235,13 @@ func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, deliv
 	}
 
 	kq.mu.Lock()
-	q, ok := kq.queues[env.PartitionKey]
+	q, ok := kq.queues[item.Event.PartitionKey]
 	if !ok {
 		q = &keyQueue{
 			ch:           make(chan *queuedItem, kq.maxPerKey),
-			partitionKey: env.PartitionKey,
+			partitionKey: item.Event.PartitionKey,
 		}
-		kq.queues[env.PartitionKey] = q
+		kq.queues[item.Event.PartitionKey] = q
 	}
 	q.mu.Lock()
 	q.submitters++
@@ -241,11 +250,11 @@ func (kq *KeyQueue) Submit(ctx context.Context, env *domain.EventEnvelope, deliv
 
 	select {
 	case q.ch <- &queuedItem{
-		env:          env,
-		delivery:     delivery,
-		fencingToken: fencingToken,
-		vshard:       vshard,
-		workerID:     workerID,
+		env:          item.Event,
+		delivery:     item.Delivery,
+		fencingToken: item.FencingToken,
+		vshard:       item.Shard,
+		workerID:     item.WorkerID,
 	}:
 		kq.finishSubmit(q)
 		return nil
@@ -360,13 +369,30 @@ func (kq *KeyQueue) finishEvent(partitionKey string) {
 	kq.mu.Unlock()
 }
 
-func (kq *KeyQueue) Stats() map[string]int {
+func (kq *KeyQueue) Stats() ports.QueueStats {
 	kq.mu.Lock()
 	defer kq.mu.Unlock()
-	stats := make(map[string]int, len(kq.queues))
-	for k, q := range kq.queues {
-		stats[k] = len(q.ch)
+	stats := ports.QueueStats{
+		ActiveKeys:     len(kq.queues),
+		GlobalDepth:    0,
+		MaxGlobalDepth: kq.maxGlobalInFlight,
 	}
+	for _, q := range kq.queues {
+		stats.GlobalDepth += len(q.ch)
+		if len(q.ch) > 0 && !q.processing {
+			stats.Processing++
+		}
+	}
+	// Hot keys
+	kq.muHot.Lock()
+	for key, since := range kq.hotKeys {
+		stats.HotKeys = append(stats.HotKeys, ports.HotKeyInfo{
+			PartitionKey: key,
+			Depth:        len(kq.queues[key].ch),
+			Since:        since,
+		})
+	}
+	kq.muHot.Unlock()
 	return stats
 }
 

@@ -64,6 +64,45 @@ type rawRule struct {
 }
 
 func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error) {
+	rawSet, err := c.parseRuleSet(source)
+	if err != nil {
+		return nil, err
+	}
+
+	rawRules, err := c.validateRuleSet(rawSet)
+	if err != nil {
+		return nil, err
+	}
+
+	compiled, err := c.compileRules(rawRules)
+	if err != nil {
+		return nil, err
+	}
+
+	if rawSet.Mode == string(domain.MatchModeFirstMatch) {
+		for i := 0; i < len(compiled)-1; i++ {
+			if len(compiled[i].Otherwise) > 0 {
+				return nil, fmt.Errorf("first_match permits otherwise only on the lowest-priority rule: %w", domain.ErrInvalidAction)
+			}
+		}
+	}
+
+	revision := &domain.RuleRevision{
+		RuleID:          rawSet.RuleSet,
+		Revision:        rawSet.Revision,
+		ContentHash:     domain.ComputeSourceHash(source),
+		MatchMode:       domain.MatchMode(rawSet.Mode),
+		Compiled:        compiled,
+		Source:          source,
+		CompilerVersion: CompilerVersion,
+		InputContract:   rawSet.InputContract,
+		CreatedAt:       domain.SystemClock{}.Now(),
+	}
+	return revision, nil
+}
+
+// parseRuleSet parses the raw JSON rule set into structured data.
+func (c *Compiler) parseRuleSet(source json.RawMessage) (*rawRuleSet, error) {
 	if len(source) == 0 {
 		return nil, fmt.Errorf("empty rule source")
 	}
@@ -72,7 +111,11 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 	if err := json.Unmarshal(source, &rs); err != nil {
 		return nil, fmt.Errorf("parse rule set: %w", err)
 	}
+	return &rs, nil
+}
 
+// validateRuleSet validates the rule set structure and rules.
+func (c *Compiler) validateRuleSet(rs *rawRuleSet) ([]rawRule, error) {
 	if rs.RuleSet == "" {
 		return nil, domain.ErrRuleIDRequired
 	}
@@ -106,32 +149,10 @@ func (c *Compiler) Compile(source json.RawMessage) (*domain.RuleRevision, error)
 		}
 	}
 
-	compiled, err := c.compileRules(rawRules)
-	if err != nil {
-		return nil, err
-	}
-	if rs.Mode == string(domain.MatchModeFirstMatch) {
-		for i := 0; i < len(compiled)-1; i++ {
-			if len(compiled[i].Otherwise) > 0 {
-				return nil, fmt.Errorf("first_match permits otherwise only on the lowest-priority rule: %w", domain.ErrInvalidAction)
-			}
-		}
-	}
-
-	revision := &domain.RuleRevision{
-		RuleID:          rs.RuleSet,
-		Revision:        rs.Revision,
-		ContentHash:     domain.ComputeSourceHash(source),
-		MatchMode:       domain.MatchMode(rs.Mode),
-		Compiled:        compiled,
-		Source:          source,
-		CompilerVersion: CompilerVersion,
-		InputContract:   rs.InputContract,
-		CreatedAt:       domain.SystemClock{}.Now(),
-	}
-	return revision, nil
+	return rawRules, nil
 }
 
+// compileRules compiles the validated raw rules into domain compiled rules.
 func (c *Compiler) compileRules(rawRules []rawRule) ([]domain.CompiledRule, error) {
 	seenIDs := make(map[string]bool)
 	seenPriorities := make(map[int]bool)

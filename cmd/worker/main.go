@@ -18,6 +18,7 @@ import (
 	"github.com/flowrule/flowrule/internal/observability"
 	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
+	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 	"github.com/flowrule/flowrule/internal/services/batches"
@@ -193,6 +194,20 @@ func run() (runErr error) {
 	workerConfig.HotKeyThreshold = cfg.Worker.HotKeyThreshold
 	workerConfig.HotKeyCheckInterval = cfg.HotKeyCheckInterval()
 
+	keyQueue := keyqueue.NewKeyQueue(
+		workerConfig.MaxGlobalInFlight,
+		workerConfig.MaxPerKeyQueue,
+		workerConfig.KeyQueueWorkers,
+		func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
+			_, err := eventsSvc.Process(ctx, env, 0, 0, "")
+			return err
+		},
+		clock.Now,
+		workerConfig.HotKeyThreshold,
+		workerConfig.HotKeyCheckInterval,
+		workerConfig.HotKeyCallback,
+	)
+
 	worker, err := application.NewWorker(
 		consumer,
 		eventsSvc,
@@ -201,6 +216,7 @@ func run() (runErr error) {
 		cfg.SchedulerPollInterval(),
 		clock,
 		leaseManager,
+		keyQueue,
 		workerID,
 		cfg.Worker.NumShards,
 		workerConfig,
