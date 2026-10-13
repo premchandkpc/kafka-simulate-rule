@@ -1,5 +1,5 @@
 //! Scheduled-event claiming, retry, and JetStream publication.
-use crate::{config::Config, engine::EventEnvelope, runtime::uuid_token};
+use crate::{config::Config, engine::{self, EventEnvelope}, runtime::uuid_token};
 use anyhow::{Context, Result};
 use async_nats::jetstream;
 use chrono::Utc;
