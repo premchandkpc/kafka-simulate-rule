@@ -227,45 +227,59 @@ func (c *Config) validateEnvironmentAuth() error {
 }
 
 func (c *Config) validateWorker() error {
-	checks := []struct {
-		value int
-		name string
-	}{
-		{int(c.Worker.NumShards), "NUM_SHARDS"},
-		{int(c.Worker.WorkerReplicas), "WORKER_REPLICAS"},
-		{c.Worker.MaxGlobalInFlight, "MAX_GLOBAL_IN_FLIGHT"},
-		{c.Worker.FetchBatchSize, "FETCH_BATCH_SIZE"},
-		{c.Worker.EffectPublishIntervalMS, "EFFECT_PUBLISH_INTERVAL_MS"},
-		{c.Worker.EffectPublishBatchSize, "EFFECT_PUBLISH_BATCH_SIZE"},
-		{c.Worker.RetryDelayMS, "EVENT_RETRY_DELAY_MS"},
-		{c.Worker.MaxPerKeyQueue, "MAX_PER_KEY_QUEUE"},
-		{c.Worker.KeyQueueWorkers, "KEY_QUEUE_WORKERS"},
-		{c.Worker.BatchMax, "BATCH_MAX"},
-		{c.Worker.BatchWindowMS, "BATCH_WINDOW_MS"},
-		{c.Worker.SchedulerPollMS, "SCHEDULER_POLL_MS"},
-		{c.Worker.SchedulerBatchSize, "SCHEDULER_BATCH_SIZE"},
-		{c.Worker.LeaseTTLMS, "LEASE_TTL_MS"},
-		{c.Worker.LeaseRenewalIntervalMS, "LEASE_RENEWAL_INTERVAL_MS"},
-		{c.Worker.NATSAckWaitMS, "NATS_ACK_WAIT_MS"},
-		{c.Worker.HotKeyThreshold, "HOT_KEY_THRESHOLD"},
-		{c.Worker.HotKeyCheckIntervalMS, "HOT_KEY_CHECK_INTERVAL_MS"},
-	}
-	for _, check := range checks {
-		if check.value <= 0 { return fmt.Errorf("%s must be > 0", check.name) }
-	}
-	if c.Worker.FetchBatchSize > c.Worker.MaxGlobalInFlight {
-		return fmt.Errorf("FETCH_BATCH_SIZE must be <= MAX_GLOBAL_IN_FLIGHT")
-	}
+	if err := c.validateWorkerConcurrency(); err != nil { return err }
+	if err := c.validateBatchSettings(); err != nil { return err }
+	if err := c.validateSchedulerSettings(); err != nil { return err }
+	if err := c.validateLeaseSettings(); err != nil { return err }
+	return c.validateDeliverySettings()
+}
+
+func (c *Config) validateWorkerConcurrency() error {
+	if c.Worker.NumShards == 0 { return fmt.Errorf("NUM_SHARDS must be > 0") }
+	if c.Worker.WorkerReplicas == 0 { return fmt.Errorf("WORKER_REPLICAS must be > 0") }
+	if c.Worker.MaxGlobalInFlight <= 0 { return fmt.Errorf("MAX_GLOBAL_IN_FLIGHT must be > 0") }
+	if c.Worker.FetchBatchSize <= 0 { return fmt.Errorf("FETCH_BATCH_SIZE must be > 0") }
+	if c.Worker.FetchBatchSize > c.Worker.MaxGlobalInFlight { return fmt.Errorf("FETCH_BATCH_SIZE must be <= MAX_GLOBAL_IN_FLIGHT") }
+	if c.Worker.EffectPublishIntervalMS <= 0 { return fmt.Errorf("EFFECT_PUBLISH_INTERVAL_MS must be > 0") }
+	if c.Worker.EffectPublishBatchSize <= 0 { return fmt.Errorf("EFFECT_PUBLISH_BATCH_SIZE must be > 0") }
+	if c.Worker.RetryDelayMS <= 0 { return fmt.Errorf("EVENT_RETRY_DELAY_MS must be > 0") }
+	if c.Worker.MaxPerKeyQueue <= 0 { return fmt.Errorf("MAX_PER_KEY_QUEUE must be > 0") }
+	if c.Worker.KeyQueueWorkers <= 0 { return fmt.Errorf("KEY_QUEUE_WORKERS must be > 0") }
+	return nil
+}
+
+func (c *Config) validateBatchSettings() error {
 	batchMode := strings.ToLower(strings.TrimSpace(c.Worker.BatchMode))
 	if batchMode != "" && batchMode != "none" {
 		return fmt.Errorf("BATCH_MODE=%q is not supported by the worker runtime yet; batch execution must be integrated with shard leases and the key queue first", batchMode)
 	}
+	if c.Worker.BatchMax <= 0 { return fmt.Errorf("BATCH_MAX must be > 0") }
+	if c.Worker.BatchWindowMS <= 0 { return fmt.Errorf("BATCH_WINDOW_MS must be > 0") }
+	return nil
+}
+
+func (c *Config) validateSchedulerSettings() error {
+	if c.Worker.SchedulerPollMS <= 0 { return fmt.Errorf("SCHEDULER_POLL_MS must be > 0") }
+	if c.Worker.SchedulerBatchSize <= 0 { return fmt.Errorf("SCHEDULER_BATCH_SIZE must be > 0") }
+	return nil
+}
+
+func (c *Config) validateLeaseSettings() error {
+	if c.Worker.LeaseTTLMS <= 0 { return fmt.Errorf("LEASE_TTL_MS must be > 0") }
+	if c.Worker.LeaseRenewalIntervalMS <= 0 { return fmt.Errorf("LEASE_RENEWAL_INTERVAL_MS must be > 0") }
 	if c.Worker.LeaseRenewalIntervalMS > c.Worker.LeaseTTLMS/3 {
 		return fmt.Errorf("LEASE_RENEWAL_INTERVAL_MS * 3 must be <= LEASE_TTL_MS")
 	}
+	return nil
+}
+
+func (c *Config) validateDeliverySettings() error {
+	if c.Worker.NATSAckWaitMS <= 0 { return fmt.Errorf("NATS_ACK_WAIT_MS must be > 0") }
 	if c.Worker.NATSMaxDeliver != -1 {
 		return fmt.Errorf("NATS_MAX_DELIVER must be -1 (unlimited) until durable exhausted-delivery recovery is implemented")
 	}
+	if c.Worker.HotKeyThreshold <= 0 { return fmt.Errorf("HOT_KEY_THRESHOLD must be > 0") }
+	if c.Worker.HotKeyCheckIntervalMS <= 0 { return fmt.Errorf("HOT_KEY_CHECK_INTERVAL_MS must be > 0") }
 	return nil
 }
 
