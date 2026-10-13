@@ -42,14 +42,13 @@ linters:
               desc: "core must not see adapters"
 
 issues:
-  exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - gosec
-      - path: cmd/
-        linters:
-          - gosec
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+    - path: cmd/
+      linters:
+        - gosec
 
 run:
   timeout: 5m
