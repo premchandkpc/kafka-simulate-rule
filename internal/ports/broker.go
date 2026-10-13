@@ -139,9 +139,9 @@ type RetentionPolicy string
 
 const (
 	// RetentionPolicyLimits retains messages up to configured limits.
-	RetentionPolicyLimits    RetentionPolicy = "limits"
+	RetentionPolicyLimits RetentionPolicy = "limits"
 	// RetentionPolicyInterest retains messages while there are interested consumers.
-	RetentionPolicyInterest  RetentionPolicy = "interest"
+	RetentionPolicyInterest RetentionPolicy = "interest"
 	// RetentionPolicyWorkQueue retains messages for work queue processing.
 	RetentionPolicyWorkQueue RetentionPolicy = "workqueue"
 )
@@ -151,7 +151,7 @@ type StorageType string
 
 const (
 	// StorageTypeFile uses file-based storage.
-	StorageTypeFile   StorageType = "file"
+	StorageTypeFile StorageType = "file"
 	// StorageTypeMemory uses in-memory storage.
 	StorageTypeMemory StorageType = "memory"
 )
@@ -163,9 +163,9 @@ const (
 	// AckPolicyExplicit requires explicit acknowledgment.
 	AckPolicyExplicit AckPolicy = "explicit"
 	// AckPolicyAll acknowledges all messages up to the current one.
-	AckPolicyAll      AckPolicy = "all"
+	AckPolicyAll AckPolicy = "all"
 	// AckPolicyNone disables acknowledgment.
-	AckPolicyNone     AckPolicy = "none"
+	AckPolicyNone AckPolicy = "none"
 )
 
 // DeliverPolicy defines the delivery policy.
@@ -173,13 +173,13 @@ type DeliverPolicy string
 
 const (
 	// DeliverPolicyAll delivers all available messages.
-	DeliverPolicyAll         DeliverPolicy = "all"
+	DeliverPolicyAll DeliverPolicy = "all"
 	// DeliverPolicyLast delivers the last available message.
-	DeliverPolicyLast        DeliverPolicy = "last"
+	DeliverPolicyLast DeliverPolicy = "last"
 	// DeliverPolicyNew delivers only new messages.
-	DeliverPolicyNew         DeliverPolicy = "new"
+	DeliverPolicyNew DeliverPolicy = "new"
 	// DeliverPolicyByStartSeq delivers messages from a start sequence.
-	DeliverPolicyByStartSeq  DeliverPolicy = "by_start_sequence"
+	DeliverPolicyByStartSeq DeliverPolicy = "by_start_sequence"
 	// DeliverPolicyByStartTime delivers messages from a start time.
 	DeliverPolicyByStartTime DeliverPolicy = "by_start_time"
 )
@@ -189,7 +189,7 @@ type StreamState string
 
 const (
 	// StreamStateActive indicates the stream is active.
-	StreamStateActive  StreamState = "active"
+	StreamStateActive StreamState = "active"
 	// StreamStateDeleted indicates the stream has been deleted.
 	StreamStateDeleted StreamState = "deleted"
 )

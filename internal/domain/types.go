@@ -171,23 +171,23 @@ type Operator string
 
 const (
 	// OpEq identifies the op eq value.
-	OpEq        Operator = "eq"
+	OpEq Operator = "eq"
 	// OpNeq identifies the op neq value.
-	OpNeq       Operator = "neq"
+	OpNeq Operator = "neq"
 	// OpGt identifies the op gt value.
-	OpGt        Operator = "gt"
+	OpGt Operator = "gt"
 	// OpGte identifies the op gte value.
-	OpGte       Operator = "gte"
+	OpGte Operator = "gte"
 	// OpLt identifies the op lt value.
-	OpLt        Operator = "lt"
+	OpLt Operator = "lt"
 	// OpLte identifies the op lte value.
-	OpLte       Operator = "lte"
+	OpLte Operator = "lte"
 	// OpIn identifies the op in value.
-	OpIn        Operator = "in"
+	OpIn Operator = "in"
 	// OpNotIn identifies the op not_in value.
-	OpNotIn     Operator = "not_in"
+	OpNotIn Operator = "not_in"
 	// OpExists identifies the op exists value.
-	OpExists    Operator = "exists"
+	OpExists Operator = "exists"
 	// OpNotExists identifies the op not_exists value.
 	OpNotExists Operator = "not_exists"
 )
@@ -220,9 +220,9 @@ type PartitionKeyPolicy string
 
 const (
 	// PartitionKeyPolicyExplicit identifies the partition key policy explicit value.
-	PartitionKeyPolicyExplicit PartitionKeyPolicy = "explicit"  // Use literal PartitionKey value
+	PartitionKeyPolicyExplicit PartitionKeyPolicy = "explicit" // Use literal PartitionKey value
 	// PartitionKeyPolicyInherit inherits the partition key from the parent event.
-	PartitionKeyPolicyInherit  PartitionKeyPolicy = "inherit"   // Inherit from parent event
+	PartitionKeyPolicyInherit PartitionKeyPolicy = "inherit" // Inherit from parent event
 	// PartitionKeyPolicyFromData derives the partition key from JSON path in parent data.
 	PartitionKeyPolicyFromData PartitionKeyPolicy = "from_data" // Derive from JSON path in parent data
 )
@@ -262,11 +262,11 @@ type EffectType string
 
 const (
 	// EffectTypeEmit identifies the effect type emit value.
-	EffectTypeEmit         EffectType = "emit"
+	EffectTypeEmit EffectType = "emit"
 	// EffectTypeEmitEvent identifies the effect type emit_event value.
-	EffectTypeEmitEvent    EffectType = "emit_event"
+	EffectTypeEmitEvent EffectType = "emit_event"
 	// EffectTypeCommand identifies the effect type command value.
-	EffectTypeCommand      EffectType = "command"
+	EffectTypeCommand EffectType = "command"
 	// EffectTypeServiceEvent identifies the effect type service_event value.
 	EffectTypeServiceEvent EffectType = "service_event"
 )
@@ -309,11 +309,11 @@ type ExecutionStatus string
 
 const (
 	// ExecutionStatusPending identifies the execution status pending value.
-	ExecutionStatusPending     ExecutionStatus = "pending"
+	ExecutionStatusPending ExecutionStatus = "pending"
 	// ExecutionStatusCompleted identifies the execution status completed value.
-	ExecutionStatusCompleted   ExecutionStatus = "completed"
+	ExecutionStatusCompleted ExecutionStatus = "completed"
 	// ExecutionStatusFailed identifies the execution status failed value.
-	ExecutionStatusFailed      ExecutionStatus = "failed"
+	ExecutionStatusFailed ExecutionStatus = "failed"
 	// ExecutionStatusQuarantined identifies the execution status quarantined value.
 	ExecutionStatusQuarantined ExecutionStatus = "quarantined"
 )
@@ -376,13 +376,13 @@ type OutboxStatus string
 
 const (
 	// OutboxStatusPending identifies the outbox status pending value.
-	OutboxStatusPending     OutboxStatus = "pending"
+	OutboxStatusPending OutboxStatus = "pending"
 	// OutboxStatusClaimed identifies the outbox status claimed value.
-	OutboxStatusClaimed     OutboxStatus = "claimed"
+	OutboxStatusClaimed OutboxStatus = "claimed"
 	// OutboxStatusDelivered identifies the outbox status delivered value.
-	OutboxStatusDelivered   OutboxStatus = "delivered"
+	OutboxStatusDelivered OutboxStatus = "delivered"
 	// OutboxStatusFailed identifies the outbox status failed value.
-	OutboxStatusFailed      OutboxStatus = "failed"
+	OutboxStatusFailed OutboxStatus = "failed"
 	// OutboxStatusQuarantined identifies the outbox status quarantined value.
 	OutboxStatusQuarantined OutboxStatus = "quarantined"
 )
@@ -452,7 +452,7 @@ const (
 	// InboxStatusProcessing identifies the inbox status processing value.
 	InboxStatusProcessing InboxStatus = "processing"
 	// InboxStatusCommitted identifies the inbox status committed value.
-	InboxStatusCommitted  InboxStatus = "committed"
+	InboxStatusCommitted InboxStatus = "committed"
 )
 
 // Commit transitions inbox entry to committed state. Only valid from processing.
@@ -581,15 +581,15 @@ type WorkflowInstance struct {
 
 const (
 	// WorkflowStatusPending identifies the workflow status pending value.
-	WorkflowStatusPending   = "pending"
+	WorkflowStatusPending = "pending"
 	// WorkflowStatusRunning identifies the workflow status running value.
-	WorkflowStatusRunning   = "running"
+	WorkflowStatusRunning = "running"
 	// WorkflowStatusCompleted identifies the workflow status completed value.
 	WorkflowStatusCompleted = "completed"
 	// WorkflowStatusFailed identifies the workflow status failed value.
-	WorkflowStatusFailed    = "failed"
+	WorkflowStatusFailed = "failed"
 	// WorkflowStatusPaused identifies the workflow status paused value.
-	WorkflowStatusPaused    = "paused"
+	WorkflowStatusPaused = "paused"
 )
 
 // CanTransition provides the can transition.
@@ -632,9 +632,9 @@ type WorkflowStateType string
 
 const (
 	// WorkflowStateTypeStart identifies the workflow state type start value.
-	WorkflowStateTypeStart        WorkflowStateType = "start"
+	WorkflowStateTypeStart WorkflowStateType = "start"
 	// WorkflowStateTypeEnd identifies the workflow state type end value.
-	WorkflowStateTypeEnd          WorkflowStateType = "end"
+	WorkflowStateTypeEnd WorkflowStateType = "end"
 	// WorkflowStateTypeIntermediate identifies the workflow state type intermediate value.
 	WorkflowStateTypeIntermediate WorkflowStateType = "intermediate"
 )
