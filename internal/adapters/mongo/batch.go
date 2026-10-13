@@ -1,3 +1,4 @@
+// Package mongo provides MongoDB adapters for FlowRule repositories.
 package mongo
 
 import (
@@ -12,14 +13,17 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// BatchRepository handles batch-related persistence operations in MongoDB.
 type BatchRepository struct {
 	querier Querier
 }
 
+// NewBatchRepository creates a new BatchRepository.
 func NewBatchRepository(q Querier) *BatchRepository {
 	return &BatchRepository{querier: q}
 }
 
+// SaveRun upserts a batch run.
 func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) error {
 	coll := r.collection(collectionBatchRuns)
 	doc := BatchRunDocFromDomain(run)
@@ -39,6 +43,7 @@ func (r *BatchRepository) SaveRun(ctx context.Context, run *domain.BatchRun) err
 	return nil
 }
 
+// GetRun retrieves a batch run by ID.
 func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
@@ -52,6 +57,7 @@ func (r *BatchRepository) GetRun(ctx context.Context, batchID string) (*domain.B
 	return doc.ToDomain(), nil
 }
 
+// GetRunForTenant retrieves a batch run by ID and tenant.
 func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID string) (*domain.BatchRun, error) {
 	coll := r.collection(collectionBatchRuns)
 	var doc BatchRunDoc
@@ -65,6 +71,7 @@ func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID
 	return doc.ToDomain(), nil
 }
 
+// ListRuns returns batch runs for a tenant, optionally filtered by rule set.
 func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string, limit, offset int) ([]*domain.BatchRun, error) {
 	if limit <= 0 {
 		limit = 100
@@ -105,6 +112,7 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	return runs, nil
 }
 
+// ListUnbatched returns up to limit unbatched committed inbox entries.
 func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*domain.InboxEntry, error) {
 	if limit <= 0 {
 		limit = 100
@@ -135,6 +143,7 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 	return entries, nil
 }
 
+// ListUnbatchedByIDs returns requested eligible events in one tenant partition.
 func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, partitionKey, ruleSet string, eventIDs []string) ([]*domain.InboxEntry, error) {
 	coll := r.collection(collectionInbox)
 	filter := bson.M{
@@ -165,6 +174,7 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	return entries, nil
 }
 
+// MarkBatched marks an inbox entry as belonging to a batch.
 func (r *BatchRepository) MarkBatched(ctx context.Context, tenantID, eventID, batchID string) error {
 	coll := r.collection(collectionInbox)
 	_, err := coll.UpdateOne(ctx,

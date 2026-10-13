@@ -14,14 +14,17 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// ContractHandler handles HTTP requests for contract operations.
 type ContractHandler struct {
 	registry ports.ContractRegistry
 }
 
+// NewContractHandler creates a new ContractHandler.
 func NewContractHandler(registry ports.ContractRegistry) *ContractHandler {
 	return &ContractHandler{registry: registry}
 }
 
+// RegisterRoutes registers the HTTP routes for the ContractHandler.
 func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/contracts", h.CreateContract)
 	mux.HandleFunc("GET /v1/contracts", h.ListContracts)
@@ -31,6 +34,7 @@ func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/contracts/{name}/{version}/generate", h.GenerateContract)
 }
 
+// CreateContract handles POST /v1/contracts requests.
 func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request) {
 	if !requireContractAdmin(w, r) {
 		return
@@ -58,6 +62,7 @@ func (h *ContractHandler) CreateContract(w http.ResponseWriter, r *http.Request)
 	responses.WriteCreated(w, schema)
 }
 
+// ListContracts handles GET /v1/contracts requests.
 func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 
@@ -70,6 +75,7 @@ func (h *ContractHandler) ListContracts(w http.ResponseWriter, r *http.Request) 
 	responses.WriteOK(w, schemas)
 }
 
+// GetContract handles GET /v1/contracts/{name} requests.
 func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	version := r.URL.Query().Get(queryParamVersion)
@@ -92,6 +98,7 @@ func (h *ContractHandler) GetContract(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, schema)
 }
 
+// GetContractVersion handles GET /v1/contracts/{name}/{version} requests.
 func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	version := r.PathValue("version")
@@ -109,6 +116,7 @@ func (h *ContractHandler) GetContractVersion(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, schema)
 }
 
+// DeleteContract handles DELETE /v1/contracts/{name}/{version} requests.
 func (h *ContractHandler) DeleteContract(w http.ResponseWriter, r *http.Request) {
 	if !requireContractAdmin(w, r) {
 		return
@@ -131,6 +139,7 @@ type generateContractRequest struct {
 
 var errUnsupportedContractLanguage = errors.New("unsupported language")
 
+// GenerateContract handles POST /v1/contracts/{name}/{version}/generate requests.
 func (h *ContractHandler) GenerateContract(w http.ResponseWriter, r *http.Request) {
 	if !requireContractAdmin(w, r) {
 		return

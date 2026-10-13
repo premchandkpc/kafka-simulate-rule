@@ -13,11 +13,13 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// EventIngestionHandler handles HTTP requests for event ingestion.
 type EventIngestionHandler struct {
 	publisher ports.BrokerPublisher
 	numShards uint32
 }
 
+// NewEventIngestionHandler creates a new EventIngestionHandler.
 func NewEventIngestionHandler(publisher ports.BrokerPublisher, numShards uint32) *EventIngestionHandler {
 	if numShards == 0 {
 		numShards = config.DefaultNumShards
@@ -25,6 +27,7 @@ func NewEventIngestionHandler(publisher ports.BrokerPublisher, numShards uint32)
 	return &EventIngestionHandler{publisher: publisher, numShards: numShards}
 }
 
+// RegisterRoutes registers the HTTP routes for the EventIngestionHandler.
 func (h *EventIngestionHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/events/{eventType}", h.PublishEvent)
 }
@@ -43,6 +46,7 @@ type eventIngestionRequest struct {
 	SchemaVersion string            `json:"schema_version,omitempty"`
 }
 
+// PublishEvent handles POST /v1/events/{eventType} requests.
 func (h *EventIngestionHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 	if h.publisher == nil {
 		responses.WriteError(w, http.StatusServiceUnavailable, "event ingestion is not configured", responses.CodeInternalError)

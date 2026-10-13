@@ -1,3 +1,4 @@
+// Package effects provides implementations for sending effects to external destinations.
 package effects
 
 import (

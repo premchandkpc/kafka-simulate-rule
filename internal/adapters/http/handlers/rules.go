@@ -21,7 +21,7 @@ func NewRuleHandler(ruleSvc ports.RuleService) *RuleHandler {
 	return &RuleHandler{ruleSvc: ruleSvc}
 }
 
-// RuleHandler.RegisterRoutes registers the handler's HTTP routes on mux.
+// RegisterRoutes registers the handler's HTTP routes on mux.
 func (h *RuleHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/rules/check", h.CheckRule)
 	mux.HandleFunc("POST /v1/rules/{ruleSet}/revisions", h.CreateRevision)
@@ -69,7 +69,7 @@ func (h *RuleHandler) CreateRevision(w http.ResponseWriter, r *http.Request) {
 	responses.WriteCreated(w, activation)
 }
 
-// RuleHandler.ListRevisions lists revisions visible to the current tenant.
+// ListRevisions lists revisions visible to the current tenant.
 func (h *RuleHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	ruleSet := r.PathValue("ruleSet")
 	tenantScope := middleware.GetTenantID(r.Context())
@@ -98,7 +98,7 @@ func (h *RuleHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// RuleHandler.GetRevision returns a specific rule revision.
+// GetRevision returns a specific rule revision.
 func (h *RuleHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	ruleSet := r.PathValue("ruleSet")
 	revisionStr := r.PathValue("revision")
@@ -124,7 +124,7 @@ func (h *RuleHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, rev)
 }
 
-// RuleHandler.Deactivate deactivates the requested rule set.
+// Deactivate deactivates the requested rule set.
 func (h *RuleHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	ruleSet := r.PathValue("ruleSet")
 	tenantScope := middleware.GetTenantID(r.Context())
@@ -138,7 +138,7 @@ func (h *RuleHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, map[string]string{"status": "deactivated"})
 }
 
-// RuleHandler.ListActiveRules lists active rules for the current tenant.
+// ListActiveRules lists active rules for the current tenant.
 func (h *RuleHandler) ListActiveRules(w http.ResponseWriter, r *http.Request) {
 	tenantScope := middleware.GetTenantID(r.Context())
 

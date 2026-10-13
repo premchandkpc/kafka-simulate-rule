@@ -1,3 +1,5 @@
+// cmd/migrate is the database migration CLI for FlowRule.
+// It applies pending PostgreSQL migrations from the migrations directory.
 package main
 
 import (

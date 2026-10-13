@@ -55,24 +55,24 @@ func newMockActivation() *mockActivation {
 	return &mockActivation{activations: make(map[string]*domain.RuleActivation)}
 }
 
-func (m *mockActivation) Get(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleActivation, error) {
+func (m *mockActivation) Get(_ context.Context, tenantScope string, ruleSet string) (*domain.RuleActivation, error) {
 	key := tenantScope + ":" + ruleSet
 	return m.activations[key], nil
 }
 
-func (m *mockActivation) Set(ctx context.Context, activation *domain.RuleActivation) error {
+func (m *mockActivation) Set(_ context.Context, activation *domain.RuleActivation) error {
 	key := activation.TenantScope + ":" + activation.RuleSet
 	m.activations[key] = activation
 	return nil
 }
 
-func (m *mockActivation) Delete(ctx context.Context, tenantScope string, ruleSet string) error {
+func (m *mockActivation) Delete(_ context.Context, tenantScope string, ruleSet string) error {
 	key := tenantScope + ":" + ruleSet
 	delete(m.activations, key)
 	return nil
 }
 
-func (m *mockActivation) SetWithVersion(ctx context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
+func (m *mockActivation) SetWithVersion(_ context.Context, activation *domain.RuleActivation, expectedVersion int64) error {
 	key := activation.TenantScope + ":" + activation.RuleSet
 	current := m.activations[key]
 	if current != nil && current.Version != expectedVersion {
@@ -86,7 +86,7 @@ func (m *mockActivation) SetWithVersion(ctx context.Context, activation *domain.
 	return nil
 }
 
-func (m *mockActivation) List(ctx context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
+func (m *mockActivation) List(_ context.Context, tenantScope string) ([]*domain.RuleActivation, error) {
 	var result []*domain.RuleActivation
 	for _, act := range m.activations {
 		if act.TenantScope == tenantScope {
@@ -104,12 +104,12 @@ func newMockRuleRepo() *mockRuleRepo {
 	return &mockRuleRepo{revisions: make(map[string]*domain.RuleRevision)}
 }
 
-func (m *mockRuleRepo) GetActive(ctx context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error) {
+func (m *mockRuleRepo) GetActive(_ context.Context, tenantScope string, ruleSet string) (*domain.RuleRevision, error) {
 	key := tenantScope + ":" + ruleSet
 	return m.revisions[key], nil
 }
 
-func (m *mockRuleRepo) Save(ctx context.Context, revision *domain.RuleRevision) error {
+func (m *mockRuleRepo) Save(_ context.Context, revision *domain.RuleRevision) error {
 	key := revision.TenantScope + ":" + revision.RuleID
 	m.revisions[key] = revision
 	return nil
@@ -299,7 +299,7 @@ func setupTestUseCase(t *testing.T) (*svcevents.Service, *mockInbox, *mockExecut
 	}
 	txManager := newMockTxManager(mockTx)
 
-	newRepos := func(tx ports.Transaction) (ports.EventTxRepos, error) {
+	newRepos := func(_ ports.Transaction) (ports.EventTxRepos, error) {
 		return ports.EventTxRepos{
 			Inbox:          inbox,
 			Activations:    activations,
@@ -513,7 +513,7 @@ func TestActivateRuleUsesExplicitTenantScope(t *testing.T) {
 		activations: activations,
 	})
 	// Mock RepositoryFactory that returns tx-scoped repos
-	newTxRepos := func(tx ports.Transaction) (ports.RuleTxRepos, error) {
+	newTxRepos := func(_ ports.Transaction) (ports.RuleTxRepos, error) {
 		return ports.RuleTxRepos{
 			Activations: activations,
 			RuleRepo:    ruleRepo,

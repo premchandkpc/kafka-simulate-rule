@@ -1,3 +1,5 @@
+// Package storage provides storage backend abstraction for FlowRule.
+// It manages database connections, repositories, and transactions.
 package storage
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Repositories holds all repository implementations.
 type Repositories struct {
 	Inbox                  ports.InboxRepository
 	Activations            ports.ActivationRepository
@@ -31,6 +34,7 @@ type Repositories struct {
 	NewRuleTxRepositories  ports.RuleTxRepositoryFactory
 }
 
+// Storage manages database connections and repositories.
 type Storage struct {
 	backend      string
 	repositories Repositories
@@ -64,6 +68,7 @@ func (s *Storage) Close() {
 	s.close()
 }
 
+// Open creates a new Storage instance with the configured backend.
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Storage, error) {
 	backend := strings.ToLower(strings.TrimSpace(cfg.StorageBackend))
 	if backend == "" {

@@ -1,3 +1,4 @@
+// Package nats provides NATS JetStream adapters for event publishing and consumption.
 package nats
 
 import (
@@ -19,6 +20,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// Config holds NATS JetStream connection and stream configuration.
 type Config struct {
 	NatsURL        string
 	ConnectTimeout time.Duration
@@ -163,6 +165,7 @@ func ensureStream(ctx context.Context, js jetstream.JetStream, cfg Config) error
 	return nil
 }
 
+// NewConsumer creates a new NATS JetStream consumer.
 func NewConsumer(ctx context.Context, cfg Config) (*Consumer, error) {
 	cfg, err := normalizeConfig(cfg)
 	if err != nil {
@@ -248,6 +251,7 @@ func (c *Consumer) ensureConsumerLocked(ctx context.Context, key consumerKey) er
 	return nil
 }
 
+// EnsureShardConsumer ensures durable consumers exist for the given shard.
 func (c *Consumer) EnsureShardConsumer(ctx context.Context, shard uint32) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -264,6 +268,7 @@ func (c *Consumer) EnsureShardConsumer(ctx context.Context, shard uint32) error 
 	return nil
 }
 
+// RemoveShardConsumer removes durable consumers for the given shard.
 func (c *Consumer) RemoveShardConsumer(ctx context.Context, shard uint32) error {
 	c.mu.RLock()
 	keys := make([]consumerKey, 0)
@@ -300,6 +305,7 @@ func (c *Consumer) RemoveShardConsumer(ctx context.Context, shard uint32) error 
 	return errors.Join(removeErrs...)
 }
 
+// FetchShards fetches messages from the specified shards.
 func (c *Consumer) FetchShards(ctx context.Context, maxMessages int, shards []uint32) ([]ports.Delivery, error) {
 	if err := validateFetchRequest(ctx, maxMessages); err != nil {
 		return nil, err
@@ -394,7 +400,7 @@ func (c *Consumer) fetchSelectedConsumers(
 			budget++
 		}
 		wg.Add(1)
-		go func(key consumerKey, durable string, budget int) {
+		go func(_ consumerKey, durable string, budget int) {
 			defer wg.Done()
 			results <- c.fetchFromConsumer(ctx, durable, budget)
 		}(key, durables[key], budget)
@@ -449,6 +455,7 @@ func collectFetchResults(results []shardFetchResult, maxMessages int) ([]ports.D
 	return deliveries, errors.Join(fetchErrs...)
 }
 
+// OwnedShards returns the shards for which this consumer has active consumers.
 func (c *Consumer) OwnedShards() []uint32 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -467,6 +474,7 @@ func (c *Consumer) OwnedShards() []uint32 {
 	return shards
 }
 
+// ShardCount returns the configured number of shards.
 func (c *Consumer) ShardCount() uint32 {
 	return c.numShards
 }
@@ -482,19 +490,23 @@ func (c *Consumer) Ping(ctx context.Context) error {
 	return nil
 }
 
+// Close closes the NATS connection.
 func (c *Consumer) Close() error {
 	c.conn.Close()
 	return nil
 }
 
+// Fetch fetches messages from all owned shards.
 func (c *Consumer) Fetch(ctx context.Context, maxMessages int) ([]ports.Delivery, error) {
 	return c.FetchShards(ctx, maxMessages, c.OwnedShards())
 }
 
+// Subscribe is a no-op for pull-based consumers.
 func (c *Consumer) Subscribe(_ context.Context, _ []string) error {
 	return nil
 }
 
+// Unsubscribe is a no-op for pull-based consumers.
 func (c *Consumer) Unsubscribe(_ context.Context) error {
 	return nil
 }
@@ -551,6 +563,7 @@ type Publisher struct {
 	ruleSets  []string
 }
 
+// NewPublisher creates a new NATS JetStream publisher.
 func NewPublisher(cfg Config) (*Publisher, error) {
 	cfg, err := normalizeConfig(cfg)
 	if err != nil {
@@ -576,6 +589,7 @@ func NewPublisher(cfg Config) (*Publisher, error) {
 	}, nil
 }
 
+// Publish publishes a message to a subject.
 func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) error {
 	_, err := p.js.Publish(ctx, subject, data)
 	if err != nil {
@@ -589,10 +603,12 @@ func (p *Publisher) SendOrderCreate(ctx context.Context, shard uint32, payload [
 	return p.PublishToShard(ctx, "orders.create", shard, payload)
 }
 
+// PublishToShard publishes a message to a shard-specific subject.
 func (p *Publisher) PublishToShard(ctx context.Context, baseSubject string, shard uint32, data []byte) error {
 	return p.Publish(ctx, subjectForMessage(baseSubject, shard, data, p.ruleSets), data)
 }
 
+// PublishBatch publishes multiple messages.
 func (p *Publisher) PublishBatch(ctx context.Context, messages []ports.PublishMessage) error {
 	for i, msg := range messages {
 		if err := p.Publish(ctx, msg.Subject, msg.Data); err != nil {
@@ -602,6 +618,7 @@ func (p *Publisher) PublishBatch(ctx context.Context, messages []ports.PublishMe
 	return nil
 }
 
+// Ping reports whether the publisher connection is up and the stream exists.
 func (p *Publisher) Ping(ctx context.Context) error {
 	if p.conn == nil || p.conn.Status() != natslib.CONNECTED {
 		return errors.New("nats publisher connection is not established")
@@ -612,6 +629,7 @@ func (p *Publisher) Ping(ctx context.Context) error {
 	return nil
 }
 
+// Close closes the publisher connection.
 func (p *Publisher) Close() error {
 	if p.conn != nil {
 		p.conn.Close()

@@ -159,7 +159,7 @@ func newMemEventProcessor() *memEventProcessor {
 	}
 }
 
-func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
+func (m *memEventProcessor) Process(_ context.Context, envelope *domain.EventEnvelope, fencingToken int64, shard uint32, workerID string) (*domain.Execution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.envelopes = append(m.envelopes, envelope)
@@ -180,7 +180,7 @@ func (m *memEventProcessor) Process(ctx context.Context, envelope *domain.EventE
 	return exec, nil
 }
 
-func (m *memEventProcessor) QuarantineEvent(ctx context.Context, sourceID, eventID, tenantID string, errClass domain.ErrorClass, errMsg string) error {
+func (m *memEventProcessor) QuarantineEvent(_ context.Context, _ string, _ string, _ string, _ domain.ErrorClass, _ string) error {
 	return nil
 }
 

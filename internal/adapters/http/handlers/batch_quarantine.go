@@ -1,3 +1,4 @@
+// Package handlers provides HTTP request handlers for the FlowRule API.
 package handlers
 
 import (
@@ -11,20 +12,24 @@ import (
 	"github.com/flowrule/flowrule/internal/ports"
 )
 
+// BatchHandler handles HTTP requests for batch operations.
 type BatchHandler struct {
 	batchSvc ports.BatchService
 }
 
+// NewBatchHandler creates a new BatchHandler.
 func NewBatchHandler(batchSvc ports.BatchService) *BatchHandler {
 	return &BatchHandler{batchSvc: batchSvc}
 }
 
+// RegisterRoutes registers the HTTP routes for the BatchHandler.
 func (h *BatchHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/batches", h.CreateBatch)
 	mux.HandleFunc("GET /v1/batches/{batchID}", h.GetBatch)
 	mux.HandleFunc("GET /v1/batches", h.ListBatches)
 }
 
+// CreateBatch handles POST /v1/batches requests.
 func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TenantID     string   `json:"tenant_id"`
@@ -66,6 +71,7 @@ func (h *BatchHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 	responses.WriteCreated(w, batch)
 }
 
+// GetBatch handles GET /v1/batches/{batchID} requests.
 func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 	batchID := r.PathValue("batchID")
 	if batchID == "" {
@@ -87,6 +93,7 @@ func (h *BatchHandler) GetBatch(w http.ResponseWriter, r *http.Request) {
 	responses.WriteOK(w, batch)
 }
 
+// ListBatches handles GET /v1/batches requests.
 func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	ruleSet := r.URL.Query().Get(queryParamRuleSet)
@@ -112,14 +119,17 @@ func (h *BatchHandler) ListBatches(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// QuarantineHandler handles HTTP requests for quarantine operations.
 type QuarantineHandler struct {
 	quarantineSvc ports.QuarantineService
 }
 
+// NewQuarantineHandler creates a new QuarantineHandler.
 func NewQuarantineHandler(quarantineSvc ports.QuarantineService) *QuarantineHandler {
 	return &QuarantineHandler{quarantineSvc: quarantineSvc}
 }
 
+// RegisterRoutes registers the HTTP routes for the QuarantineHandler.
 func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/quarantine", h.ListQuarantine)
 	mux.HandleFunc("GET /v1/quarantine/{id}", h.GetQuarantine)
@@ -127,6 +137,7 @@ func (h *QuarantineHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/quarantine/{id}", h.DeleteQuarantine)
 }
 
+// ListQuarantine handles GET /v1/quarantine requests.
 func (h *QuarantineHandler) ListQuarantine(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.GetTenantID(r.Context())
 	if tenantID == "" {
@@ -193,6 +204,7 @@ func quarantineListResponse(entries []*domain.QuarantineEntry, filter ports.Quar
 	}
 }
 
+// GetQuarantine handles GET /v1/quarantine/{id} requests.
 func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -218,6 +230,7 @@ func (h *QuarantineHandler) GetQuarantine(w http.ResponseWriter, r *http.Request
 	responses.WriteOK(w, entry)
 }
 
+// ReplayQuarantine handles POST /v1/quarantine/{id}/replay requests.
 func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -242,6 +255,7 @@ func (h *QuarantineHandler) ReplayQuarantine(w http.ResponseWriter, r *http.Requ
 	responses.WriteOK(w, map[string]string{"status": "replayed"})
 }
 
+// DeleteQuarantine handles DELETE /v1/quarantine/{id} requests.
 func (h *QuarantineHandler) DeleteQuarantine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
