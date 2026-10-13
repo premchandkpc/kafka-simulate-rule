@@ -260,7 +260,6 @@ func (d *QuarantineDoc) ToDomain() *domain.QuarantineEntry {
 	}
 }
 
-
 // mongoEquality wraps an untrusted value in a fixed equality expression so it
 // is always interpreted as data, never as caller-controlled query syntax.
 func mongoEquality(value any) bson.D {
