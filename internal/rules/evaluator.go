@@ -423,20 +423,22 @@ func (c templateContext) expand(s string) interface{} {
 }
 
 func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {
-	effectID := domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex)
 	effect := domain.Effect{
-		ID: effectID, ExecutionID: "", CreatedAt: e.clock.Now(),
+		ID: domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex),
+		ExecutionID: "",
 	}
 	switch {
 	case action.Emit != nil:
-		return e.buildEmitEffect(effect, action.Emit), nil
+		effect = e.buildEmitEffect(effect, action.Emit)
 	case action.EmitEvent != nil:
-		return e.buildEmitEventEffect(effect, event, ruleID, actionIndex, action.EmitEvent)
+		var err error
+		effect, err = e.buildEmitEventEffect(effect, event, ruleID, actionIndex, action.EmitEvent)
+		if err != nil { return domain.Effect{}, err }
 	case action.Command != nil:
-		return buildCommandEffect(effect, action.Command), nil
-	default:
-		return effect, nil
+		effect = buildCommandEffect(effect, action.Command)
 	}
+	effect.CreatedAt = e.clock.Now()
+	return effect, nil
 }
 
 func (e *Evaluator) buildEmitEffect(effect domain.Effect, action *domain.EmitAction) domain.Effect {
