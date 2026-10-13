@@ -328,4 +328,3 @@ func buildCompletedBatchRun(
 		WindowFrom: &windowFrom, WindowTo: &now, CreatedAt: now,
 	}
 }
-}
