@@ -1,13 +1,20 @@
+// Package domain defines domain errors and classifies failures.
 package domain
 
 import "errors"
 
 var (
+	// ErrEventIDRequired indicates that an event ID is required.
 	ErrEventIDRequired      = errors.New("event id is required")
+	// ErrEventTypeRequired indicates that an event type is required.
 	ErrEventTypeRequired    = errors.New("event type is required")
+	// ErrTenantIDRequired indicates that a tenant ID is required.
 	ErrTenantIDRequired     = errors.New("tenant id is required")
+	// ErrPartitionKeyRequired indicates that a partition key is required.
 	ErrPartitionKeyRequired = errors.New("partition key is required")
+	// ErrOccurredAtRequired indicates that an event timestamp is required.
 	ErrOccurredAtRequired   = errors.New("occurred at is required")
+	// ErrInvalidEventEnvelope indicates that an event envelope is invalid.
 	ErrInvalidEventEnvelope = errors.New("invalid event envelope")
 
 	ErrRuleIDRequired        = errors.New("rule id is required")
@@ -80,6 +87,7 @@ var (
 	ErrInvalidFactPath      = errors.New("invalid fact path")
 )
 
+// ErrorClass contains error class settings.
 type ErrorClass string
 
 const (
@@ -95,6 +103,7 @@ const (
 	ErrorClassInternal      ErrorClass = "internal"
 )
 
+// ClassifyError provides the classify error.
 func ClassifyError(err error) ErrorClass {
 	if err == nil {
 		return ErrorClassInternal
@@ -166,11 +175,13 @@ func ClassifyError(err error) ErrorClass {
 	}
 }
 
+// IsRetryable provides the is retryable.
 func IsRetryable(err error) bool {
 	cls := ClassifyError(err)
 	return cls == ErrorClassBroker || cls == ErrorClassEffect || cls == ErrorClassDatabase
 }
 
+// IsPermanent provides the is permanent.
 func IsPermanent(err error) bool {
 	cls := ClassifyError(err)
 	return cls == ErrorClassValidation ||
