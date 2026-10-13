@@ -1,4 +1,5 @@
 // Package responses writes standardized HTTP API responses.
+// Package responses writes standardized HTTP API responses.
 
 import (
 	"encoding/json"
