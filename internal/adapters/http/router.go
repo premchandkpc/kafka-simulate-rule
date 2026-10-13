@@ -59,15 +59,26 @@ func NewRouterWithPublisher(
 ) *Router {
 	mux := http.NewServeMux()
 
-	// Apply middleware chain
+	// Apply middleware chain. Required authentication must fail closed even if
+	// the router is constructed incorrectly and no validator was supplied.
 	handler := middleware.Recovery(mux)
 	handler = middleware.TenantExtractor(handler)
-	if config.AuthValidator != nil {
-		if config.RequireAuth {
-			handler = auth.Middleware(config.AuthValidator, config.RequiredScopes...)(handler)
+	if config.RequireAuth {
+		if config.AuthValidator == nil {
+			handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Keep the liveness endpoint available during misconfiguration;
+				// all application routes remain unavailable rather than public.
+				if r.URL.Path == "/health" {
+					mux.ServeHTTP(w, r)
+					return
+				}
+				responses.WriteError(w, http.StatusServiceUnavailable, "required authentication is not configured", responses.CodeInternalError)
+			})
 		} else {
-			handler = auth.OptionalAuthMiddleware(config.AuthValidator)(handler)
+			handler = auth.Middleware(config.AuthValidator, config.RequiredScopes...)(handler)
 		}
+	} else if config.AuthValidator != nil {
+		handler = auth.OptionalAuthMiddleware(config.AuthValidator)(handler)
 	}
 
 	// Health endpoint
