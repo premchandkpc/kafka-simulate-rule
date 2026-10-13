@@ -79,7 +79,7 @@ async fn handle_message(
         return Ok(());
     };
     if let Err(error) = validate_message_routing(&envelope, config, shard) {
-        quarantine_and_ack(pool, &message, &envelope.id, Some(&envelope.tenant_id), &error).await?;
+        quarantine_and_ack(pool, &message, &envelope.id, Some(&envelope.tenant_id), &error.to_string()).await?;
         return Ok(());
     }
 
