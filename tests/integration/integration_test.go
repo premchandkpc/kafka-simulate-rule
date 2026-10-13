@@ -21,7 +21,7 @@ func newMockInbox() *mockInbox {
 	return &mockInbox{entries: make(map[string]*domain.InboxEntry)}
 }
 
-func (m *mockInbox) Insert(ctx context.Context, entry *domain.InboxEntry) (bool, error) {
+func (m *mockInbox) Insert(_ context.Context, entry *domain.InboxEntry) (bool, error) {
 	key := entry.TenantID + ":" + entry.EventID
 	if _, exists := m.entries[key]; exists {
 		return false, nil
@@ -30,12 +30,12 @@ func (m *mockInbox) Insert(ctx context.Context, entry *domain.InboxEntry) (bool,
 	return true, nil
 }
 
-func (m *mockInbox) Get(ctx context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
+func (m *mockInbox) Get(_ context.Context, tenantID string, eventID string) (*domain.InboxEntry, error) {
 	key := tenantID + ":" + eventID
 	return m.entries[key], nil
 }
 
-func (m *mockInbox) MarkCommitted(ctx context.Context, tenantID string, eventID string, executionID string) error {
+func (m *mockInbox) MarkCommitted(_ context.Context, tenantID string, eventID string, executionID string) error {
 	key := tenantID + ":" + eventID
 	if entry, ok := m.entries[key]; ok {
 		entry.Status = domain.InboxStatusCommitted
