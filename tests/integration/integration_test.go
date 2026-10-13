@@ -241,7 +241,7 @@ func (m *mockOutbox) Quarantine(_ context.Context, effectID, _ string, errMsg st
 }
 
 // GetPending provides the corresponding repository operation.
-func (m *mockOutbox) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
+func (m *mockOutbox) GetPending(_ context.Context, limit int) ([]domain.OutboxEffect, error) {
 	var pending []domain.OutboxEffect
 	for _, ef := range m.effects {
 		if ef.Status == domain.OutboxStatusPending {
@@ -255,7 +255,7 @@ func (m *mockOutbox) GetPending(ctx context.Context, limit int) ([]domain.Outbox
 }
 
 // GetByExecution provides the corresponding repository operation.
-func (m *mockOutbox) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
+func (m *mockOutbox) GetByExecution(_ context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	var result []domain.OutboxEffect
 	for _, ef := range m.effects {
 		if ef.ExecutionID == executionID {
@@ -274,7 +274,7 @@ func newMockQuarantine() *mockQuarantine {
 }
 
 // Save persists the supplied value.
-func (m *mockQuarantine) Save(ctx context.Context, entry *domain.QuarantineEntry) error {
+func (m *mockQuarantine) Save(_ context.Context, entry *domain.QuarantineEntry) error {
 	m.entries[entry.ID] = entry
 	return nil
 }
