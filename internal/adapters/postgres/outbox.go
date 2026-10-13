@@ -1,3 +1,4 @@
+// Package postgres provides PostgreSQL persistence adapters.
 package postgres
 
 import (
@@ -10,14 +11,17 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// OutboxRepository is the PostgreSQL persistence adapter.
 type OutboxRepository struct {
 	db Querier
 }
 
+// NewOutboxRepository performs its documented repository operation.
 func NewOutboxRepository(db Querier) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
 
+// Insert performs its documented repository operation.
 func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEffect) error {
 	for _, ef := range effects {
 		if ef.TenantID == "" {
@@ -36,6 +40,7 @@ func (r *OutboxRepository) Insert(ctx context.Context, effects []domain.OutboxEf
 	return nil
 }
 
+// ClaimPending performs its documented repository operation.
 func (r *OutboxRepository) ClaimPending(ctx context.Context, batchSize int, owner string, claimTTL time.Duration) ([]domain.OutboxEffect, error) {
 	if err := validateClaimArguments(batchSize, owner, claimTTL); err != nil {
 		return nil, err
@@ -96,6 +101,7 @@ func scanOutboxEffect(rows pgx.Rows) (domain.OutboxEffect, error) {
 	return effect, nil
 }
 
+// MarkDelivered performs its documented repository operation.
 func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string, claimant string) error {
 	if len(effectIDs) == 0 {
 		return nil
@@ -125,6 +131,7 @@ func (r *OutboxRepository) MarkDelivered(ctx context.Context, effectIDs []string
 	return nil
 }
 
+// ScheduleRetry performs its documented repository operation.
 func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant string, delay time.Duration, attempts int, errMsg string) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
@@ -142,6 +149,7 @@ func (r *OutboxRepository) ScheduleRetry(ctx context.Context, effectID, claimant
 	return nil
 }
 
+// Quarantine performs its documented repository operation.
 func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, errMsg string) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE outbox_effects
@@ -158,6 +166,7 @@ func (r *OutboxRepository) Quarantine(ctx context.Context, effectID, claimant, e
 	return nil
 }
 
+// GetPending performs its documented repository operation.
 func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.OutboxEffect, error) {
 	limit = normalizeOutboxLimit(limit)
 	rows, err := r.db.Query(ctx, `
@@ -190,6 +199,7 @@ func (r *OutboxRepository) GetPending(ctx context.Context, limit int) ([]domain.
 	return effects, nil
 }
 
+// GetByExecution performs its documented repository operation.
 func (r *OutboxRepository) GetByExecution(ctx context.Context, executionID string) ([]domain.OutboxEffect, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT effect_id, execution_id, tenant_id, destination, name, payload, effect_type,
