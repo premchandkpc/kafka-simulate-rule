@@ -18,9 +18,9 @@ var (
 	ErrInvalidEventEnvelope = errors.New("invalid event envelope")
 
 	// ErrRuleIDRequired indicates that a rule ID is required.
-	ErrRuleIDRequired        = errors.New("rule id is required")
+	ErrRuleIDRequired = errors.New("rule id is required")
 	// ErrRevisionRequired indicates that a revision is required.
-	ErrRevisionRequired      = errors.New("revision is required")
+	ErrRevisionRequired = errors.New("revision is required")
 	// ErrRuleSourceRequired indicates that a rule source is required.
 	ErrRuleSourceRequired    = errors.New("rule source is required")
 	ErrInvalidMatchMode      = errors.New("invalid match mode")
@@ -95,25 +95,25 @@ type ErrorClass string
 
 const (
 	// ErrorClassValidation indicates a validation error.
-	ErrorClassValidation    ErrorClass = "validation"
+	ErrorClassValidation ErrorClass = "validation"
 	// ErrorClassRule indicates a rule error.
-	ErrorClassRule          ErrorClass = "rule"
+	ErrorClassRule ErrorClass = "rule"
 	// ErrorClassEvaluation indicates an evaluation error.
-	ErrorClassEvaluation    ErrorClass = "evaluation"
+	ErrorClassEvaluation ErrorClass = "evaluation"
 	// ErrorClassExecution indicates an execution error.
-	ErrorClassExecution     ErrorClass = "execution"
+	ErrorClassExecution ErrorClass = "execution"
 	// ErrorClassEffect indicates an effect error.
-	ErrorClassEffect        ErrorClass = "effect"
+	ErrorClassEffect ErrorClass = "effect"
 	// ErrorClassBroker indicates a broker error.
-	ErrorClassBroker        ErrorClass = "broker"
+	ErrorClassBroker ErrorClass = "broker"
 	// ErrorClassDatabase indicates a database error.
-	ErrorClassDatabase      ErrorClass = "database"
+	ErrorClassDatabase ErrorClass = "database"
 	// ErrorClassAuthorization indicates an authorization error.
 	ErrorClassAuthorization ErrorClass = "authorization"
 	// ErrorClassQuarantine indicates a quarantine error.
-	ErrorClassQuarantine    ErrorClass = "quarantine"
+	ErrorClassQuarantine ErrorClass = "quarantine"
 	// ErrorClassInternal indicates an internal error.
-	ErrorClassInternal      ErrorClass = "internal"
+	ErrorClassInternal ErrorClass = "internal"
 )
 
 // ClassifyError provides the classify error.
