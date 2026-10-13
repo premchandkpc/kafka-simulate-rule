@@ -284,57 +284,55 @@ func (c *Config) validateDeliverySettings() error {
 }
 
 func validateRawEnv() error {
-	integerKeys := []string{
-		"REDIS_DB",
-		"NUM_SHARDS",
-		"WORKER_REPLICAS",
-		"MAX_GLOBAL_IN_FLIGHT",
-		"FETCH_BATCH_SIZE",
-		"EFFECT_PUBLISH_INTERVAL_MS",
-		"EFFECT_PUBLISH_BATCH_SIZE",
-		"EVENT_RETRY_DELAY_MS",
-		"MAX_PER_KEY_QUEUE",
-		"KEY_QUEUE_WORKERS",
-		"BATCH_MAX",
-		"BATCH_WINDOW_MS",
-		"SCHEDULER_POLL_MS",
-		"SCHEDULER_BATCH_SIZE",
-		"LEASE_TTL_MS",
-		"LEASE_RENEWAL_INTERVAL_MS",
-		"NATS_ACK_WAIT_MS",
-		"NATS_MAX_DELIVER",
-		"HOT_KEY_THRESHOLD",
-		"HOT_KEY_CHECK_INTERVAL_MS",
+	if err := validateIntegerEnvironment(); err != nil { return err }
+	if err := validateShutdownTimeoutEnvironment(); err != nil { return err }
+	if err := validateRequireAuthEnvironment(); err != nil { return err }
+	return validateNumShardsEnvironment()
+}
+
+func validateIntegerEnvironment() error {
+	keys := []string{
+		"REDIS_DB", "NUM_SHARDS", "WORKER_REPLICAS", "MAX_GLOBAL_IN_FLIGHT",
+		"FETCH_BATCH_SIZE", "EFFECT_PUBLISH_INTERVAL_MS", "EFFECT_PUBLISH_BATCH_SIZE",
+		"EVENT_RETRY_DELAY_MS", "MAX_PER_KEY_QUEUE", "KEY_QUEUE_WORKERS",
+		"BATCH_MAX", "BATCH_WINDOW_MS", "SCHEDULER_POLL_MS", "SCHEDULER_BATCH_SIZE",
+		"LEASE_TTL_MS", "LEASE_RENEWAL_INTERVAL_MS", "NATS_ACK_WAIT_MS", "NATS_MAX_DELIVER",
+		"HOT_KEY_THRESHOLD", "HOT_KEY_CHECK_INTERVAL_MS",
 	}
-	for _, key := range integerKeys {
-		value, ok := os.LookupEnv(key)
-		if !ok {
-			continue
-		}
+	for _, key := range keys {
+		value, exists := os.LookupEnv(key)
+		if !exists { continue }
 		if _, err := strconv.Atoi(strings.TrimSpace(value)); err != nil {
 			return fmt.Errorf("%s must be an integer: %w", key, err)
 		}
 	}
+	return nil
+}
 
-	if value, ok := os.LookupEnv("SHUTDOWN_TIMEOUT"); ok {
-		if _, err := time.ParseDuration(strings.TrimSpace(value)); err != nil {
-			return fmt.Errorf("SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
-		}
+func validateShutdownTimeoutEnvironment() error {
+	value, exists := os.LookupEnv("SHUTDOWN_TIMEOUT")
+	if !exists { return nil }
+	if _, err := time.ParseDuration(strings.TrimSpace(value)); err != nil {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT must be a valid duration: %w", err)
 	}
-	if value, ok := os.LookupEnv("REQUIRE_AUTH"); ok {
-		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
-			return fmt.Errorf("REQUIRE_AUTH must be a boolean: %w", err)
-		}
+	return nil
+}
+
+func validateRequireAuthEnvironment() error {
+	value, exists := os.LookupEnv("REQUIRE_AUTH")
+	if !exists { return nil }
+	if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+		return fmt.Errorf("REQUIRE_AUTH must be a boolean: %w", err)
 	}
-	if value, ok := os.LookupEnv("NUM_SHARDS"); ok {
-		n, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil {
-			return fmt.Errorf("NUM_SHARDS must be an integer: %w", err)
-		}
-		if n <= 0 {
-			return fmt.Errorf("NUM_SHARDS must be > 0")
-		}
-	}
+	return nil
+}
+
+func validateNumShardsEnvironment() error {
+	value, exists := os.LookupEnv("NUM_SHARDS")
+	if !exists { return nil }
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil { return fmt.Errorf("NUM_SHARDS must be an integer: %w", err) }
+	if n <= 0 { return fmt.Errorf("NUM_SHARDS must be > 0") }
 	return nil
 }
 
