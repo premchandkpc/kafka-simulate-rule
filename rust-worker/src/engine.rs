@@ -154,9 +154,17 @@ fn calculate_execution_id(envelope: &EventEnvelope, revision: i64) -> String {
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
     let mut digest = Sha256::new();
     digest.update(bytes);
-    format!("{:x}", digest.finalize())
+    let output = digest.finalize();
+    let mut encoded = String::with_capacity(output.len() * 2);
+    for byte in output {
+        encoded.push(HEX[usize::from(byte >> 4)] as char);
+        encoded.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+    encoded
 }
 
 #[cfg(test)]
@@ -165,6 +173,14 @@ mod tests {
     use chrono::Utc;
     use serde_json::json;
     use super::rules::{Action, Predicate, build_effect, compare_eq, eval_predicate, expand_template};
+
+    #[test]
+    fn sha256_hex_matches_standard_sha256_vector() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 
     #[test]
     fn shard_hash_matches_fnv1a_contract() {
