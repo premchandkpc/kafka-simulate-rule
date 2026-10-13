@@ -14,10 +14,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// EventRepository persists and retrieves event envelopes in MongoDB.
 type EventRepository struct {
 	querier Querier
 }
 
+// NewEventRepository creates an event repository using the supplied querier.
 func NewEventRepository(q Querier) *EventRepository {
 	return &EventRepository{querier: q}
 }
@@ -26,6 +28,7 @@ func (r *EventRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Save stores an event envelope, treating duplicate events as already saved.
 func (r *EventRepository) Save(ctx context.Context, event *domain.EventEnvelope) error {
 	coll := r.collection(collectionEvents)
 	doc := EventDocFromDomain(event)
@@ -39,6 +42,7 @@ func (r *EventRepository) Save(ctx context.Context, event *domain.EventEnvelope)
 	return nil
 }
 
+// Get retrieves an event by tenant and event ID.
 func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*domain.EventEnvelope, error) {
 	coll := r.collection(collectionEvents)
 	var doc EventDoc
@@ -55,6 +59,7 @@ func (r *EventRepository) Get(ctx context.Context, tenantID, eventID string) (*d
 	return doc.ToDomain(), nil
 }
 
+// Exists reports whether an event exists for the tenant and event ID.
 func (r *EventRepository) Exists(ctx context.Context, tenantID, eventID string) (bool, error) {
 	coll := r.collection(collectionEvents)
 	count, err := coll.CountDocuments(ctx, bson.M{
@@ -67,6 +72,7 @@ func (r *EventRepository) Exists(ctx context.Context, tenantID, eventID string) 
 	return count > 0, nil
 }
 
+// MarkProcessed records the execution that processed an event.
 func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, executionID string) error {
 	coll := r.collection(collectionEvents)
 	now := time.Now().UTC()
@@ -86,6 +92,7 @@ func (r *EventRepository) MarkProcessed(ctx context.Context, tenantID, eventID, 
 	return err
 }
 
+// GetUnprocessed lists unprocessed events for a tenant up to the given limit.
 func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, limit int) ([]*domain.EventEnvelope, error) {
 	coll := r.collection(collectionEvents)
 
@@ -114,6 +121,7 @@ func (r *EventRepository) GetUnprocessed(ctx context.Context, tenantID string, l
 	return events, nil
 }
 
+// EventDoc is the MongoDB representation of an event envelope.
 type EventDoc struct {
 	EventID      string            `bson:"event_id"`
 	TenantID     string            `bson:"tenant_id"`
@@ -130,6 +138,7 @@ type EventDoc struct {
 	CreatedAt    time.Time         `bson:"created_at"`
 }
 
+// EventDocFromDomain converts a domain event envelope to a MongoDB document.
 func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 	return &EventDoc{
 		EventID:      event.ID,
@@ -145,6 +154,7 @@ func EventDocFromDomain(event *domain.EventEnvelope) *EventDoc {
 	}
 }
 
+// ToDomain converts the MongoDB event document to a domain event envelope.
 func (d *EventDoc) ToDomain() *domain.EventEnvelope {
 	var data json.RawMessage
 	if d.Data != nil {
