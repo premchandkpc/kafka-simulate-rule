@@ -167,6 +167,14 @@ mod tests {
     use super::rules::{Action, Predicate, build_effect, compare_eq, eval_predicate, expand_template};
 
     #[test]
+    fn sha256_hex_matches_standard_sha256_vector() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
     fn shard_hash_matches_fnv1a_contract() {
         assert_eq!(fnv1a32(b""), 2_166_136_261);
         assert_eq!(fnv1a32(b"a"), 3_826_002_220);
