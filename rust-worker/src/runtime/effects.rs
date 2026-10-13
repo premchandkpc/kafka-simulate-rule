@@ -168,37 +168,116 @@ async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str,
     Ok(())
 }
 
-async fn send_domain_service_effect(pool: &PgPool, http: &reqwest::Client, config: &Config, id: &str, execution_id: &str, tenant_id: &str, service_id: &str, event_type: &str, payload: &Value) -> Result<()> {
-    let endpoint: String = sqlx::query_scalar("SELECT endpoint_url FROM tenant_domain_services WHERE tenant_id=$1 AND service_id=$2 AND active=TRUE")
-        .bind(tenant_id).bind(service_id).fetch_optional(pool).await?
-        .ok_or_else(|| anyhow!("active tenant domain service {service_id:?} was not found"))?;
-    let url = reqwest::Url::parse(&endpoint).context("parse tenant service endpoint URL")?;
-    let local_env = matches!(config.app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test");
-    if url.scheme() != "https" && !local_env { bail!("tenant service endpoint must use HTTPS outside development/test"); }
-    if url.host_str().is_none() || url.username() != "" || url.password().is_some() || url.fragment().is_some() {
+async fn send_domain_service_effect(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    config: &Config,
+    id: &str,
+    execution_id: &str,
+    tenant_id: &str,
+    service_id: &str,
+    event_type: &str,
+    payload: &Value,
+) -> Result<()> {
+    let endpoint = load_active_service_endpoint(pool, tenant_id, service_id).await?;
+    let url = validate_service_endpoint(&endpoint, config)?;
+    post_service_callback(
+        http, url, id, execution_id, tenant_id, service_id, event_type, payload,
+    ).await
+}
+
+async fn load_active_service_endpoint(pool: &PgPool, tenant_id: &str, service_id: &str) -> Result<String> {
+    sqlx::query_scalar(
+        "SELECT endpoint_url FROM tenant_domain_services WHERE tenant_id=$1 AND service_id=$2 AND active=TRUE"
+    )
+    .bind(tenant_id)
+    .bind(service_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow!("active tenant domain service {service_id:?} was not found"))
+}
+
+fn validate_service_endpoint(endpoint: &str, config: &Config) -> Result<reqwest::Url> {
+    let url = reqwest::Url::parse(endpoint).context("parse tenant service endpoint URL")?;
+    let local_env = is_local_environment(&config.app_env);
+
+    validate_service_url_components(&url, local_env)?;
+    validate_service_ip_literal(&url, local_env)?;
+    Ok(url)
+}
+
+fn is_local_environment(app_env: &str) -> bool {
+    matches!(app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test")
+}
+
+fn validate_service_url_components(url: &reqwest::Url, local_env: bool) -> Result<()> {
+    if url.scheme() != "https" && !local_env {
+        bail!("tenant service endpoint must use HTTPS outside development/test");
+    }
+    if url.host_str().is_none() || !url.username().is_empty()
+        || url.password().is_some() || url.fragment().is_some()
+    {
         bail!("tenant service endpoint URL contains invalid authority components");
     }
-    if !local_env {
-        if let Some(host) = url.host_str() {
-            if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-                let private = match ip {
-                    std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified(),
-                    std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local() || v6.is_unicast_link_local(),
-                };
-                if private { bail!("tenant service endpoint resolves to a non-public IP literal"); }
-            }
-        }
+    Ok(())
+}
+
+fn validate_service_ip_literal(url: &reqwest::Url, local_env: bool) -> Result<()> {
+    if local_env {
+        return Ok(());
     }
+    let Some(host) = url.host_str() else {
+        bail!("tenant service endpoint must contain a host");
+    };
+    let Ok(ip) = host.parse::<std::net::IpAddr>() else {
+        // Hostnames are checked separately by the callback's DNS/IP policy.
+        return Ok(());
+    };
+    let private = match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
+    };
+    if private {
+        bail!("tenant service endpoint resolves to a non-public IP literal");
+    }
+    Ok(())
+}
+
+async fn post_service_callback(
+    http: &reqwest::Client,
+    url: reqwest::Url,
+    id: &str,
+    execution_id: &str,
+    tenant_id: &str,
+    service_id: &str,
+    event_type: &str,
+    payload: &Value,
+) -> Result<()> {
     let event_id = payload.get("id").and_then(Value::as_str).unwrap_or_default();
-    let response = http.post(url).header("Content-Type", "application/json")
+    let response = http.post(url)
+        .header("Content-Type", "application/json")
         .header("Idempotency-Key", format!("effect-{id}"))
         .header("X-FlowRule-Tenant-ID", tenant_id)
         .header("X-FlowRule-Service-ID", service_id)
         .header("X-FlowRule-Effect-ID", id)
         .header("X-FlowRule-Event-ID", event_id)
-        .header("X-Effect-ID", id).header("X-Execution-ID", execution_id)
+        .header("X-Effect-ID", id)
+        .header("X-Execution-ID", execution_id)
         .header("X-FlowRule-Event-Type", event_type)
-        .json(payload).send().await.context("send tenant service event callback")?;
-    if !response.status().is_success() { bail!("tenant service callback returned {}", response.status()); }
+        .json(payload)
+        .send()
+        .await
+        .context("send tenant service event callback")?;
+    ensure_successful_callback(response.status())
+}
+
+fn ensure_successful_callback(status: reqwest::StatusCode) -> Result<()> {
+    if !status.is_success() {
+        bail!("tenant service callback returned {status}");
+    }
     Ok(())
 }
