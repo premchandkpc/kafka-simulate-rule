@@ -10,7 +10,7 @@ use async_nats::jetstream;
 use chrono::Utc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::collections::HashMap;
-use tokio::{task::JoinSet, time::{interval, MissedTickBehavior}};
+use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
 pub async fn run(config: Config) -> Result<()> {
