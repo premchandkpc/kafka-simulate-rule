@@ -72,7 +72,6 @@ func (r *BatchRepository) GetRunForTenant(ctx context.Context, tenantID, batchID
 	return doc.ToDomain(), nil
 }
 
-
 // batchRunListFilter always scopes batch listing to one tenant. An absent tenant
 // must fail closed rather than turn a tenant-scoped query into a global query.
 func batchRunListFilter(tenantID, ruleSet string) (bson.M, error) {
