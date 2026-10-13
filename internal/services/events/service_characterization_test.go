@@ -82,3 +82,71 @@ func TestProcessValidatesShardLeaseBeforeMutatingInbox(t *testing.T) {
 	}
 	t.Fatal("transaction committed after shard lease validation failed")
 }
+
+type duplicateInboxRepository struct {
+	ports.InboxRepository
+	entry *domain.InboxEntry
+	inserts int
+	marks int
+}
+
+func (r *duplicateInboxRepository) Get(context.Context, string, string) (*domain.InboxEntry, error) {
+	return r.entry, nil
+}
+
+func (r *duplicateInboxRepository) Insert(context.Context, *domain.InboxEntry) (bool, error) {
+	r.inserts++
+	return false, nil
+}
+
+func (r *duplicateInboxRepository) MarkCommitted(context.Context, string, string, string) error {
+	r.marks++
+	return nil
+}
+
+type existingExecutionRepository struct {
+	ports.ExecutionRepository
+	execution *domain.Execution
+	saves int
+}
+
+func (r *existingExecutionRepository) Get(context.Context, string) (*domain.Execution, error) {
+	return r.execution, nil
+}
+
+func (r *existingExecutionRepository) Save(context.Context, *domain.Execution) error {
+	r.saves++
+	return nil
+}
+
+func TestProcessReturnsExistingExecutionForRedelivery(t *testing.T) {
+	ctx := context.Background()
+	existing := &domain.Execution{ID: "execution-existing", EventID: "event-1", TenantID: "tenant-a"}
+	inbox := &duplicateInboxRepository{
+		entry: &domain.InboxEntry{TenantID: "tenant-a", EventID: "event-1", ExecutionID: existing.ID},
+	}
+	executions := &existingExecutionRepository{execution: existing}
+	tx := &eventTxStub{ctx: ctx}
+	repos := ports.EventTxRepos{
+		Inbox: inbox, Executions: executions, ShardLeases: shardLeaseStub{},
+	}
+	service := NewService(
+		nil, nil, nil, domain.SystemClock{}, transactionManagerStub{tx: tx},
+		func(ports.Transaction) (ports.EventTxRepos, error) { return repos, nil },
+	)
+
+	got, err := service.Process(ctx, testEnvelope(), 1, 0, "worker-a")
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if got != existing {
+		t.Fatalf("Process() execution = %#v, want existing execution %#v", got, existing)
+	}
+	if inbox.inserts != 0 || inbox.marks != 0 || executions.saves != 0 {
+		t.Fatalf("redelivery mutated state: inbox inserts=%d marks=%d execution saves=%d",
+			inbox.inserts, inbox.marks, executions.saves)
+	}
+	if tx.committed {
+		t.Fatal("duplicate read path unexpectedly committed a transaction")
+	}
+}
