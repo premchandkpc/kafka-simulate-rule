@@ -226,7 +226,7 @@ async fn persist_quarantine(
 }
 
 async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Result<()> {
-    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+    let http = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10)).build()?;
     let mut ticker = interval(config.effect_poll_interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -237,7 +237,7 @@ async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Re
             "WITH candidates AS ( \
                SELECT effect_id FROM outbox_effects \
                WHERE (status='pending' AND available_at<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \
-               ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT $1 \
+               ORDER BY available_at,created_at LIMIT $1 FOR UPDATE SKIP LOCKED \
              ) UPDATE outbox_effects o SET status='claimed',claimed_by=$2,claimed_at=NOW(), \
                claim_expires_at=NOW()+INTERVAL '2 minutes',updated_at=NOW() \
              FROM candidates c WHERE o.effect_id=c.effect_id \
@@ -289,10 +289,8 @@ async fn send_effect(
 ) -> Result<()> {
     let idempotency_key = format!("effect-{id}");
     match effect_type {
-        "emit" => {
-            validate_subject(destination)?;
-            js.publish(destination.to_owned(), serde_json::to_vec(payload)?.into()).await.context("publish effect to JetStream")?;
-            Ok(())
+        "emit" | "command" => {
+            send_external_effect(http, config, id, destination, name, payload, effect_type).await
         }
         "emit_event" => {
             let event: EventEnvelope = serde_json::from_value(payload.clone()).context("decode child event")?;
@@ -301,21 +299,28 @@ async fn send_effect(
             js.publish(subject, serde_json::to_vec(&event)?.into()).await.context("publish child event to JetStream")?;
             Ok(())
         }
-        "command" | "service_event" => {
-            if config.effect_destination_url.trim().is_empty() {
-                bail!("EFFECT_DESTINATION_URL is required to publish command/service effects");
-            }
-            let response = http.post(&config.effect_destination_url)
-                .header("Idempotency-Key", idempotency_key)
-                .header("X-FlowRule-Destination", destination)
-                .header("X-FlowRule-Effect-Name", name)
-                .json(&json!({"destination":destination,"name":name,"payload":payload}))
-                .send().await.context("send external effect")?;
-            if !response.status().is_success() { bail!("external effect endpoint returned {}", response.status()); }
-            Ok(())
-        }
+        "service_event" => bail!("service_event requires the tenant-scoped domain-service sender and is not yet supported by the Rust runtime"),
         other => bail!("unsupported outbox effect type {other:?}"),
     }
+}
+
+async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str) -> Result<()> {
+    if config.effect_destination_url.trim().is_empty() { bail!("EFFECT_DESTINATION_URL is required for external effects"); }
+    let mut url = reqwest::Url::parse(&config.effect_destination_url).context("parse EFFECT_DESTINATION_URL")?;
+    {
+        let mut segments = url.path_segments_mut().map_err(|_| anyhow!("EFFECT_DESTINATION_URL cannot be a base URL"))?;
+        segments.pop_if_empty();
+        segments.push(destination);
+        segments.push(name);
+    }
+    let execution_id = "";
+    let effect = json!({ "id": id, "execution_id": execution_id, "destination": destination, "name": name, "payload": payload, "effect_type": effect_type, "created_at": Utc::now() });
+    let response = http.post(url).header("Content-Type", "application/json")
+        .header("X-Effect-ID", id).header("X-Execution-ID", execution_id)
+        .header("Idempotency-Key", format!("effect-{id}"))
+        .json(&effect).send().await.context("send external effect")?;
+    if !response.status().is_success() { bail!("external effect endpoint returned {}", response.status()); }
+    Ok(())
 }
 
 async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Result<()> {
@@ -327,7 +332,7 @@ async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config: Config) ->
         let rows = sqlx::query(
             "WITH due AS (SELECT event_id FROM scheduled_events \
              WHERE (status='pending' AND COALESCE(retry_at,scheduled_at)<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \
-             ORDER BY scheduled_at FOR UPDATE SKIP LOCKED LIMIT $1) \
+             ORDER BY scheduled_at LIMIT $1 FOR UPDATE SKIP LOCKED) \
              UPDATE scheduled_events s SET status='claimed',claimant=$2,claimed_at=NOW(),claim_expires_at=NOW()+INTERVAL '5 minutes' \
              FROM due WHERE s.event_id=due.event_id \
              RETURNING s.event_id,s.tenant_id,s.event_type,s.partition_key,s.workflow_id,s.payload,s.headers,s.retry_count"
