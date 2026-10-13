@@ -210,7 +210,9 @@ type batchLeaseRenewer interface {
 func (m *LeaseManager) renewOwned(ctx context.Context) {
 	leases := m.ownedLeaseTokens()
 	if renewer, ok := m.repo.(batchLeaseRenewer); ok {
-		if !m.renewOwnedBatch(ctx, renewer, leases) { return }
+		if !m.renewOwnedBatch(ctx, renewer, leases) {
+		    return
+		}
 	} else {
 		m.renewOwnedIndividually(ctx, leases)
 	}
@@ -222,7 +224,9 @@ func (m *LeaseManager) ownedLeaseTokens() map[uint32]int64 {
 	defer m.mu.RUnlock()
 	leases := make(map[uint32]int64, len(m.ownedShards))
 	for shardID, lease := range m.ownedShards {
-		if lease != nil { leases[shardID] = lease.FencingToken }
+		if lease != nil {
+		    leases[shardID] = lease.FencingToken
+		}
 	}
 	return leases
 }
@@ -251,7 +255,9 @@ func (m *LeaseManager) applyBatchRenewals(
 	defer m.mu.Unlock()
 	for shardID, expectedToken := range expectedLeases {
 		current, stillOwned := m.ownedShards[shardID]
-		if !stillOwned || current == nil || current.FencingToken != expectedToken { continue }
+		if !stillOwned || current == nil || current.FencingToken != expectedToken {
+		    continue
+		}
 		lease, found := renewed[shardID]
 		if !found {
 			log.Printf("shard %d: lease lost during batch renewal, removing from owned shards", shardID)
