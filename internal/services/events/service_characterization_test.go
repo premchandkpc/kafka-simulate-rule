@@ -170,3 +170,49 @@ func TestProcessReturnsDuplicateErrorWhenInboxInsertLosesRaceWithoutExecution(t 
 		t.Fatal("transaction committed after an unresolved inbox deduplication conflict")
 	}
 }
+
+type failingCommitTransaction struct {
+	eventTxStub
+	commitErr    error
+	rollbackCalls int
+}
+
+func (tx *failingCommitTransaction) Commit(context.Context) error {
+	return tx.commitErr
+}
+
+func (tx *failingCommitTransaction) Rollback(context.Context) error {
+	tx.rollbackCalls++
+	return nil
+}
+
+func TestProcessRollsBackWhenCommitFails(t *testing.T) {
+	ctx := context.Background()
+	commitErr := errors.New("database commit failed")
+	tx := &failingCommitTransaction{
+		eventTxStub: eventTxStub{ctx: ctx},
+		commitErr:   commitErr,
+	}
+	inbox := &inboxStub{}
+	executions := &executionStub{}
+	outbox := &outboxStub{}
+	subscribers := &subscriberRepositoryStub{}
+	repos := ports.EventTxRepos{
+		Inbox: inbox, Activations: activationStub{active: true},
+		RuleRepo: ruleRepositoryStub{}, Executions: executions, Outbox: outbox,
+		ShardLeases: shardLeaseStub{}, DomainServices: subscribers,
+	}
+	service := NewService(
+		nil, eventEvaluatorStub{}, nil, domain.SystemClock{},
+		transactionManagerStub{tx: tx},
+		func(ports.Transaction) (ports.EventTxRepos, error) { return repos, nil },
+	)
+
+	_, err := service.Process(ctx, testEnvelope(), 1, 0, "worker-a")
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("Process() error = %v, want wrapped commit error", err)
+	}
+	if tx.rollbackCalls != 1 {
+		t.Fatalf("Rollback() calls = %d, want 1 after commit failure", tx.rollbackCalls)
+	}
+}
