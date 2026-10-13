@@ -193,7 +193,6 @@ func run() (runErr error) {
 	workerConfig.HotKeyThreshold = cfg.Worker.HotKeyThreshold
 	workerConfig.HotKeyCheckInterval = cfg.HotKeyCheckInterval()
 
-
 	worker, err := application.NewWorker(
 		consumer,
 		eventsSvc,
