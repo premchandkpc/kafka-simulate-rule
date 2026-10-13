@@ -205,7 +205,9 @@ fn is_permanent_event_error(error: &anyhow::Error) -> bool {
     ["event id is required", "event type is required", "tenant_id is required",
      "partition_key is required", "unsupported predicate operator", "unsupported partition key policy",
      "emit topic is required", "resolved an empty partition key",
-     "action must contain exactly one supported action"].iter().any(|needle| message.contains(needle))
+     "action must contain exactly one supported action", "predicate path missing",
+     "inbox duplicate has no committed execution", "inbox points to missing execution",
+     "exceeds the 100-service fan-out limit", "command destination and name are required"].iter().any(|needle| message.contains(needle))
 }
 
 async fn persist_quarantine(
@@ -219,7 +221,7 @@ async fn persist_quarantine(
     let quarantine_id = engine::sha256_hex(format!("{source_type}|{source_id}|{}", engine::sha256_hex(raw)).as_bytes());
     sqlx::query(
         "INSERT INTO quarantine (quarantine_id,source_type,source_id,error_class,payload_ref,event_id,tenant_id,error_message,created_at,updated_at) \
-         VALUES ($1,$2,$3,'permanent','nats:flowrule',$3,$4,$5,NOW(),NOW()) ON CONFLICT (quarantine_id) DO NOTHING"
+         VALUES ($1,$2,$3,'permanent','nats:flowrule',CASE WHEN $2='event' THEN $3 ELSE NULL END,$4,$5,NOW(),NOW()) ON CONFLICT (quarantine_id) DO NOTHING"
     ).bind(quarantine_id).bind(source_type).bind(source_id).bind(tenant_id).bind(error)
      .execute(pool).await.context("persist quarantine record")?;
     Ok(())
@@ -271,7 +273,7 @@ async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Config) -> Re
                              WHERE effect_id=$1 AND status='claimed' AND claimed_by=$2 AND claim_expires_at>NOW()"
                         ).bind(&id).bind(&claim).bind(next_attempt).bind(err.to_string()).execute(&pool).await?;
                     } else {
-                        let delay = (1_i64 << next_attempt.clamp(1, 6)) .min(60);
+                        let delay = (1_i64 << (next_attempt - 1).clamp(0, 5)).min(60);
                         sqlx::query(
                             "UPDATE outbox_effects SET status='pending',attempts=$3,last_error=$4,available_at=NOW()+($5 * INTERVAL '1 second'), \
                              claimed_by=NULL,claimed_at=NULL,claim_expires_at=NULL,updated_at=NOW() \
@@ -382,7 +384,8 @@ async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config: Config) ->
             let payload: Value = row.try_get("payload")?;
             let headers: Option<Value> = row.try_get("headers")?;
             let retry_count: i32 = row.try_get("retry_count")?;
-            let header_map = headers.and_then(|v| serde_json::from_value::<HashMap<String,String>>(v).ok()).unwrap_or_default();
+            let mut header_map = headers.and_then(|v| serde_json::from_value::<HashMap<String,String>>(v).ok()).unwrap_or_default();
+            header_map.insert("Idempotency-Key".to_owned(), format!("sched-{event_id}"));
             let event = EventEnvelope { id: event_id.clone(), event_type: event_type.clone(), tenant_id, partition_key,
                 workflow_id, occurred_at: Utc::now(), data: payload, headers: header_map };
             let send_result = async {
@@ -402,7 +405,7 @@ async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config: Config) ->
                         sqlx::query("UPDATE scheduled_events SET status='failed',retry_count=$3,last_error=$4,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()")
                             .bind(&event_id).bind(&claimant).bind(next).bind(err.to_string()).execute(&pool).await?;
                     } else {
-                        let delay = (1_i64 << next.clamp(1, 6)).min(60);
+                        let delay = (1_i64 << (next - 1).clamp(0, 5)).min(60);
                         sqlx::query("UPDATE scheduled_events SET status='pending',retry_count=$3,retry_at=NOW()+($4 * INTERVAL '1 second'),last_error=$5,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()")
                             .bind(&event_id).bind(&claimant).bind(next).bind(delay).bind(err.to_string()).execute(&pool).await?;
                     }
