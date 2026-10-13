@@ -210,7 +210,7 @@ type batchLeaseRenewer interface {
 func (m *LeaseManager) renewOwned(ctx context.Context) {
 	leases := m.ownedLeaseTokens()
 	if renewer, ok := m.repo.(batchLeaseRenewer); ok {
-		m.renewOwnedBatch(ctx, renewer, leases)
+		if !m.renewOwnedBatch(ctx, renewer, leases) { return }
 	} else {
 		m.renewOwnedIndividually(ctx, leases)
 	}
@@ -231,15 +231,16 @@ func (m *LeaseManager) renewOwnedBatch(
 	ctx context.Context,
 	renewer batchLeaseRenewer,
 	leases map[uint32]int64,
-) {
+) bool {
 	// Batch renewal avoids a serial two-round-trip loop that can outlast the TTL.
 	renewed, err := renewer.RenewOwned(ctx, m.owner, leases, m.ttl)
 	if err != nil {
 		// Failed batch results are ambiguous, so do not rebalance on stale state.
 		log.Printf("renew owned shards: %v", err)
-		return
+		return false
 	}
 	m.applyBatchRenewals(leases, renewed)
+	return true
 }
 
 func (m *LeaseManager) applyBatchRenewals(
