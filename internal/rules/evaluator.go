@@ -135,55 +135,47 @@ func (e *Evaluator) evalNot(predicate *domain.Predicate, data json.RawMessage, f
 }
 
 func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
-	val, err := resolvePath(p.Path, data, facts)
+	value, err := resolvePath(p.Path, data, facts)
 	if err != nil {
 		return false, fmt.Errorf("%w: resolve predicate path %q: %w", domain.ErrEvaluationError, p.Path, err)
 	}
+	if p.Op == domain.OpExists { return value != nil, nil }
+	if p.Op == domain.OpNotExists { return value == nil, nil }
+	if value == nil { return false, nil }
+	return evaluateLeafValue(p.Op, value, p.Value)
+}
 
-	if p.Op == domain.OpExists {
-		return val != nil, nil
-	}
-	if p.Op == domain.OpNotExists {
-		return val == nil, nil
-	}
-
-	if val == nil {
-		return false, nil
-	}
-
-	switch p.Op {
+func evaluateLeafValue(op domain.Operator, actual, expected interface{}) (bool, error) {
+	switch op {
 	case domain.OpEq:
-		return compareEq(val, p.Value), nil
+		return compareEq(actual, expected), nil
 	case domain.OpNeq:
-		return !compareEq(val, p.Value), nil
-	case domain.OpGt:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for gt: %v vs %v", val, p.Value)
-		}
-		return cmp > 0, nil
-	case domain.OpGte:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for gte: %v vs %v", val, p.Value)
-		}
-		return cmp >= 0, nil
-	case domain.OpLt:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for lt: %v vs %v", val, p.Value)
-		}
-		return cmp < 0, nil
-	case domain.OpLte:
-		cmp := compareCmp(val, p.Value)
-		if cmp == 2 {
-			return false, fmt.Errorf("cannot compare non-numeric values for lte: %v vs %v", val, p.Value)
-		}
-		return cmp <= 0, nil
+		return !compareEq(actual, expected), nil
+	case domain.OpGt, domain.OpGte, domain.OpLt, domain.OpLte:
+		return compareNumericLeaf(op, actual, expected)
 	case domain.OpIn:
-		return compareIn(val, p.Value), nil
+		return compareIn(actual, expected), nil
 	case domain.OpNotIn:
-		return !compareIn(val, p.Value), nil
+		return !compareIn(actual, expected), nil
+	default:
+		return false, domain.ErrInvalidOperator
+	}
+}
+
+func compareNumericLeaf(op domain.Operator, actual, expected interface{}) (bool, error) {
+	comparison := compareCmp(actual, expected)
+	if comparison == 2 {
+		return false, fmt.Errorf("cannot compare non-numeric values for %s: %v vs %v", op, actual, expected)
+	}
+	switch op {
+	case domain.OpGt:
+		return comparison > 0, nil
+	case domain.OpGte:
+		return comparison >= 0, nil
+	case domain.OpLt:
+		return comparison < 0, nil
+	case domain.OpLte:
+		return comparison <= 0, nil
 	default:
 		return false, domain.ErrInvalidOperator
 	}
