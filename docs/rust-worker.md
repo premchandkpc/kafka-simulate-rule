@@ -8,7 +8,7 @@ Start the Rust service only after stopping/scaling down the Go worker, because b
 
 ```sh
 docker compose stop worker
-docker compose --profile rust up --build worker-rust
+docker compose --profile rust up --build --scale worker-rust=${RUST_WORKER_REPLICAS:-3} worker-rust
 ```
 
 Return to Go by stopping Rust and starting the existing worker again:
