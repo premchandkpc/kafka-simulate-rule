@@ -41,10 +41,7 @@ pub(super) async fn consume_shard_subject(
     loop {
         tokio::select! {
             _ = renew.tick() => {
-                let ttl_ms = i64::try_from(config.lease_ttl.as_millis())?;
-                if !engine::renew_lease(&pool, shard, &config.worker_id, fencing_token, ttl_ms).await? {
-                    bail!("shard lease lost; consumer must stop");
-                }
+                renew_shard_lease(&pool, &config, shard, fencing_token).await?;
             }
             maybe_message = messages.next() => {
                 let Some(message_result) = maybe_message else { bail!("JetStream consumer stream ended"); };
@@ -53,6 +50,22 @@ pub(super) async fn consume_shard_subject(
             }
         }
     }
+}
+
+async fn renew_shard_lease(
+    pool: &PgPool,
+    config: &Config,
+    shard: u32,
+    fencing_token: i64,
+) -> Result<()> {
+    let ttl_ms = i64::try_from(config.lease_ttl.as_millis())?;
+    let renewed = engine::renew_lease(
+        pool, shard, &config.worker_id, fencing_token, ttl_ms,
+    ).await?;
+    if !renewed {
+        bail!("shard lease lost; consumer must stop");
+    }
+    Ok(())
 }
 
 async fn handle_message(
