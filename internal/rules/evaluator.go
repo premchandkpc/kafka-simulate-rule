@@ -101,50 +101,37 @@ func (e *Evaluator) processRuleResult(rule domain.CompiledRule, ok bool, matched
 }
 
 func (e *Evaluator) evalPredicate(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
-	if p.All != nil {
-		for _, sub := range p.All {
-			if sub == nil {
-				return false, domain.ErrInvalidPredicate
-			}
-			ok, err := e.evalPredicate(*sub, data, facts)
-			if err != nil {
-				return false, err
-			}
-			if !ok {
-				return false, nil
-			}
-		}
-		return true, nil
-	}
-
-	if p.Any != nil {
-		for _, sub := range p.Any {
-			if sub == nil {
-				continue
-			}
-			ok, err := e.evalPredicate(*sub, data, facts)
-			if err != nil {
-				return false, err
-			}
-			if ok {
-				return true, nil
-			}
-		}
-		return false, nil
-	}
-
-	if p.Not != nil {
-		if p.Not == nil {
-			return false, domain.ErrInvalidPredicate
-		}
-		ok, err := e.evalPredicate(*p.Not, data, facts)
-		if err != nil {
-			return false, err
-		}
-		return !ok, nil
-	}
-
+	if p.All != nil { return e.evalAll(p.All, data, facts) }
+	if p.Any != nil { return e.evalAny(p.Any, data, facts) }
+	if p.Not != nil { return e.evalNot(p.Not, data, facts) }
 	return e.evalLeaf(p, data, facts)
+}
+
+func (e *Evaluator) evalAll(predicates []*domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
+	for _, predicate := range predicates {
+		if predicate == nil { return false, domain.ErrInvalidPredicate }
+		matched, err := e.evalPredicate(*predicate, data, facts)
+		if err != nil { return false, err }
+		if !matched { return false, nil }
+	}
+	return true, nil
+}
+
+func (e *Evaluator) evalAny(predicates []*domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
+	for _, predicate := range predicates {
+		if predicate == nil { continue }
+		matched, err := e.evalPredicate(*predicate, data, facts)
+		if err != nil { return false, err }
+		if matched { return true, nil }
+	}
+	return false, nil
+}
+
+func (e *Evaluator) evalNot(predicate *domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
+	if predicate == nil { return false, domain.ErrInvalidPredicate }
+	matched, err := e.evalPredicate(*predicate, data, facts)
+	if err != nil { return false, err }
+	return !matched, nil
 }
 
 func (e *Evaluator) evalLeaf(p domain.Predicate, data json.RawMessage, facts map[string]json.RawMessage) (bool, error) {
@@ -436,86 +423,100 @@ func (c templateContext) expand(s string) interface{} {
 }
 
 func (e *Evaluator) buildEffect(revision *domain.RuleRevision, event *domain.EventEnvelope, ruleID string, actionIndex int, action domain.Action) (domain.Effect, error) {
-	effectType := domain.EffectTypeEmit
-	var dest, name string
-	var payload json.RawMessage
-
+	effectID := domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex)
+	effect := domain.Effect{
+		ID: effectID, ExecutionID: "", CreatedAt: e.clock.Now(),
+	}
 	switch {
 	case action.Emit != nil:
-		dest = action.Emit.Topic
-		name = action.Emit.Topic
-		payload = action.Emit.Data
+		return e.buildEmitEffect(effect, action.Emit), nil
 	case action.EmitEvent != nil:
-		childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
-
-		// Resolve partition key based on policy
-		partitionKey := action.EmitEvent.PartitionKey
-		policy := action.EmitEvent.PartitionKeyPolicy
-		if policy == "" {
-			policy = domain.PartitionKeyPolicyExplicit
-		}
-
-		switch policy {
-		case domain.PartitionKeyPolicyInherit:
-			partitionKey = event.PartitionKey
-		case domain.PartitionKeyPolicyFromData:
-			if action.EmitEvent.PartitionKeyPath != "" {
-				val, err := resolvePath(action.EmitEvent.PartitionKeyPath, event.Data, nil)
-				if err != nil || val == nil {
-					return domain.Effect{}, fmt.Errorf("resolve partition key from path %s: %w", action.EmitEvent.PartitionKeyPath, err)
-				}
-				partitionKey = fmt.Sprintf("%v", val)
-			}
-		}
-
-		if partitionKey == "" {
-			return domain.Effect{}, fmt.Errorf("partition key resolution resulted in empty value for policy %s", policy)
-		}
-
-		// Interpolate template values in the effect data
-		interpolatedData, err := interpolateTemplates(action.EmitEvent.Data, event, childID, e.clock)
-		if err != nil {
-			return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err)
-		}
-
-		child := domain.EventEnvelope{
-			ID:           childID,
-			Type:         action.EmitEvent.Type,
-			TenantID:     event.TenantID,
-			PartitionKey: partitionKey,
-			OccurredAt:   e.clock.Now(),
-			Data:         interpolatedData,
-			Headers: map[string]string{
-				"flowrule_parent_event_id": event.ID,
-				"flowrule_child_event_id":  childID,
-			},
-		}
-		encoded, err := json.Marshal(child)
-		if err != nil {
-			return domain.Effect{}, fmt.Errorf("marshal child event: %w", err)
-		}
-		effectType = domain.EffectTypeEmitEvent
-		dest = "events." + child.Type
-		name = child.Type
-		payload = encoded
+		return e.buildEmitEventEffect(effect, event, ruleID, actionIndex, action.EmitEvent)
 	case action.Command != nil:
-		effectType = domain.EffectTypeCommand
-		dest = action.Command.Destination
-		name = action.Command.Name
-		payload = action.Command.Data
+		return buildCommandEffect(effect, action.Command), nil
+	default:
+		return effect, nil
 	}
+}
 
-	effectID := domain.ComputeEffectID(event.TenantID, event.ID, revision.RuleID, revision.Revision, ruleID, actionIndex)
+func (e *Evaluator) buildEmitEffect(effect domain.Effect, action *domain.EmitAction) domain.Effect {
+	effect.Destination = action.Topic
+	effect.Name = action.Topic
+	effect.Payload = action.Data
+	effect.EffectType = domain.EffectTypeEmit
+	return effect
+}
 
-	return domain.Effect{
-		ID:          effectID,
-		ExecutionID: "",
-		Destination: dest,
-		Name:        name,
-		Payload:     payload,
-		EffectType:  effectType,
-		CreatedAt:   e.clock.Now(),
-	}, nil
+func buildCommandEffect(effect domain.Effect, action *domain.CommandAction) domain.Effect {
+	effect.EffectType = domain.EffectTypeCommand
+	effect.Destination = action.Destination
+	effect.Name = action.Name
+	effect.Payload = action.Data
+	return effect
+}
+
+func (e *Evaluator) buildEmitEventEffect(
+	effect domain.Effect,
+	event *domain.EventEnvelope,
+	ruleID string,
+	actionIndex int,
+	action *domain.EmitEventAction,
+) (domain.Effect, error) {
+	childID := domain.ComputeChildEventID(event.ID, ruleID, actionIndex)
+	partitionKey, err := resolveEmitEventPartitionKey(action, event)
+	if err != nil { return domain.Effect{}, err }
+
+	childData, err := interpolateTemplates(action.Data, event, childID, e.clock)
+	if err != nil { return domain.Effect{}, fmt.Errorf("interpolate templates: %w", err) }
+	child := buildChildEventEnvelope(event, action, childID, partitionKey, childData, e.clock.Now())
+	encoded, err := json.Marshal(child)
+	if err != nil { return domain.Effect{}, fmt.Errorf("marshal child event: %w", err) }
+
+	effect.EffectType = domain.EffectTypeEmitEvent
+	effect.Destination = "events." + child.Type
+	effect.Name = child.Type
+	effect.Payload = encoded
+	return effect, nil
+}
+
+func resolveEmitEventPartitionKey(action *domain.EmitEventAction, event *domain.EventEnvelope) (string, error) {
+	partitionKey := action.PartitionKey
+	policy := action.PartitionKeyPolicy
+	if policy == "" { policy = domain.PartitionKeyPolicyExplicit }
+	switch policy {
+	case domain.PartitionKeyPolicyInherit:
+		partitionKey = event.PartitionKey
+	case domain.PartitionKeyPolicyFromData:
+		if action.PartitionKeyPath != "" {
+			value, err := resolvePath(action.PartitionKeyPath, event.Data, nil)
+			if err != nil || value == nil {
+				return "", fmt.Errorf("resolve partition key from path %s: %w", action.PartitionKeyPath, err)
+			}
+			partitionKey = fmt.Sprintf("%v", value)
+		}
+	}
+	if partitionKey == "" {
+		return "", fmt.Errorf("partition key resolution resulted in empty value for policy %s", policy)
+	}
+	return partitionKey, nil
+}
+
+func buildChildEventEnvelope(
+	parent *domain.EventEnvelope,
+	action *domain.EmitEventAction,
+	childID string,
+	partitionKey string,
+	data json.RawMessage,
+	occurredAt time.Time,
+) domain.EventEnvelope {
+	return domain.EventEnvelope{
+		ID: childID, Type: action.Type, TenantID: parent.TenantID,
+		PartitionKey: partitionKey, OccurredAt: occurredAt, Data: data,
+		Headers: map[string]string{
+			"flowrule_parent_event_id": parent.ID,
+			"flowrule_child_event_id": childID,
+		},
+	}
 }
 
 func describeAction(action domain.Action) string {
