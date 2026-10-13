@@ -7,7 +7,7 @@ use sqlx::{PgPool, Postgres, Transaction, Row};
 
 pub(super) async fn assert_lease(tx: &mut Transaction<'_, Postgres>, shard: u32, owner: &str, token: i64) -> Result<()> {
     let row = sqlx::query(
-        "SELECT fencing_token, expires_at > NOW() AS active FROM shard_leases \\
+        "SELECT fencing_token, expires_at > NOW() AS active FROM shard_leases \
          WHERE virtual_shard=$1 AND owner=$2 FOR SHARE"
     ).bind(i32::try_from(shard)?).bind(owner).fetch_optional(&mut **tx).await?
      .ok_or_else(|| anyhow!("shard lease is not held by this worker"))?;
@@ -19,7 +19,7 @@ pub(super) async fn assert_lease(tx: &mut Transaction<'_, Postgres>, shard: u32,
 
 pub(super) async fn insert_inbox(tx: &mut Transaction<'_, Postgres>, event: &EventEnvelope) -> Result<bool> {
     let affected = sqlx::query(
-        "INSERT INTO inbox (tenant_id,event_id,status,first_seen_at,partition_key,rule_set,payload) \\
+        "INSERT INTO inbox (tenant_id,event_id,status,first_seen_at,partition_key,rule_set,payload) \
          VALUES ($1,$2,'processing',NOW(),$3,$4,$5) ON CONFLICT (tenant_id,event_id) DO NOTHING"
     ).bind(&event.tenant_id).bind(&event.id).bind(&event.partition_key)
      .bind(&event.event_type).bind(&event.data).execute(&mut **tx).await
@@ -42,9 +42,9 @@ pub(super) async fn load_duplicate_execution(tx: &mut Transaction<'_, Postgres>,
 
 pub(super) async fn load_active_revision(tx: &mut Transaction<'_, Postgres>, event: &EventEnvelope) -> Result<RuleRevision> {
     let row = sqlx::query(
-        "SELECT r.tenant_scope,r.rule_id,r.revision,r.content_hash,r.match_mode,r.compiled \\
-         FROM rule_revisions r JOIN rule_activations a \\
-         ON a.tenant_scope=r.tenant_scope AND a.rule_set=r.rule_id AND a.revision=r.revision \\
+        "SELECT r.tenant_scope,r.rule_id,r.revision,r.content_hash,r.match_mode,r.compiled \
+         FROM rule_revisions r JOIN rule_activations a \
+         ON a.tenant_scope=r.tenant_scope AND a.rule_set=r.rule_id AND a.revision=r.revision \
          WHERE a.tenant_scope=$1 AND a.rule_set=$2"
     ).bind(&event.tenant_id).bind(&event.event_type).fetch_optional(&mut **tx).await
      .context("load active rule revision")?.ok_or_else(|| anyhow!(
@@ -81,7 +81,7 @@ pub(super) async fn persist_execution(
     revision: &RuleRevision, decision_hash: &str,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO executions (execution_id,event_id,tenant_id,rule_set,revision,decision_hash,status,created_at,completed_at) \\
+        "INSERT INTO executions (execution_id,event_id,tenant_id,rule_set,revision,decision_hash,status,created_at,completed_at) \
          VALUES ($1,$2,$3,$4,$5,$6,'completed',NOW(),NOW())"
     ).bind(execution_id).bind(&event.id).bind(&event.tenant_id).bind(&event.event_type)
      .bind(revision.revision).bind(decision_hash).execute(&mut **tx).await.context("persist execution")?;
@@ -91,7 +91,7 @@ pub(super) async fn persist_execution(
 pub(super) async fn persist_outbox_effects(tx: &mut Transaction<'_, Postgres>, execution_id: &str, effects: &[Effect]) -> Result<()> {
     for effect in effects {
         sqlx::query(
-            "INSERT INTO outbox_effects (effect_id,execution_id,tenant_id,destination,name,payload,effect_type,status,attempts,max_attempts,available_at,created_at,updated_at) \\
+            "INSERT INTO outbox_effects (effect_id,execution_id,tenant_id,destination,name,payload,effect_type,status,attempts,max_attempts,available_at,created_at,updated_at) \
              VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',0,5,NOW(),NOW(),NOW()) ON CONFLICT (effect_id) DO NOTHING"
         ).bind(&effect.id).bind(execution_id).bind(&effect.tenant_id).bind(&effect.destination)
          .bind(&effect.name).bind(&effect.payload).bind(effect.effect_type).execute(&mut **tx).await
