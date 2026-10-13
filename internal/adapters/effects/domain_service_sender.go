@@ -149,7 +149,7 @@ func (s *DomainServiceSender) deliverRequest(request *http.Request, serviceID st
 	if err != nil {
 		return fmt.Errorf("deliver event to tenant service %q: %w", serviceID, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	_, drainErr := io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		if drainErr != nil {
