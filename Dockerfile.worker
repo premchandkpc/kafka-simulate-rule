@@ -42,4 +42,4 @@ ENV WORKER_RUNTIME=go \
     LEASE_TTL_MS=30000 \
     LEASE_RENEWAL_INTERVAL_MS=10000
 
-ENTRYPOINT ["./worker-entrypoint.sh"]
+ENTRYPOINT ["sh", "./worker-entrypoint.sh"]
