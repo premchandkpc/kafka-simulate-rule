@@ -211,117 +211,121 @@ func (s *Service) ready(members []*domain.InboxEntry) bool {
 }
 
 func (s *Service) processGroup(ctx context.Context, members []*domain.InboxEntry) (int, error) {
-	if s.events == nil {
-		return 0, domain.ErrBatchProcessingUnavailable
-	}
-	if len(members) == 0 {
-		return 0, nil
-	}
+	if s.events == nil { return 0, domain.ErrBatchProcessingUnavailable }
+	if len(members) == 0 { return 0, nil }
 
-	batchSize := len(members)
-	if s.cfg.MaxBatch > 0 && batchSize > s.cfg.MaxBatch {
-		batchSize = s.cfg.MaxBatch
-	}
-	members = members[:batchSize]
-
-	e0 := members[0]
-	tenantID := e0.TenantID
-	partitionKey := e0.PartitionKey
-	ruleSet := e0.RuleSet
-
-	eventIDs := make([]string, 0, len(members))
-	batchEvents := make([]domain.BatchMember, 0, len(members))
-	for _, m := range members {
-		eventIDs = append(eventIDs, m.EventID)
-		batchEvents = append(batchEvents, domain.BatchMember{
-			ID:   m.EventID,
-			Type: m.RuleSet,
-			Data: m.Payload,
-		})
-	}
-
-	batchID := domain.ComputeBatchID(tenantID, partitionKey, ruleSet, eventIDs)
-
-	existing, err := s.batches.GetRun(ctx, batchID)
-	if err != nil {
-		return 0, fmt.Errorf("check existing batch: %w", err)
-	}
+	members = s.limitBatchMembers(members)
+	input := buildBatchInput(members)
+	existing, err := s.batches.GetRun(ctx, input.batchID)
+	if err != nil { return 0, fmt.Errorf("check existing batch: %w", err) }
 	if existing != nil && existing.Status == domain.BatchRunStatusCompleted {
-		// A previous attempt may have committed event processing but failed while
-		// finalizing membership. CompleteBatch is idempotent for the same batch ID.
-		if err := s.batches.CompleteBatch(ctx, existing, eventIDs); err != nil {
-			return 0, fmt.Errorf("recover completed batch: %w", err)
-		}
-		return 0, nil
+		return s.recoverCompletedBatch(ctx, existing, input.eventIDs)
 	}
 
 	now := s.clock.Now()
-	windowFrom := members[0].FirstSeenAt
-	windowTo := now
+	envelope, windowFrom, err := s.buildBatchEnvelope(input, now)
+	if err != nil { return 0, err }
+	execution, err := s.processBatchEnvelope(ctx, envelope)
+	if err != nil { return 0, err }
 
-	payload := domain.BatchData{
-		BatchID:      batchID,
-		TenantID:     tenantID,
-		PartitionKey: partitionKey,
-		RuleSet:      ruleSet,
-		WindowFrom:   windowFrom,
-		WindowTo:     windowTo,
-		Events:       batchEvents,
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("marshal batch data: %w", err)
-	}
-
-	envelope := &domain.EventEnvelope{
-		ID:           batchID,
-		Type:         domain.BatchRuleSet(ruleSet),
-		TenantID:     tenantID,
-		PartitionKey: partitionKey,
-		OccurredAt:   now,
-		Data:         data,
-	}
-
-	if s.leaseProvider == nil || s.workerID == "" {
-		return 0, fmt.Errorf("batch processing requires a configured shard lease provider and worker ID")
-	}
-	shard := envelope.VirtualShard(s.numShards)
-	if !s.leaseProvider.IsOwner(shard) {
-		return 0, domain.ErrFencingTokenMismatch
-	}
-	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
-	if !ok || fencingToken <= 0 {
-		return 0, domain.ErrFencingTokenMismatch
-	}
-	exec, err := s.events.Process(ctx, envelope, fencingToken, shard, s.workerID)
-	if err != nil {
-		if errors.Is(err, domain.ErrRuleNotActive) || errors.Is(err, domain.ErrRuleNotFound) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("process batch: %w", err)
-	}
-
-	run := &domain.BatchRun{
-		BatchID:      batchID,
-		TenantID:     tenantID,
-		PartitionKey: partitionKey,
-		RuleSet:      ruleSet,
-		Status:       domain.BatchRunStatusCompleted,
-		MemberCount:  len(members),
-		ExecutionID:  exec.ID,
-		DecisionHash: exec.DecisionHash,
-		WindowFrom:   &windowFrom,
-		WindowTo:     &windowTo,
-		CreatedAt:    now,
-	}
-
-	// Persist the run and all member associations atomically. If this fails
-	// after event processing committed, the deterministic batch event can be
-	// replayed safely and finalization retried.
-	if err := s.batches.CompleteBatch(ctx, run, eventIDs); err != nil {
+	run := buildCompletedBatchRun(input, execution, windowFrom, now)
+	if err := s.batches.CompleteBatch(ctx, run, input.eventIDs); err != nil {
 		return 0, fmt.Errorf("complete batch: %w", err)
 	}
-
 	return 1, nil
+}
+
+func (s *Service) limitBatchMembers(members []*domain.InboxEntry) []*domain.InboxEntry {
+	if s.cfg.MaxBatch > 0 && len(members) > s.cfg.MaxBatch {
+		return members[:s.cfg.MaxBatch]
+	}
+	return members
+}
+
+type batchInput struct {
+	batchID string
+	tenantID string
+	partitionKey string
+	ruleSet string
+	eventIDs []string
+	batchEvents []domain.BatchMember
+	members []*domain.InboxEntry
+}
+
+func buildBatchInput(members []*domain.InboxEntry) batchInput {
+	first := members[0]
+	input := batchInput{
+		tenantID: first.TenantID, partitionKey: first.PartitionKey, ruleSet: first.RuleSet,
+		eventIDs: make([]string, 0, len(members)),
+		batchEvents: make([]domain.BatchMember, 0, len(members)),
+		members: members,
+	}
+	for _, member := range members {
+		input.eventIDs = append(input.eventIDs, member.EventID)
+		input.batchEvents = append(input.batchEvents, domain.BatchMember{
+			ID: member.EventID, Type: member.RuleSet, Data: member.Payload,
+		})
+	}
+	input.batchID = domain.ComputeBatchID(input.tenantID, input.partitionKey, input.ruleSet, input.eventIDs)
+	return input
+}
+
+func (s *Service) recoverCompletedBatch(
+	ctx context.Context,
+	existing *domain.BatchRun,
+	eventIDs []string,
+) (int, error) {
+	// Processing may commit before membership finalization. Completing the same
+	// deterministic batch is idempotent and recovers that interrupted operation.
+	if err := s.batches.CompleteBatch(ctx, existing, eventIDs); err != nil {
+		return 0, fmt.Errorf("recover completed batch: %w", err)
+	}
+	return 0, nil
+}
+
+func (s *Service) buildBatchEnvelope(input batchInput, now time.Time) (*domain.EventEnvelope, time.Time, error) {
+	windowFrom := input.members[0].FirstSeenAt
+	payload := domain.BatchData{
+		BatchID: input.batchID, TenantID: input.tenantID, PartitionKey: input.partitionKey,
+		RuleSet: input.ruleSet, WindowFrom: windowFrom, WindowTo: now, Events: input.batchEvents,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil { return nil, time.Time{}, fmt.Errorf("marshal batch data: %w", err) }
+	envelope := &domain.EventEnvelope{
+		ID: input.batchID, Type: domain.BatchRuleSet(input.ruleSet), TenantID: input.tenantID,
+		PartitionKey: input.partitionKey, OccurredAt: now, Data: data,
+	}
+	return envelope, windowFrom, nil
+}
+
+func (s *Service) processBatchEnvelope(ctx context.Context, envelope *domain.EventEnvelope) (*domain.Execution, error) {
+	if s.leaseProvider == nil || s.workerID == "" {
+		return nil, fmt.Errorf("batch processing requires a configured shard lease provider and worker ID")
+	}
+	shard := envelope.VirtualShard(s.numShards)
+	if !s.leaseProvider.IsOwner(shard) { return nil, domain.ErrFencingTokenMismatch }
+	fencingToken, ok := s.leaseProvider.GetFencingToken(shard)
+	if !ok || fencingToken <= 0 { return nil, domain.ErrFencingTokenMismatch }
+	execution, err := s.events.Process(ctx, envelope, fencingToken, shard, s.workerID)
+	if err != nil {
+		if errors.Is(err, domain.ErrRuleNotActive) || errors.Is(err, domain.ErrRuleNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("process batch: %w", err)
+	}
+	return execution, nil
+}
+
+func buildCompletedBatchRun(
+	input batchInput,
+	execution *domain.Execution,
+	windowFrom, now time.Time,
+) *domain.BatchRun {
+	return &domain.BatchRun{
+		BatchID: input.batchID, TenantID: input.tenantID, PartitionKey: input.partitionKey,
+		RuleSet: input.ruleSet, Status: domain.BatchRunStatusCompleted, MemberCount: len(input.members),
+		ExecutionID: execution.ID, DecisionHash: execution.DecisionHash,
+		WindowFrom: &windowFrom, WindowTo: &now, CreatedAt: now,
+	}
+}
 }
