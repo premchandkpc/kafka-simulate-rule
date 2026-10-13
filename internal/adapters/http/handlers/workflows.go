@@ -135,7 +135,9 @@ func (h *WorkflowHandler) TransitionWorkflow(w http.ResponseWriter, r *http.Requ
 
 func decodeWorkflowTransitionRequest(r *http.Request) (workflowTransitionRequest, error) {
 	var request workflowTransitionRequest
-	if err := decodeRequestBody(r, &request); err != nil { return workflowTransitionRequest{}, err }
+	if err := decodeRequestBody(r, &request); err != nil {
+	    return workflowTransitionRequest{}, err
+	}
 	return request, nil
 }
 
@@ -145,8 +147,12 @@ func (h *WorkflowHandler) loadWorkflowForTransition(
 	workflowID string,
 ) (*domain.WorkflowInstance, error) {
 	workflow, err := h.workflowSvc.Get(ctx, tenantID, workflowID)
-	if err != nil { return nil, err }
-	if workflow == nil || workflow.TenantID != tenantID { return nil, nil }
+	if err != nil {
+	    return nil, err
+	}
+	if workflow == nil || workflow.TenantID != tenantID {
+	    return nil, nil
+	}
 	return workflow, nil
 }
 
