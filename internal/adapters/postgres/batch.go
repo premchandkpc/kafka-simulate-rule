@@ -159,14 +159,24 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 // transaction. A member may already belong to this same deterministic batch, but
 // may never be stolen from another batch.
 func (r *BatchRepository) CompleteBatch(ctx context.Context, run *domain.BatchRun, eventIDs []string) error {
-	if err := validateBatchCompletion(run, eventIDs); err != nil { return err }
+	if err := validateBatchCompletion(run, eventIDs); err != nil {
+	    return err
+	}
 	tx, err := r.beginBatchCompletion(ctx)
-	if err != nil { return err }
+	if err != nil {
+	    return err
+	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := upsertBatchRun(ctx, tx, run); err != nil { return err }
-	if err := associateBatchMembers(ctx, tx, run, eventIDs); err != nil { return err }
-	if err := tx.Commit(ctx); err != nil { return fmt.Errorf("commit batch completion: %w", err) }
+	if err := upsertBatchRun(ctx, tx, run); err != nil {
+	    return err
+	}
+	if err := associateBatchMembers(ctx, tx, run, eventIDs); err != nil {
+	    return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+	    return fmt.Errorf("commit batch completion: %w", err)
+	}
 	return nil
 }
 
@@ -179,8 +189,12 @@ func validateBatchCompletion(run *domain.BatchRun, eventIDs []string) error {
 	}
 	seen := make(map[string]struct{}, len(eventIDs))
 	for _, id := range eventIDs {
-		if id == "" { return fmt.Errorf("batch event ID must not be empty") }
-		if _, exists := seen[id]; exists { return fmt.Errorf("duplicate batch event ID %q", id) }
+		if id == "" {
+		    return fmt.Errorf("batch event ID must not be empty")
+		}
+		if _, exists := seen[id]; exists {
+		    return fmt.Errorf("duplicate batch event ID %q", id)
+		}
 		seen[id] = struct{}{}
 	}
 	return nil
@@ -188,9 +202,13 @@ func validateBatchCompletion(run *domain.BatchRun, eventIDs []string) error {
 
 func (r *BatchRepository) beginBatchCompletion(ctx context.Context) (pgx.Tx, error) {
 	beginner, ok := r.db.(interface { Begin(context.Context) (pgx.Tx, error) })
-	if !ok { return nil, fmt.Errorf("batch repository requires a transaction-capable PostgreSQL connection") }
+	if !ok {
+	    return nil, fmt.Errorf("batch repository requires a transaction-capable PostgreSQL connection")
+	}
 	tx, err := beginner.Begin(ctx)
-	if err != nil { return nil, fmt.Errorf("begin batch completion: %w", err) }
+	if err != nil {
+	    return nil, fmt.Errorf("begin batch completion: %w", err)
+	}
 	return tx, nil
 }
 
@@ -208,7 +226,9 @@ func upsertBatchRun(ctx context.Context, tx pgx.Tx, run *domain.BatchRun) error 
 		  AND batch_runs.rule_set = EXCLUDED.rule_set
 	`, run.BatchID, run.TenantID, run.PartitionKey, run.RuleSet, run.Status,
 		run.MemberCount, run.ExecutionID, run.DecisionHash, run.WindowFrom, run.WindowTo, run.CreatedAt)
-	if err != nil { return fmt.Errorf("upsert batch run: %w", err) }
+	if err != nil {
+	    return fmt.Errorf("upsert batch run: %w", err)
+	}
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("batch ID %q already belongs to a different tenant or scope", run.BatchID)
 	}
@@ -226,7 +246,9 @@ func associateBatchMembers(ctx context.Context, tx pgx.Tx, run *domain.BatchRun,
 		  AND status = 'committed'
 		  AND (batch_id IS NULL OR batch_id = $5)
 	`, run.TenantID, run.PartitionKey, run.RuleSet, eventIDs, run.BatchID)
-	if err != nil { return fmt.Errorf("associate batch members: %w", err) }
+	if err != nil {
+	    return fmt.Errorf("associate batch members: %w", err)
+	}
 	if tag.RowsAffected() != int64(len(eventIDs)) {
 		return fmt.Errorf("batch membership conflict: matched %d of %d requested events", tag.RowsAffected(), len(eventIDs))
 	}
