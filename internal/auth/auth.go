@@ -1,4 +1,4 @@
-package auth
+// Package auth validates authentication tokens and exposes authentication errors.
 
 import (
 	"context"
@@ -10,11 +10,17 @@ import (
 )
 
 var (
+	// ErrNoCredentials indicates that authentication credentials were not provided.
 	ErrNoCredentials   = errors.New("no credentials provided")
+	// ErrInvalidToken indicates that a supplied token is invalid.
 	ErrInvalidToken    = errors.New("invalid token")
+	// ErrTokenExpired indicates that a supplied token has expired.
 	ErrTokenExpired    = errors.New("token expired")
+	// ErrInvalidIssuer indicates that the token issuer is not trusted.
 	ErrInvalidIssuer   = errors.New("invalid issuer")
+	// ErrInvalidAudience indicates that the token audience is not trusted.
 	ErrInvalidAudience = errors.New("invalid audience")
+	// ErrMissingTenantID indicates that the token does not identify a tenant.
 	ErrMissingTenantID = errors.New("tenant ID not found in token")
 )
 
