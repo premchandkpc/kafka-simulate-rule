@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_nats::jetstream;
 use chrono::Utc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{collections::HashMap, fs, path::Path, time::Duration};
+use std::{collections::HashMap, time::Duration};
 use tokio::{task::JoinSet, time::{interval, MissedTickBehavior}};
 use tracing::{error, info, warn};
 
@@ -17,7 +17,6 @@ pub async fn run(config: Config) -> Result<()> {
     let pool = PgPoolOptions::new().max_connections(20).connect(&config.database_url)
         .await.context("connect PostgreSQL")?;
     sqlx::query("SELECT 1").execute(&pool).await.context("verify PostgreSQL")?;
-    run_migrations(&pool, Path::new(&config.migrations_dir)).await?;
     let client = async_nats::connect(config.nats_url.clone()).await.context("connect NATS")?;
     let js = jetstream::new(client);
     let _stream = js.get_stream(&config.stream).await
@@ -79,23 +78,6 @@ pub async fn run(config: Config) -> Result<()> {
         }
     }
     pool.close().await;
-    Ok(())
-}
-
-async fn run_migrations(pool: &PgPool, directory: &Path) -> Result<()> {
-    let mut files = fs::read_dir(directory)
-        .with_context(|| format!("read migrations directory {}", directory.display()))?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sql"))
-        .collect::<Vec<_>>();
-    files.sort_by_key(|entry| entry.file_name());
-    for entry in &files {
-        let path = entry.path();
-        let sql = fs::read_to_string(&path).with_context(|| format!("read migration {}", path.display()))?;
-        sqlx::raw_sql(&sql).execute(pool).await.with_context(|| format!("execute migration {}", path.display()))?;
-    }
-    info!(migration_count = files.len(), "database migrations applied");
     Ok(())
 }
 
