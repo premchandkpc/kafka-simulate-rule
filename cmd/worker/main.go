@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"strings"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/flowrule/flowrule/internal/adapters/effects"
