@@ -24,11 +24,11 @@ pub(super) async fn scheduler_loop(pool: PgPool, js: jetstream::Context, config:
 
 async fn claim_due_events(pool: &PgPool, claimant: &str, batch_size: i64) -> Result<Vec<PgRow>> {
     sqlx::query(
-        "WITH due AS (SELECT event_id FROM scheduled_events \\
-         WHERE (status='pending' AND COALESCE(retry_at,scheduled_at)<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \\
-         ORDER BY scheduled_at LIMIT $1 FOR UPDATE SKIP LOCKED) \\
-         UPDATE scheduled_events s SET status='claimed',claimant=$2,claimed_at=NOW(),claim_expires_at=NOW()+INTERVAL '5 minutes' \\
-         FROM due WHERE s.event_id=due.event_id \\
+        "WITH due AS (SELECT event_id FROM scheduled_events \
+         WHERE (status='pending' AND COALESCE(retry_at,scheduled_at)<=NOW()) OR (status='claimed' AND claim_expires_at<NOW()) \
+         ORDER BY scheduled_at LIMIT $1 FOR UPDATE SKIP LOCKED) \
+         UPDATE scheduled_events s SET status='claimed',claimant=$2,claimed_at=NOW(),claim_expires_at=NOW()+INTERVAL '5 minutes' \
+         FROM due WHERE s.event_id=due.event_id \
          RETURNING s.event_id,s.tenant_id,s.event_type,s.partition_key,s.workflow_id,s.payload,s.headers,s.retry_count"
     ).bind(batch_size).bind(claimant).fetch_all(pool).await.context("claim due scheduled events")
 }
@@ -84,7 +84,7 @@ async fn publish_scheduled_event(js: &jetstream::Context, config: &Config, event
 
 async fn mark_released(pool: &PgPool, claimant: &str, event_id: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE scheduled_events SET status='released',released_at=NOW(),claimant=NULL,claimed_at=NULL,claim_expires_at=NULL \\
+        "UPDATE scheduled_events SET status='released',released_at=NOW(),claimant=NULL,claimed_at=NULL,claim_expires_at=NULL \
          WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()"
     ).bind(event_id).bind(claimant).execute(pool).await.context("mark scheduled event released")?;
     Ok(())
@@ -107,7 +107,7 @@ async fn record_publish_failure(
 
 async fn mark_failed(pool: &PgPool, claimant: &str, event_id: &str, attempt: i32, error: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE scheduled_events SET status='failed',retry_count=$3,last_error=$4,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL \\
+        "UPDATE scheduled_events SET status='failed',retry_count=$3,last_error=$4,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL \
          WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()"
     ).bind(event_id).bind(claimant).bind(attempt).bind(error).execute(pool).await
         .context("mark scheduled event permanently failed")?;
@@ -117,7 +117,7 @@ async fn mark_failed(pool: &PgPool, claimant: &str, event_id: &str, attempt: i32
 async fn schedule_retry(pool: &PgPool, claimant: &str, event_id: &str, attempt: i32, error: &str) -> Result<()> {
     let delay = (1_i64 << (attempt - 1).clamp(0, 5)).min(60);
     sqlx::query(
-        "UPDATE scheduled_events SET status='pending',retry_count=$3,retry_at=NOW()+($4 * INTERVAL '1 second'),last_error=$5,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL \\
+        "UPDATE scheduled_events SET status='pending',retry_count=$3,retry_at=NOW()+($4 * INTERVAL '1 second'),last_error=$5,claimant=NULL,claimed_at=NULL,claim_expires_at=NULL \
          WHERE event_id=$1 AND claimant=$2 AND claim_expires_at>NOW()"
     ).bind(event_id).bind(claimant).bind(attempt).bind(delay).bind(error).execute(pool).await
         .context("schedule scheduled-event retry")?;
