@@ -275,7 +275,9 @@ func (g *Generator) GenerateEvaluator(outputDir string) ([]string, error) {
 	writeGeneratedEvaluatorTypes(file)
 	writeGeneratedEvaluatorConstructor(file, g)
 	writeGeneratedEvaluatorMethod(file, pkgName, typeName)
-	writeGeneratedEvaluatorHelpers(file)
+	if err := writeGeneratedEvaluatorHelpers(file); err != nil {
+		return nil, fmt.Errorf("write getString: %w", err)
+	}
 	return []string{filePath}, nil
 }
 
@@ -382,6 +384,7 @@ func writeGeneratedEffectTemplate(file *os.File, effect EffectTemplateData) {
 func writeGeneratedEvaluatorMethod(file *os.File, packageName, typeName string) {
 	fmt.Fprint(file, "// Evaluate runs all rules against the payload and returns matching effects\n")
 	fmt.Fprintf(file, "func (e *Evaluator) Evaluate(payload *%s.%s) ([]Effect, error) {\n", packageName, typeName)
+	fmt.Fprint(file, "\t// Convert payload to map for evaluation\n")
 	fmt.Fprint(file, "\tdata, err := json.Marshal(payload)\n")
 	fmt.Fprint(file, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 	fmt.Fprint(file, "\tvar payloadMap map[string]any\n")
@@ -401,12 +404,14 @@ func writeGeneratedEvaluatorMethod(file *os.File, packageName, typeName string) 
 	fmt.Fprint(file, "}\n\n")
 }
 
-func writeGeneratedEvaluatorHelpers(file *os.File) {
+func writeGeneratedEvaluatorHelpers(file *os.File) error {
+	fmt.Fprint(file, "// Helper functions\n")
 	writeGeneratedGetFloat64(file)
-	writeGeneratedGetString(file)
+	if err := writeGeneratedGetString(file); err != nil { return err }
 	writeGeneratedComputePartitionKey(file)
 	writeGeneratedSubstituteTemplate(file)
 	writeGeneratedSubstituteValue(file)
+	return nil
 }
 
 func writeGeneratedGetFloat64(file *os.File) {
@@ -419,15 +424,16 @@ func writeGeneratedGetFloat64(file *os.File) {
 	fmt.Fprint(file, "\t}\n\treturn 0, false\n}\n\n")
 }
 
-func writeGeneratedGetString(file *os.File) {
+func writeGeneratedGetString(file *os.File) error {
 	fmt.Fprint(file, "func getString(m map[string]any, key string) (string, bool) {\n")
 	fmt.Fprint(file, "\tv, ok := m[key]\n\tif !ok {\n\t\treturn \"\", false\n\t}\n")
 	fmt.Fprint(file, "\tswitch v := v.(type) {\n\tcase string:\n\t\treturn v, true\n")
 	fmt.Fprint(file, "\tcase json.Number:\n\t\treturn v.String(), true\n\t}\n")
 	if _, err := file.WriteString("\treturn fmt.Sprintf(\"%v\", v), true\n"); err != nil {
-		return
+		return err
 	}
 	fmt.Fprint(file, "}\n\n")
+	return nil
 }
 
 func writeGeneratedComputePartitionKey(file *os.File) {
