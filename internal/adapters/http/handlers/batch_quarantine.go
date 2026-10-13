@@ -153,10 +153,14 @@ func buildQuarantineFilter(r *http.Request, tenantID string) (ports.QuarantineFi
 		ErrorClass: query.Get(queryParamErrorClass), Limit: 100,
 	}
 	from, to, err := parseQuarantineTimeRange(query.Get(queryParamFrom), query.Get(queryParamTo))
-	if err != nil { return ports.QuarantineFilter{}, err }
+	if err != nil {
+	    return ports.QuarantineFilter{}, err
+	}
 	filter.From, filter.To = from, to
 	pagination, err := parsePagination(r, 100, 500, 10000)
-	if err != nil { return ports.QuarantineFilter{}, err }
+	if err != nil {
+	    return ports.QuarantineFilter{}, err
+	}
 	filter.Limit, filter.Offset = pagination.Limit, pagination.Offset
 	return filter, nil
 }
@@ -165,12 +169,16 @@ func parseQuarantineTimeRange(fromValue, toValue string) (time.Time, time.Time, 
 	var from, to time.Time
 	if fromValue != "" {
 		parsed, err := time.Parse(time.RFC3339, fromValue)
-		if err != nil { return time.Time{}, time.Time{}, errors.New("invalid from timestamp; expected RFC3339") }
+		if err != nil {
+		    return time.Time{}, time.Time{}, errors.New("invalid from timestamp; expected RFC3339")
+		}
 		from = parsed
 	}
 	if toValue != "" {
 		parsed, err := time.Parse(time.RFC3339, toValue)
-		if err != nil { return time.Time{}, time.Time{}, errors.New("invalid to timestamp; expected RFC3339") }
+		if err != nil {
+		    return time.Time{}, time.Time{}, errors.New("invalid to timestamp; expected RFC3339")
+		}
 		to = parsed
 	}
 	if !from.IsZero() && !to.IsZero() && from.After(to) {
