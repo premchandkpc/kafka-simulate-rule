@@ -69,7 +69,9 @@ pub async fn process_event(
     persistence::assert_lease(&mut tx, shard, worker_id, fencing_token).await?;
 
     if !persistence::insert_inbox(&mut tx, envelope).await? {
-        return commit_duplicate_event(&mut tx, envelope).await;
+        let execution_id = load_duplicate_execution(&mut tx, envelope).await?;
+        tx.commit().await.context("commit duplicate acknowledgement transaction")?;
+        return Ok(ProcessOutcome::Duplicate { execution_id });
     }
 
     let outcome = persist_new_event(&mut tx, envelope).await?;
@@ -86,13 +88,11 @@ fn validate_event_for_processing(
     validate_worker_lease(worker_id, fencing_token)
 }
 
-async fn commit_duplicate_event(
+async fn load_duplicate_execution(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     envelope: &EventEnvelope,
-) -> Result<ProcessOutcome> {
-    let execution_id = persistence::load_duplicate_execution(tx, envelope).await?;
-    tx.commit().await.context("commit duplicate acknowledgement transaction")?;
-    Ok(ProcessOutcome::Duplicate { execution_id })
+) -> Result<String> {
+    persistence::load_duplicate_execution(tx, envelope).await
 }
 
 async fn persist_new_event(
