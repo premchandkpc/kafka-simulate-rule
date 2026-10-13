@@ -47,6 +47,9 @@ func run() error {
 
 	clients := flag.Int("clients", clientsDefault, "number of simulated business clients/accounts")
 	maxMessages := flag.Int("max-messages", messagesDefault, "maximum random messages per client (1-100)")
+	if shardsDefault < 1 {
+		return fmt.Errorf("NUM_SHARDS must be greater than zero")
+	}
 	shards := flag.Uint64("shards", uint64(shardsDefault), "virtual shard count; must match the workers")
 	natsURL := flag.String("nats", env("NATS_URL", defaultNATSURL), "NATS URL; use the Compose service name inside the network")
 	tenantID := flag.String("tenant", env("RANDOM_PRODUCER_TENANT_ID", DefaultTenantID), "FlowRule tenant used by the deployed example rules")
@@ -83,7 +86,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create NATS publisher: %w", err)
 	}
-	defer publisher.Close()
+	defer func() { _ = publisher.Close() }()
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
