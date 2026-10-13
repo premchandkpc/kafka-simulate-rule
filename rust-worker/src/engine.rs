@@ -316,10 +316,10 @@ fn compare(found: Option<&Value>, expected: Option<&Value>, predicate: impl Fn(f
 fn resolve_path<'a>(path: &str, root: &'a Value) -> Option<&'a Value> {
     let trimmed = path.strip_prefix("$.").unwrap_or(path);
     if trimmed.is_empty() || trimmed == "facts" || trimmed.starts_with("facts.") { return None; }
-    trimmed.split('.').try_fold(root, |value, key| {
-        if let Ok(index) = key.parse::<usize>() { value.as_array()?.get(index) }
-        else { value.as_object()?.get(key) }
-    })
+    let resolved = trimmed.split('.').filter(|part| !part.is_empty()).try_fold(root, |value, key| {
+        value.as_object()?.get(key)
+    });
+    resolved.filter(|value| !value.is_null())
 }
 
 fn interpolate_templates(value: &Value, event: &EventEnvelope, child_id: &str) -> Value {
