@@ -377,13 +377,13 @@ func (c *Compiler) validateEmitEventAction(action *domain.EmitEventAction) error
 	return nil
 }
 
-func validPartitionKeyPolicy(policy string) bool {
+func validPartitionKeyPolicy(policy domain.PartitionKeyPolicy) bool {
 	return policy == domain.PartitionKeyPolicyExplicit ||
 		policy == domain.PartitionKeyPolicyInherit ||
 		policy == domain.PartitionKeyPolicyFromData
 }
 
-func validatePartitionKeyPolicy(action *domain.EmitEventAction, policy string) error {
+func validatePartitionKeyPolicy(action *domain.EmitEventAction, policy domain.PartitionKeyPolicy) error {
 	switch policy {
 	case domain.PartitionKeyPolicyExplicit:
 		if action.PartitionKey == "" {
