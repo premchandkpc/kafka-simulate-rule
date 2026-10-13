@@ -88,7 +88,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create temporary directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	files, err := generateTargetFiles(generator, *target, tmpDir)
 	if err != nil {
