@@ -58,9 +58,7 @@ fn decode_scheduled_event(row: &PgRow) -> Result<(EventEnvelope, i32)> {
     let headers: Option<Value> = row.try_get("headers")?;
     let retry_count: i32 = row.try_get("retry_count")?;
 
-    let mut header_map = headers.and_then(|value| serde_json::from_value::<HashMap<String, String>>(value).ok())
-        .unwrap_or_default();
-    header_map.insert("Idempotency-Key".to_owned(), format!("sched-{event_id}"));
+    let headers = scheduled_event_headers(headers, &event_id);
     let event = EventEnvelope {
         id: event_id,
         event_type,
@@ -69,9 +67,17 @@ fn decode_scheduled_event(row: &PgRow) -> Result<(EventEnvelope, i32)> {
         workflow_id,
         occurred_at: Utc::now(),
         data: payload,
-        headers: header_map,
+        headers,
     };
     Ok((event, retry_count))
+}
+
+fn scheduled_event_headers(headers: Option<Value>, event_id: &str) -> HashMap<String, String> {
+    let mut headers = headers
+        .and_then(|value| serde_json::from_value::<HashMap<String, String>>(value).ok())
+        .unwrap_or_default();
+    headers.insert("Idempotency-Key".to_owned(), format!("sched-{event_id}"));
+    headers
 }
 
 async fn publish_scheduled_event(js: &jetstream::Context, config: &Config, event: &EventEnvelope) -> Result<()> {
