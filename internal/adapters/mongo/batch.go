@@ -89,7 +89,7 @@ func (r *BatchRepository) ListRuns(ctx context.Context, tenantID, ruleSet string
 	if err != nil {
 		return nil, fmt.Errorf("list batch runs: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var runs []*domain.BatchRun
 	for cursor.Next(ctx) {
@@ -119,7 +119,7 @@ func (r *BatchRepository) ListUnbatched(ctx context.Context, limit int) ([]*doma
 	if err != nil {
 		return nil, fmt.Errorf("list unbatched: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var entries []*domain.InboxEntry
 	for cursor.Next(ctx) {
@@ -149,7 +149,7 @@ func (r *BatchRepository) ListUnbatchedByIDs(ctx context.Context, tenantID, part
 	if err != nil {
 		return nil, fmt.Errorf("list unbatched by ids: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var entries []*domain.InboxEntry
 	for cursor.Next(ctx) {
