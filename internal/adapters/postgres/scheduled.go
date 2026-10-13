@@ -51,32 +51,23 @@ func (r *ScheduledEventRepository) GetDue(ctx context.Context, before time.Time,
 }
 
 func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string, claimant string, leaseTTL time.Duration) ([]*domain.ScheduledEvent, error) {
-	if len(eventIDs) == 0 {
-		return nil, nil
-	}
-	if strings.TrimSpace(claimant) == "" {
-		return nil, fmt.Errorf("claim scheduled events: claimant is required")
-	}
-	if leaseTTL <= 0 {
-		return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive")
-	}
+	if len(eventIDs) == 0 { return nil, nil }
+	if strings.TrimSpace(claimant) == "" { return nil, fmt.Errorf("claim scheduled events: claimant is required") }
+	if leaseTTL <= 0 { return nil, fmt.Errorf("claim scheduled events: lease TTL must be positive") }
 
 	now := time.Now().UTC()
-	expiresAt := now.Add(leaseTTL)
-	placeholders := make([]string, len(eventIDs))
-	args := make([]any, len(eventIDs)+5)
-	args[0] = claimant
-	args[1] = expiresAt
-	args[2] = now
-	for i, id := range eventIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+4)
-		args[i+3] = id
-	}
+	query, args := buildScheduledClaimQuery(eventIDs, claimant, now, now.Add(leaseTTL))
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil { return nil, fmt.Errorf("claim scheduled events: %w", err) }
+	defer rows.Close()
+	return scanScheduledEvents(rows)
+}
+
+func buildScheduledClaimQuery(eventIDs []string, claimant string, now, expiresAt time.Time) (string, []any) {
+	placeholders := scheduledEventPlaceholders(len(eventIDs))
+	args := scheduledClaimArguments(eventIDs, claimant, now, expiresAt)
 	pendingStatusArg := len(eventIDs) + 4
 	claimedStatusArg := len(eventIDs) + 5
-	args[pendingStatusArg-1] = domain.ScheduledEventStatusPending
-	args[claimedStatusArg-1] = domain.ScheduledEventStatusClaimed
-
 	query := fmt.Sprintf(`
 		UPDATE scheduled_events
 		SET status = $%d, claimant = $1, claim_expires_at = $2, claimed_at = $3
@@ -87,12 +78,22 @@ func (r *ScheduledEventRepository) Claim(ctx context.Context, eventIDs []string,
 		  )
 		RETURNING event_id, tenant_id, event_type, partition_key, workflow_id, payload, headers, scheduled_at, status, created_at, released_at, retry_at, retry_count, last_error
 	`, claimedStatusArg, strings.Join(placeholders, ","), pendingStatusArg, claimedStatusArg)
-	rows, err := r.db.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("claim scheduled events: %w", err)
-	}
-	defer rows.Close()
-	return scanScheduledEvents(rows)
+	return query, args
+}
+
+func scheduledEventPlaceholders(count int) []string {
+	placeholders := make([]string, count)
+	for i := range placeholders { placeholders[i] = fmt.Sprintf("$%d", i+4) }
+	return placeholders
+}
+
+func scheduledClaimArguments(eventIDs []string, claimant string, now, expiresAt time.Time) []any {
+	args := make([]any, len(eventIDs)+5)
+	args[0], args[1], args[2] = claimant, expiresAt, now
+	for i, eventID := range eventIDs { args[i+3] = eventID }
+	args[len(eventIDs)+3] = domain.ScheduledEventStatusPending
+	args[len(eventIDs)+4] = domain.ScheduledEventStatusClaimed
+	return args
 }
 
 func (r *ScheduledEventRepository) MarkReleased(ctx context.Context, eventID, claimant string, releasedAt time.Time) error {
