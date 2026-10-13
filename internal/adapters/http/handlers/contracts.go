@@ -202,7 +202,7 @@ func prepareGeneratedOutput(w http.ResponseWriter) (string, bool) {
 		responses.WriteError(w, http.StatusInternalServerError, "generation output root is invalid", responses.CodeInternalError)
 		return "", false
 	}
-	if err := os.Chmod(allowedBase, 0o700); err != nil {
+	if err := os.Chmod(allowedBase, 0o700); err != nil { // #nosec G302 -- directory requires execute permission; 0700 restricts access to its owner.
 		responses.WriteError(w, http.StatusInternalServerError, "could not secure output root", responses.CodeInternalError)
 		return "", false
 	}
