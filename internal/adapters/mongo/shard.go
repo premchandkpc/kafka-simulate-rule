@@ -13,10 +13,12 @@ import (
 	"github.com/flowrule/flowrule/internal/domain"
 )
 
+// ShardLeaseRepository manages distributed shard leases in MongoDB.
 type ShardLeaseRepository struct {
 	querier Querier
 }
 
+// NewShardLeaseRepository creates a shard lease repository.
 func NewShardLeaseRepository(querier Querier) *ShardLeaseRepository {
 	return &ShardLeaseRepository{querier: querier}
 }
@@ -25,6 +27,7 @@ func (r *ShardLeaseRepository) collection(name string) *mongo.Collection {
 	return r.querier.Collection(name)
 }
 
+// Acquire claims a shard lease for an owner for the requested duration.
 func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner string, ttl time.Duration) (*domain.ShardLease, error) {
 	coll := r.collection(collectionShardLeases)
 	now := time.Now().UTC()
@@ -68,6 +71,7 @@ func (r *ShardLeaseRepository) Acquire(ctx context.Context, shard uint32, owner 
 	return doc.ToDomain(), nil
 }
 
+// Renew extends a lease if the owner and fencing token still match.
 func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner string, fencingToken int64, ttl time.Duration) (*domain.ShardLease, error) {
 	coll := r.collection(collectionShardLeases)
 	now := time.Now().UTC()
@@ -97,6 +101,7 @@ func (r *ShardLeaseRepository) Renew(ctx context.Context, shard uint32, owner st
 	return r.GetOwner(ctx, shard)
 }
 
+// Release relinquishes a shard lease held by the specified owner.
 func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner string) error {
 	coll := r.collection(collectionShardLeases)
 	_, err := coll.UpdateOne(ctx, bson.M{
@@ -112,6 +117,7 @@ func (r *ShardLeaseRepository) Release(ctx context.Context, shard uint32, owner 
 	return nil
 }
 
+// GetOwner returns the current lease for a shard, if one exists.
 func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*domain.ShardLease, error) {
 	coll := r.collection(collectionShardLeases)
 	var doc LeaseDoc
@@ -127,6 +133,7 @@ func (r *ShardLeaseRepository) GetOwner(ctx context.Context, shard uint32) (*dom
 	return doc.ToDomain(), nil
 }
 
+// ValidateFencingToken verifies that the owner and fencing token match the current lease.
 func (r *ShardLeaseRepository) ValidateFencingToken(ctx context.Context, shard uint32, owner string, fencingToken int64) error {
 	coll := r.collection(collectionShardLeases)
 	var doc LeaseDoc
@@ -168,6 +175,7 @@ func (r *ShardLeaseRepository) AssertHeld(ctx context.Context, shard uint32, own
 	return nil
 }
 
+// LeaseDoc is the MongoDB representation of a shard lease.
 type LeaseDoc struct {
 	VirtualShard uint32    `bson:"virtual_shard"`
 	Owner        string    `bson:"owner"`
@@ -176,6 +184,7 @@ type LeaseDoc struct {
 	RoutingEpoch int64     `bson:"routing_epoch"`
 }
 
+// ToDomain converts the MongoDB lease document to a domain shard lease.
 func (d *LeaseDoc) ToDomain() *domain.ShardLease {
 	return &domain.ShardLease{
 		VirtualShard: d.VirtualShard,
