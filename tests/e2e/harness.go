@@ -14,9 +14,7 @@ import (
 	"github.com/flowrule/flowrule/internal/application"
 	"github.com/flowrule/flowrule/internal/config"
 	"github.com/flowrule/flowrule/internal/domain"
-	"github.com/flowrule/flowrule/internal/ports"
 	"github.com/flowrule/flowrule/internal/rules"
-	"github.com/flowrule/flowrule/internal/runtime/keyqueue"
 	"github.com/flowrule/flowrule/internal/runtime/scheduler"
 	"github.com/flowrule/flowrule/internal/runtime/shard"
 	"github.com/flowrule/flowrule/internal/services/batches"
@@ -53,6 +51,8 @@ func (f *fakeEffectSender) Send(ctx context.Context, effect *domain.Effect, idem
 
 func StartStack(t *testing.T) *TestEnv {
 	ctx := context.Background()
+	env := &TestEnv{}
+	t.Cleanup(env.Stop)
 
 	// Start PostgreSQL
 	pgContainer, err := postgres.RunContainer(ctx,
@@ -67,6 +67,7 @@ func StartStack(t *testing.T) *TestEnv {
 	if err != nil {
 		t.Fatalf("start postgres: %v", err)
 	}
+	env.PostgresContainer = pgContainer
 
 	// Start NATS with JetStream
 	natsContainer, err := natstest.RunContainer(ctx,
@@ -75,14 +76,22 @@ func StartStack(t *testing.T) *TestEnv {
 				WithStartupTimeout(30*time.Second)),
 	)
 	if err != nil {
-		pgContainer.Terminate(ctx)
 		t.Fatalf("start nats: %v", err)
 	}
+	env.NATSContainer = natsContainer
 
 	// Get connection details
 	pgDSN, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatalf("postgres dsn: %v", err)
+	}
+	pgPool, err := pgxpool.New(ctx, pgDSN)
+	if err != nil {
+		t.Fatalf("connect postgres test query pool: %v", err)
+	}
+	env.PostgresPool = pgPool
+	if err := pgPool.Ping(ctx); err != nil {
+		t.Fatalf("ping postgres test query pool: %v", err)
 	}
 
 	natsURL, err := natsContainer.ConnectionString(ctx)
@@ -95,6 +104,7 @@ func StartStack(t *testing.T) *TestEnv {
 	if err != nil {
 		t.Fatalf("connect nats: %v", err)
 	}
+	env.NATSConn = natsConn
 
 	// Create config
 	cfg := &config.Config{
@@ -143,6 +153,7 @@ func StartStack(t *testing.T) *TestEnv {
 	if err != nil {
 		t.Fatalf("open storage: %v", err)
 	}
+	env.Storage = storage
 	if err := storage.Initialize(ctx); err != nil {
 		t.Fatalf("init storage: %v", err)
 	}
@@ -206,20 +217,6 @@ func StartStack(t *testing.T) *TestEnv {
 		cfg.LeaseRenewalInterval(),
 	)
 
-	keyQueue := keyqueue.NewKeyQueue(
-		workerConfig.MaxGlobalInFlight,
-		workerConfig.MaxPerKeyQueue,
-		workerConfig.KeyQueueWorkers,
-		func(ctx context.Context, env *domain.EventEnvelope, delivery ports.Delivery, fencingToken int64, vshard uint32, workerID string) error {
-			_, err := eventsSvc.Process(ctx, env, fencingToken, vshard, workerID)
-			return err
-		},
-		clock.Now,
-		workerConfig.HotKeyThreshold,
-		workerConfig.HotKeyCheckInterval,
-		workerConfig.HotKeyCallback,
-	)
-
 	worker, err := application.NewWorker(
 		consumer,
 		eventsSvc,
@@ -228,7 +225,6 @@ func StartStack(t *testing.T) *TestEnv {
 		cfg.SchedulerPollInterval(),
 		clock,
 		leaseManager,
-		keyQueue,
 		workerID,
 		cfg.Worker.NumShards,
 		workerConfig,
@@ -248,9 +244,11 @@ func StartStack(t *testing.T) *TestEnv {
 	)
 
 	workerCtx, workerCancel := context.WithCancel(ctx)
+	env.WorkerCancel = workerCancel
 	sched.Start(workerCtx)
 
 	workerDone := make(chan error, 1)
+	env.WorkerDone = workerDone
 	go func() {
 		if err := worker.Run(workerCtx); err != nil {
 			log.Printf("worker error: %v", err)
@@ -258,16 +256,9 @@ func StartStack(t *testing.T) *TestEnv {
 		close(workerDone)
 	}()
 
-	return &TestEnv{
-		PostgresContainer: pgContainer,
-		NATSContainer:     natsContainer,
-		NATSConn:          natsConn,
-		Storage:           storage,
-		Config:            cfg,
-		ShardCount:        cfg.Worker.NumShards,
-		WorkerCancel:      workerCancel,
-		WorkerDone:        workerDone,
-	}
+	env.Config = cfg
+	env.ShardCount = cfg.Worker.NumShards
+	return env
 }
 
 func (e *TestEnv) Stop() {
@@ -281,6 +272,9 @@ func (e *TestEnv) Stop() {
 	}
 	if e.Storage != nil {
 		e.Storage.Close()
+	}
+	if e.PostgresPool != nil {
+		e.PostgresPool.Close()
 	}
 	if e.NATSConn != nil {
 		e.NATSConn.Close()
@@ -311,17 +305,29 @@ func (e *TestEnv) Publish(t *testing.T, envelope *domain.EventEnvelope) {
 }
 
 func (e *TestEnv) ExecutionCount(t *testing.T, tenantID, eventID string) int {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	exec, err := e.Storage.Repositories().Executions.Get(ctx, domain.ComputeExecutionID(tenantID, eventID, "order.created", 1))
+	var count int
+	err := e.PostgresPool.QueryRow(ctx, "SELECT count(*) FROM executions WHERE tenant_id=$1 AND event_id=$2", tenantID, eventID).Scan(&count)
 	if err != nil {
-		return 0
+		t.Fatalf("count executions for event %s: %v", eventID, err)
 	}
-	if exec == nil {
-		return 0
+	return count
+}
+
+func (e *TestEnv) QuarantineCount(t *testing.T, tenantID, eventID string) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var count int
+	err := e.PostgresPool.QueryRow(ctx, "SELECT count(*) FROM quarantine WHERE tenant_id=$1 AND event_id=$2", tenantID, eventID).Scan(&count)
+	if err != nil {
+		t.Fatalf("count quarantine records for event %s: %v", eventID, err)
 	}
-	return 1
+	return count
 }
 
 func (e *TestEnv) WaitForExecution(t *testing.T, tenantID, eventID string, timeout time.Duration) bool {

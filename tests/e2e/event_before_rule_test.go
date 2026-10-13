@@ -14,11 +14,9 @@ import (
 
 // TestEventBeforeRuleActivation_IsNotLost verifies that an event published
 // before its rule is deployed still produces exactly one execution after
-// the rule activation. This is Bug 2 from the review: previously
-// ErrRuleNotActive was permanent and caused quarantine+ACK (silent loss).
+// the rule activation. Missing activation is retryable until the rule is ready.
 func TestEventBeforeRuleActivation_IsNotLost(t *testing.T) {
 	env := StartStack(t)
-	defer env.Stop()
 
 	// 1. Publish event BEFORE rule exists
 	testEvent := &domain.EventEnvelope{
@@ -80,21 +78,14 @@ func TestEventBeforeRuleActivation_IsNotLost(t *testing.T) {
 	}
 
 	// 3. Wait for redelivery and processing
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			t.Fatal("timeout: execution never created - event was lost")
-		case <-ticker.C:
-			if env.ExecutionCount(t, "test-tenant", "e1") > 0 {
-				return // PASS: exactly one execution created
-			}
-		}
+	if !env.WaitForExecution(t, "test-tenant", "e1", 30*time.Second) {
+		t.Fatal("timeout: execution never created - event was lost")
+	}
+	if got := env.ExecutionCount(t, "test-tenant", "e1"); got != 1 {
+		t.Fatalf("execution count = %d, want exactly one", got)
+	}
+	if got := env.QuarantineCount(t, "test-tenant", "e1"); got != 0 {
+		t.Fatalf("quarantine count = %d, want zero", got)
 	}
 }
 

@@ -29,6 +29,16 @@ func TestIsPermanentClassifiesDeterministicEvaluationFailures(t *testing.T) {
 	}
 }
 
+func TestRuleNotReadyIsRetriedUntilActivation(t *testing.T) {
+	err := fmt.Errorf("load active revision: %w", ErrRuleNotReady)
+	if IsPermanent(err) {
+		t.Fatalf("IsPermanent(%v) = true, want false", err)
+	}
+	if !IsRetryable(err) {
+		t.Fatalf("IsRetryable(%v) = false, want true", err)
+	}
+}
+
 func TestIsPermanentDoesNotTreatUnknownErrorsAsPermanent(t *testing.T) {
 	if IsPermanent(errors.New("unknown transient failure")) {
 		t.Fatal("IsPermanent(unknown error) = true, want false")

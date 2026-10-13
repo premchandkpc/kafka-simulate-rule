@@ -39,6 +39,9 @@ jobs:
       - name: Run root-module tests with race detector
         run: go test -race -count=1 ./...
 
+      - name: Run Postgres and NATS end-to-end tests
+        run: go test -tags=e2e -count=1 ./tests/e2e
+
       - name: Vet root-module packages
         run: go vet ./...
 

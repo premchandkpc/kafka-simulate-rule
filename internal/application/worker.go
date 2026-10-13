@@ -21,7 +21,6 @@ type WorkerConfig struct {
 	HotKeyThreshold        int
 	HotKeyCheckInterval    time.Duration
 	HotKeyCallback         func(partitionKey string, depth int)
-	RequireSharded         bool
 }
 
 // DefaultWorkerConfig returns production-safe worker defaults.
@@ -36,7 +35,6 @@ func DefaultWorkerConfig() WorkerConfig {
 		KeyQueueWorkers:        1,
 		HotKeyThreshold:        1000,
 		HotKeyCheckInterval:    10 * time.Second,
-		RequireSharded:         true,
 	}
 }
 
@@ -92,8 +90,8 @@ func NewWorker(
 	}
 
 	sharded, ok := consumer.(shardedConsumer)
-	if config.RequireSharded && !ok {
-		return nil, errors.New("consumer must implement sharded consumer when sharded mode is enabled")
+	if !ok {
+		return nil, errors.New("consumer must implement sharded consumer; non-sharded mode is not supported")
 	}
 
 	return &Worker{
