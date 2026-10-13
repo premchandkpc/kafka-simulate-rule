@@ -5,12 +5,22 @@ pub(super) async fn outbox_loop(pool: PgPool, js: jetstream::Context, config: Co
 
     loop {
         ticker.tick().await;
-        let claim = format!("{}-{}", config.worker_id, uuid_token());
-        let rows = claim_outbox_batch(&pool, &claim, config.fetch_batch_size).await?;
-        for row in rows {
-            process_claimed_effect(&pool, &js, &http, &config, &claim, row).await?;
-        }
+        process_outbox_batch(&pool, &js, &http, &config).await?;
     }
+}
+
+async fn process_outbox_batch(
+    pool: &PgPool,
+    js: &jetstream::Context,
+    http: &reqwest::Client,
+    config: &Config,
+) -> Result<()> {
+    let claim = format!("{}-{}", config.worker_id, uuid_token());
+    let rows = claim_outbox_batch(pool, &claim, config.fetch_batch_size).await?;
+    for row in rows {
+        process_claimed_effect(pool, js, http, config, &claim, row).await?;
+    }
+    Ok(())
 }
 
 struct ClaimedEffect {
@@ -144,27 +154,89 @@ async fn send_effect(
     }
 }
 
-async fn send_external_effect(http: &reqwest::Client, config: &Config, id: &str, execution_id: &str, tenant_id: &str, destination: &str, name: &str, payload: &Value, effect_type: &str) -> Result<()> {
-    if config.effect_destination_url.trim().is_empty() {
-        if matches!(config.app_env.to_ascii_lowercase().as_str(), "dev" | "development" | "test") {
-            info!(effect_id = id, destination, name, "development fake destination accepted effect");
-            return Ok(());
-        }
-        bail!("EFFECT_DESTINATION_URL is required for external effects");
+async fn send_external_effect(
+    http: &reqwest::Client,
+    config: &Config,
+    id: &str,
+    execution_id: &str,
+    tenant_id: &str,
+    destination: &str,
+    name: &str,
+    payload: &Value,
+    effect_type: &str,
+) -> Result<()> {
+    if accept_development_effect(config, id, destination, name)? {
+        return Ok(());
     }
-    let mut url = reqwest::Url::parse(&config.effect_destination_url).context("parse EFFECT_DESTINATION_URL")?;
-    {
-        let mut segments = url.path_segments_mut().map_err(|_| anyhow!("EFFECT_DESTINATION_URL cannot be a base URL"))?;
-        segments.pop_if_empty();
-        segments.push(destination);
-        segments.push(name);
+
+    let url = build_external_destination_url(config, destination, name)?;
+    let effect = build_external_effect_payload(id, execution_id, tenant_id, destination, name, payload, effect_type);
+    post_external_effect(http, url, id, execution_id, &effect).await
+}
+
+fn accept_development_effect(config: &Config, id: &str, destination: &str, name: &str) -> Result<bool> {
+    if !config.effect_destination_url.trim().is_empty() {
+        return Ok(false);
     }
-    let effect = json!({ "id": id, "execution_id": execution_id, "tenant_id": tenant_id, "destination": destination, "name": name, "payload": payload, "effect_type": effect_type, "created_at": Utc::now() });
-    let response = http.post(url).header("Content-Type", "application/json")
-        .header("X-Effect-ID", id).header("X-Execution-ID", execution_id)
+    if is_local_environment(&config.app_env) {
+        info!(effect_id = id, destination, name, "development fake destination accepted effect");
+        return Ok(true);
+    }
+    bail!("EFFECT_DESTINATION_URL is required for external effects")
+}
+
+fn build_external_destination_url(config: &Config, destination: &str, name: &str) -> Result<reqwest::Url> {
+    let mut url = reqwest::Url::parse(&config.effect_destination_url)
+        .context("parse EFFECT_DESTINATION_URL")?;
+    let mut segments = url.path_segments_mut()
+        .map_err(|_| anyhow!("EFFECT_DESTINATION_URL cannot be a base URL"))?;
+    segments.pop_if_empty();
+    segments.push(destination);
+    segments.push(name);
+    drop(segments);
+    Ok(url)
+}
+
+fn build_external_effect_payload(
+    id: &str,
+    execution_id: &str,
+    tenant_id: &str,
+    destination: &str,
+    name: &str,
+    payload: &Value,
+    effect_type: &str,
+) -> Value {
+    json!({
+        "id": id,
+        "execution_id": execution_id,
+        "tenant_id": tenant_id,
+        "destination": destination,
+        "name": name,
+        "payload": payload,
+        "effect_type": effect_type,
+        "created_at": Utc::now()
+    })
+}
+
+async fn post_external_effect(
+    http: &reqwest::Client,
+    url: reqwest::Url,
+    id: &str,
+    execution_id: &str,
+    effect: &Value,
+) -> Result<()> {
+    let response = http.post(url)
+        .header("Content-Type", "application/json")
+        .header("X-Effect-ID", id)
+        .header("X-Execution-ID", execution_id)
         .header("Idempotency-Key", format!("effect-{id}"))
-        .json(&effect).send().await.context("send external effect")?;
-    if !response.status().is_success() { bail!("external effect endpoint returned {}", response.status()); }
+        .json(effect)
+        .send()
+        .await
+        .context("send external effect")?;
+    if !response.status().is_success() {
+        bail!("external effect endpoint returned {}", response.status());
+    }
     Ok(())
 }
 
