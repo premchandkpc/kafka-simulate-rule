@@ -1,63 +1,105 @@
-# Feature Specification: <name>
+# Feature Specification: <short-name>
 
-## Status and ownership
-- Status: Proposed | Accepted | Implemented | Deprecated
-- Owner:
-- Reviewers:
-- Last updated:
+> Keep this spec concise and testable. Mark non-applicable sections N/A with a reason; do not leave ambiguity hidden in blank fields.
 
-## Problem
-What user/operator problem or production risk does this address? Include evidence or a reproducible example.
+## 1. Metadata
 
-## Goals
+- **Status:** Proposed | Accepted | In progress | Implemented | Deprecated
+- **Owner:**
+- **Reviewers:**
+- **Related issue/PR:**
+- **Last updated:**
+
+## 2. Problem and evidence
+
+- **Problem:** What user/operator problem or production risk exists?
+- **Evidence:** Reproduction, logs/metrics, user impact, or source location.
+- **Current behavior:**
+- **Desired outcome:**
+
+## 3. Scope
+
+### Goals
 - 
 
-## Non-goals
+### Non-goals
 - 
 
-## Actors and boundaries
-- Caller and trusted identity source:
-- Tenant scope:
-- API, worker, or background process:
-- Persistence and messaging dependencies:
-- External destinations:
+### Affected surfaces
+- Packages/files:
+- API/event/schema/SDK:
+- Storage/migrations:
+- Configuration/deployment:
+- Observability/operations:
 
-## Contract and compatibility
-Describe request/event inputs, outputs, schema/version, validation, defaults, size limits, and compatibility with existing producers/consumers.
+## 4. Contract and trust boundaries
 
-## Invariants
-List the properties that must remain true, such as tenant isolation, idempotency, ordering, transaction boundaries, lease fencing, authorization, and data retention.
+- **Caller / producer:**
+- **Identity source and authorization:**
+- **Tenant scope:**
+- **Inputs and validation:**
+- **Outputs/errors:**
+- **Compatibility/versioning:**
+- **External dependencies/destinations:**
 
-## Behavior and acceptance criteria
-Write observable Given/When/Then examples. Include at least one failure or recovery path when the change touches distributed state.
+## 5. Invariants and guarantees
 
-- Given ...
-- When ...
-- Then ...
+List only guarantees required by this change. State their exact scope and how each is enforced.
 
-## Failure and recovery
-Cover applicable timeouts, cancellation, duplicate delivery, uncertain commit outcome, process crash, dependency outage, retry classification/exhaustion, stale ownership, quarantine, and replay.
+| Invariant | Enforcement point | Proof/test |
+| --- | --- | --- |
+|  |  |  |
 
-## Security and privacy
-Describe authentication, authorization, tenant scoping, input validation, outbound URL/destination validation, secret handling, and sensitive-data logging constraints.
+## 6. Acceptance criteria
 
-## Observability
-Define useful structured logs, metrics, traces, alertable signals, and correlation/idempotency IDs.
+Write observable Given/When/Then scenarios. Include success, failure, and recovery cases where relevant. Link each criterion to a test or mark it **Gap**.
 
-## Rollout and compatibility
-Describe migration ordering, backfill, API/event compatibility, configuration/feature flags, rollout, rollback limits, and recovery procedure.
+- **AC-1:**
+  - Given:
+  - When:
+  - Then:
+  - Test / status:
 
-## Test plan
-Map each acceptance criterion to a test layer and exact test location/command. Mark gaps honestly.
+## 7. Failure and recovery
 
-- [ ] Unit tests for pure decisions
-- [ ] Service/component tests for orchestration
-- [ ] Adapter/contract tests for storage and transport boundaries
-- [ ] Integration tests, noting whether dependencies are real or mocked
-- [ ] E2E tests for critical paths where warranted
-- [ ] Negative/security tests for tenant boundaries where relevant
-- [ ] Race/failure-injection tests for concurrency and crash-sensitive behavior
-- [ ] Required CI gates run against the final commit
+Address applicable timeout/cancellation, dependency outage, duplicate delivery, uncertain commit, crash/restart, retry classification and exhaustion, stale ownership, quarantine/replay, and partial rollout.
 
-## Open questions and known gaps
-- 
+## 8. Security and privacy
+
+Cover authentication, authorization, tenant filtering, input limits, outbound destination/URL validation, secret handling, sensitive-data logging, and abuse cases.
+
+## 9. Operational behavior
+
+- **Logs/metrics/traces:**
+- **Alerts and actionable thresholds:**
+- **Backpressure/capacity limits:**
+- **Health/readiness/shutdown:**
+- **Runbook or recovery steps:**
+
+## 10. Rollout and rollback
+
+- **Migration/deployment order:**
+- **Feature flags/configuration:**
+- **Compatibility window:**
+- **Rollback procedure and limits:**
+- **Data repair/replay plan:**
+
+## 11. Verification plan
+
+| Acceptance criterion | Test layer and location | Command / CI check | Status |
+| --- | --- | --- | --- |
+|  |  |  | Not run |
+
+Check only after actually completed:
+- [ ] Unit/service tests
+- [ ] Adapter/contract tests
+- [ ] Live dependency integration/E2E tests, where required
+- [ ] Race/failure-injection tests, where relevant
+- [ ] Formatting, build, lint, security and schema/migration checks
+- [ ] Exact PR-head CI reviewed
+
+## 12. Risks, alternatives, open questions
+
+- **Risks and mitigations:**
+- **Alternatives considered and why rejected:**
+- **Open questions / explicit gaps:**
