@@ -1,79 +1,98 @@
-# SDD, TDD, BDD, and E2E for FlowRule
+# Engineering Workflow: SDD, TDD, BDD, and E2E
 
-This guide defines a lightweight workflow from a behavior request to verified behavior in FlowRule. Use the amount of process that matches the risk: a typo does not need a mini design review, but a change to tenant isolation, transactions, retries, leases, or message acknowledgement does.
+This guide defines the minimum evidence expected for FlowRule changes. Follow [AGENTS.md](../../AGENTS.md) as the repository-wide authority. If this guide conflicts with source, tests, CI, or AGENTS.md, verify the discrepancy and update the docs rather than inventing a guarantee.
 
-## The practices fit together
+## Normative language
 
-- **Spec-Driven Development (SDD):** agree on the problem, contract, constraints, invariants, failure behavior, and acceptance criteria before implementation.
-- **Behavior-Driven Development (BDD):** express the important externally observable outcomes as reviewable Given/When/Then scenarios.
-- **Test-Driven Development (TDD):** for each behavior, write a focused failing test, implement the smallest correct change, then refactor while keeping tests green.
-- **End-to-end (E2E) testing:** verify that the real application path and its important dependencies work together. E2E tests complement, rather than replace, fast unit tests.
+- **MUST** means required for merge unless an explicit, reviewed exception is recorded.
+- **SHOULD** means expected unless the PR explains why it is inappropriate.
+- **MAY** means optional.
 
-The intended chain is: **spec → acceptance scenarios → failing test → implementation → integration/E2E verification → review**. A Markdown scenario is not an executable test until a test actually asserts its outcome.
+## The development loop
 
-## Repository-specific workflow
+1. **Specify (SDD):** state the problem, observable outcome, scope, non-goals, contracts, invariants, risks, and acceptance criteria.
+2. **Describe (BDD):** write reviewable Given/When/Then scenarios for success, failure, and recovery paths relevant to the change.
+3. **Test (TDD):** write a failing regression test, implement the smallest correct change, then refactor. If TDD is impractical, explain why and still add regression coverage.
+4. **Verify:** choose tests at the boundary where the guarantee lives. Fakes prove orchestration; they do not prove PostgreSQL or NATS semantics.
+5. **Review:** compare implementation, tests, schema, config, docs, rollout and rollback behavior. Report evidence without overstating it.
 
-1. **Inspect before editing.** Read AGENTS.md, the implementation, callers, tests, contracts/migrations, configuration, Makefile, Compose files, and CI relevant to the change. Treat current source and test results as evidence; historical plans are not proof of behavior.
-2. **Write the smallest useful spec.** Record the problem, goals/non-goals, affected interfaces, tenant/security boundaries, invariants, failure/retry semantics, observability, compatibility, and acceptance criteria. Use the feature template in this directory.
-3. **Add BDD acceptance scenarios.** Include the success path plus the highest-risk negative and recovery paths. Link each scenario to an existing test, a new test, or an explicit gap.
-4. **Use TDD at the right layer.** Test pure decision logic at unit level. Test service orchestration with fakes when that is the intended boundary. Do not use mocks to claim that SQL transaction isolation, JetStream redelivery, or lease fencing works.
-5. **Test the real boundary.** Use adapter/contract tests for repository behavior and the tagged E2E harness for PostgreSQL + NATS JetStream behavior. Add deterministic failure injection where possible; avoid relying on arbitrary sleeps for correctness.
-6. **Run the applicable gates.** Check the exact commands in .github/workflows/go-ci.yml and the Makefile. Nested Go modules need their own test commands. E2E tests use Testcontainers and require a working Docker runtime.
-7. **Report evidence honestly.** Distinguish passed, failed, skipped, not run, and not yet implemented. A green test command can still contain skipped scenarios. Never report an unexecuted local check as passing.
-8. **Review the guarantee, not just the diff.** Confirm code, tests, docs, schemas, migration behavior, and operations agree. State remaining limitations in the PR.
+A scenario in Markdown is a specification, not executable coverage. Mark it covered only when an automated test asserts the relevant outcome.
 
-## FlowRule invariants to consider
+## Strict change rules
 
-Apply the invariants relevant to the change, and define their exact scope in the spec.
+### Before implementation
 
-- **Tenant isolation:** tenant identity is established at a trusted boundary and every tenant-scoped read/write is scoped at the storage boundary. A caller-supplied development header is not production authentication.
-- **Idempotent event processing:** duplicate delivery must not create duplicate logical executions. Verify uniqueness and transaction behavior, not only a mock's call count.
-- **Atomic durable state:** inbox state, execution state, and resulting outbox effects must commit atomically where the design requires it.
-- **ACK ordering:** acknowledge a JetStream message only after the durable processing outcome is committed. An uncertain commit outcome must not be treated as success.
-- **Retry and ordering:** document whether retries block later events for the same key, how permanent failures are classified, and what happens on retry exhaustion.
-- **Lease fencing:** stale workers must not commit after ownership has moved to a newer fencing token.
-- **Rule revision consistency:** each execution must use a defined active immutable revision; do not infer this guarantee from cache behavior alone.
-- **Outbox delivery:** external delivery is at-least-once. Stable idempotency keys help only when the destination honors them. Do not claim exactly-once execution of arbitrary external effects.
-- **Operational visibility:** retries, quarantine, lease loss, and delivery failure should be diagnosable without logging secrets or sensitive tenant payloads.
+- **MUST** inspect AGENTS.md, relevant source and callers, tests, contracts/migrations, configuration, Makefile, Compose/Docker files, and CI.
+- **MUST** identify current behavior and a measurable acceptance criterion. Reproduce a bug when practical.
+- **MUST** keep the change cohesive. Avoid unrelated cleanup and speculative abstractions.
+- **MUST** assess API/event/SDK compatibility, tenant isolation, transaction boundaries, idempotency, retries, cancellation, shutdown, observability, deployment and rollback limits where relevant.
+- **SHOULD** record a plan for multi-package, architectural, data-model, or operationally risky work. Use [the change-plan template](change-plan-template.md).
 
-These are properties to verify against implementation and deployment conditions, not blanket claims that every path already satisfies them.
+### During implementation
 
-## Test layers and what they prove
+- **MUST** preserve dependency direction and existing ownership. Reuse existing contracts and helpers when their semantics match.
+- **MUST** add regression tests for bug fixes and update affected implementations, fakes, examples, generated outputs and docs where applicable.
+- **MUST NOT** claim exactly-once external effects, strict global/per-key ordering, tenant security, or fencing correctness without tests at the actual guarantee boundary.
+- **MUST NOT** silently weaken validation, retry policy, authorization, or invariants to make a test pass.
+- **SHOULD** use explicit synchronization and bounded polling for concurrency tests, not arbitrary sleeps.
 
-| Layer | Use it for | What it does not prove by itself |
+### Before merge
+
+- **MUST** format changed files and run applicable focused checks before broader checks.
+- **MUST** run relevant root and nested-module checks; root-level ./... does not test nested Go modules.
+- **MUST** inspect the full diff for stale docs, duplicate logic, misplaced files, unsafe defaults, and unrelated churn.
+- **MUST** check CI for the exact PR head SHA. Queued, in-progress, skipped, or missing checks are not passing checks.
+- **MUST** report commands and actual outcomes, including failures, skips, checks not run, and residual risk.
+- For documentation-only changes, runtime tests do not validate docs. **MUST** verify paths, links, commands/flags, and claims against source and CI.
+
+## FlowRule guarantees to verify
+
+These are review prompts, not assertions that every behavior is already implemented.
+
+| Concern | Required question |
+| --- | --- |
+| Tenant isolation | Is identity derived from a trusted boundary and applied to every relevant read/write? |
+| Inbox and execution | Can duplicate delivery create a second logical execution? Are uniqueness and transaction boundaries tested? |
+| Inbox/execution/outbox | Do required durable writes commit atomically? What happens when commit outcome is uncertain? |
+| Message ACK | Is ACK sent only after durable commit? What does redelivery do after a crash? |
+| Retry and ordering | Which failures are retryable? Can a later event overtake a failed event for the same key? What happens at exhaustion? |
+| Lease fencing | Can an old worker commit after lease ownership changes? Is the storage boundary enforcing the token? |
+| Rule revisions | Is the selected immutable revision explicit and persisted consistently? |
+| External effects | Is delivery at-least-once? Does the destination actually honor the idempotency key? |
+| Operations | Are retries, quarantine, lease loss and delivery failures observable without leaking secrets or tenant payloads? |
+
+## Choose the test boundary
+
+| Test layer | Evidence it can provide | It cannot prove alone |
 | --- | --- | --- |
-| Unit | Pure rules, validation, retry classification, deterministic state transitions | Real database, broker, or process-crash behavior |
-| Service/component | Use-case orchestration with fake ports | Adapter correctness or SQL isolation |
-| Adapter/contract | Repository and adapter contracts; tenant filtering; mapping | Full worker-to-broker lifecycle unless that path is exercised |
-| Integration | Several components wired together; inspect whether dependencies are real or mocked | Real infrastructure semantics when in-memory fakes are used |
-| E2E | Worker + PostgreSQL + NATS JetStream path using the tagged Testcontainers harness | Scenarios that are skipped or not asserted by the harness |
+| Unit | Pure logic, validation, deterministic decisions | Database isolation, broker redelivery, process crashes |
+| Service/component | Use-case orchestration with fakes | Real adapter or infrastructure behavior |
+| Adapter/contract | SQL/query mapping, serialization, adapter contracts | End-to-end lifecycle unless exercised |
+| Integration | Interactions among wired components | Real dependency semantics when dependencies are mocked |
+| E2E | Actual worker path with dependencies configured by its harness | Skipped scenarios or real external-destination behavior when a fake sender is used |
 
-## Commands used by this repository
+## Useful root-module commands
 
-Run from the repository root. Use the same commands in CI when comparing results.
+Run from the repository root, and check [CI](../../.github/workflows/go-ci.yml) and the Makefile for the authoritative complete set.
 
-- Focused unit tests: **go test -race -count=1 ./internal/...**
+- Unit-focused package tests: **go test -race -count=1 ./internal/...**
 - Mock-based integration/service suite: **go test -race -tags=integration -count=1 ./tests/integration/...**
 - PostgreSQL + NATS E2E suite: **go test -race -tags=e2e -count=1 ./tests/e2e/...**
-- Root command build: **go build ./cmd/...**
+- Build commands: **go build ./cmd/...**
 - Static analysis: **go vet ./...**
-- Format check: **make check-fmt**
+- Formatting check: **make check-fmt**
 
-The CI workflow additionally tests nested Go SDK/example modules, the console, generated code, container images, and coverage. Inspect the workflow for the full authoritative list. E2E tests start containers and need Docker access.
+The E2E suite uses Testcontainers and requires Docker. CI also checks nested Go modules, console, generated code, container images, and coverage. Do not infer those checks from the commands above.
 
-**Important test-suite caveat:** the E2E suite currently includes executable event-before-rule-activation coverage, but also contains skipped tests for MaxDeliver exhaustion, crash-after-commit-before-ACK, multi-worker ordering, duplicate-safe effect delivery, and stale-lease fencing. A successful E2E command does not mean those skipped cases are verified. See [the E2E test matrix](e2e-test-matrix.md).
+Critical E2E cases currently include skipped tests for MaxDeliver exhaustion, crash-after-commit-before-ACK, multi-worker ordering, duplicate-safe effect delivery, and stale-lease fencing. See [the E2E test matrix](e2e-test-matrix.md). A successful test command does not turn skipped tests into evidence.
 
 ## Definition of Done
 
-- [ ] The problem, scope, invariants, and acceptance criteria are explicit.
-- [ ] Important BDD scenarios map to executable tests or are recorded as gaps.
-- [ ] Bug fixes include regression tests; TDD is used where practical.
-- [ ] Real dependency semantics are tested at the appropriate boundary.
-- [ ] Applicable formatting, test, build, lint, and security gates were actually run.
-- [ ] Skipped tests and residual risks are called out rather than hidden by a green summary.
-- [ ] Tenant/security, migration, compatibility, and operational effects are reviewed.
-- [ ] The PR explains the behavior guaranteed, the evidence for it, and what remains unverified.
-
-## Keep it proportional
-
-Use the full path for changes involving persistence, tenant authorization, event contracts, ACK/NAK behavior, retry, outbox delivery, or shard leases. For a low-risk documentation-only change, explain why runtime tests are not applicable and still check links/consistency where possible. The goal is trustworthy changes, not paperwork for its own sake.
+- [ ] Requirement, scope, non-goals and acceptance criteria are explicit.
+- [ ] Relevant BDD scenarios map to executable tests or clearly marked gaps.
+- [ ] Bug fixes have regression coverage; any TDD exception is explained.
+- [ ] Tests exercise the boundary needed for the claimed guarantee.
+- [ ] Relevant format, build, test, lint, security and CI checks are reported accurately.
+- [ ] Security, compatibility, migration, deployment and rollback impacts are reviewed where relevant.
+- [ ] Documentation matches implementation and uses no stronger claims than the evidence.
+- [ ] Remaining risks, skipped tests and unverified behavior are explicit.
