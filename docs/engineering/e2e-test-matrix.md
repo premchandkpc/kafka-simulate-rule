@@ -1,50 +1,44 @@
 # E2E Test Matrix: FlowRule
 
-This document separates current test evidence from desired behavior. A test command returning exit code zero is not proof for scenarios that are skipped, use mocks, or are not asserted.
+**Purpose:** distinguish implemented test evidence from desired behavior and known gaps. A green command does not cover skipped tests.
 
-## Harness and commands
+## Harness and scope
 
-The E2E suite is in tests/e2e and is guarded by the Go build tag e2e. Its harness starts PostgreSQL and NATS JetStream using Testcontainers, initializes the configured storage, starts a worker, and uses a fake effect sender for external effects. Therefore it exercises the database/broker worker path, but does not prove real third-party destination behavior.
+The tagged suite in tests/e2e uses Testcontainers for PostgreSQL and NATS JetStream. Its fake effect sender does not establish real HTTP destination idempotency. Check the current harness and CI before relying on these details.
 
 Run from the repository root:
 
 - E2E: **go test -race -tags=e2e -count=1 ./tests/e2e/...**
-- Mock-based service/integration suite: **go test -race -tags=integration -count=1 ./tests/integration/...**
-- Unit suite: **go test -race -count=1 ./internal/...**
+- Mock-based integration/service suite: **go test -race -tags=integration -count=1 ./tests/integration/...**
+- Focused unit tests: **go test -race -count=1 ./internal/...**
 
-The CI workflow runs the E2E suite with race detection and coverage. Docker must be available to run the Testcontainers suite locally.
+Docker is required for the Testcontainers E2E suite. The CI workflow is authoritative for the full set of checks, including nested modules.
 
 ## Acceptance matrix
 
-| Behavior | Existing evidence | Status / remaining work |
-| --- | --- | --- |
-| Event arrives before rule activation | tests/e2e/event_before_rule_test.go: TestEventBeforeRuleActivation_IsNotLost | Executable E2E test. Verify it remains stable and deterministic. |
-| Duplicate event delivery creates one execution | tests/integration/integration_test.go has mock-backed service coverage | Service-level evidence only; add a PostgreSQL + JetStream redelivery test. |
-| Transaction rollback leaves no partial inbox/execution/outbox state | Existing service tests use fakes; no live rollback scenario identified in the E2E file | Gap: inject a persistence failure inside the transaction and assert all related tables. |
-| MaxDeliver exhaustion is visible in quarantine | TestEventBeforeRuleActivation_WithMaxDeliver is skipped | Gap: configure consumer MaxDeliver and assert quarantine/no silent strand. |
-| Crash after commit but before ACK | TestCrashAfterCommitBeforeAck is skipped | Gap: inject a worker stop between durable commit and ACK, redeliver, assert one execution and stable effects. |
-| Multi-worker per-key ordering | TestConcurrentWorkersPerKeyOrder is skipped | Gap: start multiple workers, force retry/lease handoff, and assert order from persisted sequence/state rather than timing alone. |
-| External effect duplicate safety | TestEffectDeliveryNoDuplicates is skipped and harness uses a fake sender | Gap: use a local idempotent HTTP receiver that records effect IDs; test response loss and retry. |
-| Stale lease holder is fenced | TestStaleLeaseHolderFenced is skipped | Gap: force lease takeover, resume old holder, and assert the storage transaction rejects its stale token. |
-| Cross-tenant request cannot read or mutate another tenant | Handler/adapter unit tests exist, but this E2E harness does not model production trusted-proxy authentication | Partial: preserve focused tests and add an authenticated end-to-end negative test when auth wiring is testable. |
-| Rule revision remains consistent during concurrent activation | No matching E2E assertion identified in the current E2E file | Gap: synchronize revision activation with processing and assert the persisted revision selected by the execution. |
+| Behavior | Current evidence | Status | Next proof required |
+| --- | --- | --- | --- |
+| Event arrives before rule activation | tests/e2e/event_before_rule_test.go:TestEventBeforeRuleActivation_IsNotLost | **Covered by E2E** | Keep deterministic and stable. |
+| Duplicate event produces one execution | Mock-backed service coverage in tests/integration/integration_test.go | **Partial** | PostgreSQL + JetStream redelivery test; assert persisted execution/outbox state. |
+| Failed transaction leaves no partial state | No live rollback case identified in the E2E suite | **Gap** | Inject a write failure and assert inbox/execution/outbox rollback. |
+| MaxDeliver exhaustion is handled | TestEventBeforeRuleActivation_WithMaxDeliver is skipped | **Skipped** | Assert configured delivery limit, quarantine/recovery, and no silent strand. |
+| Crash after commit, before ACK | TestCrashAfterCommitBeforeAck is skipped | **Skipped** | Inject stop between commit and ACK; redeliver; assert one execution and stable effects. |
+| Multi-worker per-key ordering | TestConcurrentWorkersPerKeyOrder is skipped | **Skipped** | Force retry/lease handoff; assert persisted order rather than timing. |
+| External effect duplicate safety | TestEffectDeliveryNoDuplicates is skipped; sender is fake | **Skipped / partial** | Use local idempotent HTTP receiver; simulate response loss and retry. |
+| Stale lease fencing | TestStaleLeaseHolderFenced is skipped | **Skipped** | Take over lease, resume stale worker, assert storage rejects old token. |
+| Cross-tenant read/write isolation | Focused handler/adapter tests; E2E harness does not model production trusted-proxy auth | **Partial** | Add authenticated negative E2E test when auth wiring is testable. |
+| Revision consistency during activation | No matching E2E assertion identified | **Gap** | Synchronize activation and processing; assert persisted selected revision. |
 
-## How to close a gap
+Statuses describe evidence found during the PR review, not a permanent guarantee. Re-check test source before changing a status.
 
-For each row, make the assertion deterministic and state-based:
+## Rules for closing a gap
 
-1. Identify the seam where the failure or race can be injected.
-2. Add a bounded test hook or controllable fake only for the seam; keep PostgreSQL/NATS real when their semantics are under test.
-3. Assert persisted rows, ownership/fencing state, message settlement, or receiver-observed idempotency IDs.
-4. Run the focused tagged test repeatedly, then the full E2E suite with the race detector.
-5. Remove temporary diagnostics and ensure the test has a bounded timeout and cleanup.
-6. Update this matrix when the test is executable, not when it is merely written or unskipped.
+1. Identify the exact failure/race seam.
+2. Keep PostgreSQL/NATS real when testing their semantics; introduce a narrow deterministic hook only where needed.
+3. Assert persisted rows, message settlement, fencing state, or receiver-observed idempotency IDs.
+4. Use explicit barriers or bounded polling, not arbitrary sleeps.
+5. Add bounded timeouts and cleanup; run the focused test repeatedly, then the full E2E suite with race detection.
+6. Remove the skip only when the intended assertion is implemented and stable.
+7. Update this matrix in the same PR that adds executable coverage.
 
-Do not add arbitrary sleeps as synchronization. Poll for an observable state with a deadline or coordinate actors with explicit channels/barriers. Do not change production guarantees merely to make a test pass.
-
-## Current scope caveats
-
-- The E2E fake effect sender records/logs delivery but is not an external HTTP receiver with deduplication semantics.
-- Several critical test functions currently call t.Skip; they are debt, not coverage.
-- The mock-based integration package is useful for service behavior but cannot prove PostgreSQL transaction isolation or NATS redelivery/ACK semantics.
-- The README and AGENTS.md explicitly warn that end-to-end claims need evidence from the actual dependency boundary.
+Do not weaken production guarantees to make a test pass. Do not describe fake-based coverage as live infrastructure proof.
